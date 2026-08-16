@@ -1503,6 +1503,27 @@ function initRename() {
     });
 }
 
+// 为文件操作表格的预览列加载缩略图：
+// 优先使用缩略图缓存；未生成时先用原图占位，后台生成完成后替换为缩略图
+async function loadRenameThumb(img, path) {
+    const maxRes = getSetting("max_resolution") || 0;
+    if (maxRes <= 0) { img.src = thumbs.getOriginalImageUrl(path); return; }
+    try {
+        let mtime = 0;
+        const st = await api.getStats(path);
+        if (st && st.mtime) mtime = st.mtime;
+        const key = thumbs.md5Key(path, maxRes, mtime);
+        if (await thumbs.thumbCacheExists(key)) {
+            img.src = thumbs.getThumbCacheUrl(key);
+            return;
+        }
+        img.src = thumbs.getOriginalImageUrl(path);
+        thumbs.generateThumbnail(path, maxRes, mtime).then(k => {
+            if (k && img.isConnected) img.src = thumbs.getThumbCacheUrl(k);
+        }).catch(() => {});
+    } catch (e) { /* 忽略加载失败 */ }
+}
+
 function populateRename() {
     const tbody = document.querySelector("#df_rename tbody");
     renamePaths = app.dte.getImgPathList().sort();
@@ -1517,7 +1538,7 @@ function populateRename() {
         const tdThumb = document.createElement("td");
         const img = document.createElement("img");
         img.className = "rename-thumb";
-        img.src = thumbs.getOriginalImageUrl(path);
+        loadRenameThumb(img, path);
         tdThumb.appendChild(img);
 
         const tdName = document.createElement("td");
