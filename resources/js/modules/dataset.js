@@ -301,13 +301,17 @@ export class DatasetTagEditor {
     setReverseTags(imgpath, tags, append = true) {
         const data = this.dataset.getData(imgpath);
         if (!data) return;
-        if (append && data.tags.length > 0) {
+        // 空标注时 tags 为 [""]，需排除空字符串后再判定是否已有内容
+        const hadContent = data.tags.some(t => t);
+        if (append && hadContent) {
             data.tags = [...new Set([...data.tags, ...tags])];
         } else {
             data.tags = tags;
         }
         data.tagset = new Set(data.tags);
         data.missing_caption = false;
+        // 原本没有标注、反推后产生内容 → 标记为"反推打标"（画廊黄点）
+        if (!hadContent && data.tags.some(t => t)) data.reversed = true;
     }
 
     // 将标签转换为显示文本（带频率/长度）

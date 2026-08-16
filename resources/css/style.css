@@ -814,24 +814,32 @@ textarea {
 }
 
 /* 缩略图状态角标（右下角）：
-   红点 = 缺失文本文件且未编辑应用非空内容；绿点 = 已编辑并应用非空内容 */
+   红点 = 加载时缺失文本文件且尚未打标；绿点 = 已编辑并应用非空内容；
+   黄点 = 原本无标注、经 LLM 反推打标产生内容 */
 .thumb-badge {
     position: absolute;
     bottom: 4px;
     right: 4px;
-    width: 10px;
-    height: 10px;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
     background: var(--danger);
-    box-shadow: 0 0 3px rgba(0, 0, 0, 0.6);
     pointer-events: none;
     z-index: 2;
 }
 
-/* 已编辑应用的半透明小绿点（不显眼） */
+/* 已编辑应用的半透明小绿点*/
 .thumb-badge.applied {
-    background: rgba(46, 160, 67, 0.55);
-    box-shadow: none;
+    width: 5px;
+    height: 5px;
+    background: rgba(63, 185, 80, 0.5);
+}
+
+/* LLM 反推打标的黄点 */
+.thumb-badge.reversed {
+    width: 7px;
+    height: 7px;
+    background: rgba(255, 196, 0, 0.7);
 }
 
 /* ============ 选择筛选 ============ */
@@ -1471,6 +1479,24 @@ textarea {
 .llm-progress-footer {
     display: flex;
     justify-content: flex-end;
+    gap: 8px;
+}
+
+/* "反推管理"按钮底部绿色进度条（从左到右，反映反推完成进度） */
+#btn_open_llm_progress {
+    position: relative;
+    overflow: hidden;
+}
+
+#btn_open_llm_progress::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    height: 3px;
+    width: var(--llm-open-progress, 0%);
+    background: #3fb950;
+    transition: width 0.25s ease;
 }
 
 /* ============ LLM 结果面板（tool-result） ============ */
@@ -1600,7 +1626,7 @@ textarea {
     display: flex;
     align-items: center;
     gap: 4px;
-    padding: 4px;
+    padding: 2px 4px;
     background: #252b33;
     cursor: move;
     user-select: none;
@@ -1616,13 +1642,15 @@ textarea {
 }
 
 .translate-pin-btn,
-.translate-close-btn {
+.translate-close-btn,
+.translate-refresh-btn {
     width: 24px;
     height: 22px;
     display: flex;
     align-items: center;
     justify-content: center;
     border: none;
+    border-radius: 4px;
     background: transparent;
     color: var(--text-dim);
     cursor: pointer;
@@ -1630,20 +1658,26 @@ textarea {
     line-height: 1;
 }
 
+.translate-refresh-btn {
+    font-size: 15px;
+}
+
 .translate-pin-btn {
     /* 未固定时：黑白显示并降低透明度，弱化提示 */
-    filter: grayscale(1);
-    opacity: 0.5;
-    font-weight: bold;
+    filter: grayscale(0.5);
+    opacity: 0.6;
+    font-size: 13px;
 }
 
 .translate-close-btn {
     font-size: 15px;
+    font-weight: bold;
     color: var(--text-dim);
 }
 
 .translate-pin-btn:hover,
-.translate-close-btn:hover {
+.translate-close-btn:hover,
+.translate-refresh-btn:hover {
     background: rgba(255, 255, 255, 0.12);
     color: var(--text);
 }
@@ -1671,7 +1705,6 @@ textarea {
     color: var(--text);
     border: 1px solid var(--border);
     border-radius: 4px;
-    padding: 4px 6px;
     font-family: var(--font-mono);
     font-size: 12px;
     line-height: 1.5;

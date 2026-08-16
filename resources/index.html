@@ -399,14 +399,16 @@
         <div class="llm-progress-list" id="llm_progress_list"></div>
         <div class="llm-progress-footer">
             <button id="btn_llm_progress_cancel_all" class="btn compact danger" data-i18n="llm_progress.cancel_all">全部移除</button>
+            <button id="btn_llm_progress_remove_done" class="btn compact" data-i18n="llm_progress.remove_done">移除已完成</button>
         </div>
     </div>
 
     <!-- ======================= 选中文本翻译（译按钮 + 可拖动固定浮窗） ======================= -->
     <div id="translate_trigger" class="translate-trigger hidden">译</div>
     <div id="translate_popup" class="translate-popup hidden">
-        <div class="translate-popup-header">
+<div class="translate-popup-header">
             <span class="translate-popup-title">翻译</span>
+            <button id="translate_refresh" class="translate-refresh-btn" title="重新翻译（忽略重复检查）">↻</button>
             <button id="translate_pin" class="translate-pin-btn" title="固定（点击外部时保持显示）">📌</button>
             <button id="translate_close" class="translate-close-btn">✕</button>
         </div>

@@ -292,13 +292,16 @@ export function renderGallery(opts) {
 }
 
 // 缩略图上同步状态角标：
-// - 红点：加载时缺失文本文件，且尚未"编辑并应用"非空标注
-// - 绿点（半透明）：用户已编辑并通过"将更改应用于图像"应用了非空标注
+// - 红点：加载时缺失文本文件，且尚未打标
+// - 绿点（半透明、显眼）：用户已编辑并通过"将更改应用于图像"应用了非空标注
+// - 黄点：原本无标注，通过 LLM 反推打标得到非空标注（未被用户应用）
 function syncThumbBadge(item, path) {
     const data = app.dte.dataset.getData(path);
-    const hasContent = !!(data && data.tags.length > 0);
+    // 空标注时 Data.tags 为 [""]，需排除空字符串后再判定是否真正有内容
+    const hasContent = !!(data && data.tags.some(t => t));
     const showGreen = !!(data && data.applied && hasContent);
-    const showRed = !!(data && data.missing_caption && !showGreen);
+    const showYellow = !!(data && data.reversed && hasContent && !showGreen);
+    const showRed = !!(data && data.missing_caption && !hasContent);
     let badge = null;
     for (const child of item.children) {
         if (child.classList && child.classList.contains("thumb-badge")) {
@@ -306,14 +309,17 @@ function syncThumbBadge(item, path) {
             break;
         }
     }
-    if (showRed || showGreen) {
+    if (showRed || showYellow || showGreen) {
         if (!badge) {
             badge = document.createElement("span");
             badge.className = "thumb-badge";
             item.appendChild(badge);
         }
         badge.classList.toggle("applied", showGreen);
-        badge.title = showGreen ? t("gallery.edited_badge") : t("gallery.missing_caption_badge");
+        badge.classList.toggle("reversed", showYellow);
+        badge.title = showGreen ? t("gallery.edited_badge")
+            : showYellow ? t("gallery.reversed_badge")
+            : t("gallery.missing_caption_badge");
     } else if (badge) {
         badge.remove();
     }

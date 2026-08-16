@@ -734,6 +734,12 @@ function updateProgress() {
     const total = finished + pending + processing;
     summaryEl.textContent = `${finished} / ${total}`;
     fillEl.style.width = total > 0 ? `${(finished / total) * 100}%` : "100%";
+    // 同步"反推管理"按钮底部进度条（从左到右，绿色；无任务时清空）
+    const openBtn = document.getElementById("btn_open_llm_progress");
+    if (openBtn) {
+        const pct = total > 0 ? (finished / total) * 100 : 0;
+        openBtn.style.setProperty("--llm-open-progress", pct + "%");
+    }
 }
 
 // 单任务队列处理：每次处理一个待反推图像，完成后自动处理下一个
@@ -758,6 +764,8 @@ async function pumpLlmReverse() {
         const tags = text.split(",").map(s => s.trim()).filter(t => t);
         app.dte.setReverseTags(next, tags, append);
         updateThumbBadge(next); // 刷新画廊状态角标
+        // 若反推的图像正被选中编辑，直接刷新编辑面板，避免需切换图像才显示打标结果
+        if (next === app.gallerySelectedPath) updateEditCaptionPanel();
         llmReverse.status.set(next, "done");
         statusEl.classList.remove("processing");
         statusEl.classList.add("done");
@@ -793,6 +801,12 @@ function initLlmReverse() {
     // 全部移除：清空反推列表（已应用的标注保留在数据集中）
     document.getElementById("btn_llm_progress_cancel_all").addEventListener("click", () => {
         for (const path of [...llmReverse.paths]) removeLlmReverseImage(path);
+    });
+    // 移除已完成：从列表中删除所有"已完成"项
+    document.getElementById("btn_llm_progress_remove_done").addEventListener("click", () => {
+        for (const path of [...llmReverse.paths]) {
+            if (llmReverse.status.get(path) === "done") removeLlmReverseImage(path);
+        }
     });
     // 支持从画廊拖入图像
     const panel = document.getElementById("llm_progress_panel");
@@ -1027,13 +1041,13 @@ function showTranslatePopup(anchorRect) {
     updatePinState();
 }
 
-// 翻译指定文本并在浮窗中展示（流式）
-async function runTranslate(text) {
+// 翻译指定文本并在浮窗中展示（流式）；force 为 true 时绕过重复检查，强制重新翻译
+async function runTranslate(text, force = false) {
     const out = document.getElementById("translate_output");
     if (!out) return;
     // 粗略检查：去除首尾标点、空格、换行；与上次相同则不重复翻译，直接显示已有译文
     const norm = normalizeTranslateText(text);
-    if (norm === lastTranslate.text && lastTranslate.result) {
+    if (!force && norm === lastTranslate.text && lastTranslate.result) {
         out.textContent = lastTranslate.result;
         return;
     }
@@ -1126,6 +1140,16 @@ function initTranslatePopup() {
                 const text = src.value.trim();
                 if (text) runTranslate(text);
             }
+        });
+    }
+
+    // 刷新按钮：对翻译不满意时重新翻译（绕过重复检查）
+    const refreshBtn = document.getElementById("translate_refresh");
+    if (refreshBtn) {
+        refreshBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const text = (src ? src.value : "").trim();
+            if (text) runTranslate(text, true);
         });
     }
 
