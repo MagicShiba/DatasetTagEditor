@@ -1,0 +1,86 @@
+{
+  "$schema": "https://raw.githubusercontent.com/neutralinojs/neutralinojs/main/schemas/neutralino.config.schema.json",
+  "applicationId": "com.tag.editor",
+  "version": "1.0.0",
+  "applicationName": "Dataset Tag Editor",
+  "defaultMode": "window",
+  "port": 0,
+  "documentRoot": "/resources/",
+  "url": "/",
+  "enableServer": true,
+  "enableNativeAPI": true,
+  "tokenSecurity": "one-time",
+  "logging": {
+    "enabled": true,
+    "writeToLogFile": true
+  },
+  "nativeAllowList": [
+    "app.*",
+    "os.*",
+    "filesystem.*",
+    "storage.*",
+    "server.*",
+    "net.*",
+    "clipboard.*",
+    "debug.log"
+  ],
+  "modes": {
+    "window": {
+      "title": "Dataset Tag Editor",
+      "width": 1400,
+      "height": 900,
+      "minWidth": 900,
+      "minHeight": 600,
+      "center": true,
+      "fullScreen": false,
+      "alwaysOnTop": false,
+      "icon": "/resources/icons/appIcon.png",
+      "enableInspector": true,
+      "openInspectorOnStartup": false,
+      "borderless": false,
+      "maximize": false,
+      "hidden": false,
+      "resizable": true,
+      "exitProcessOnClose": false
+    },
+    "browser": {
+      "nativeBlockList": [
+        "filesystem.*",
+        "os.*",
+        "server.*"
+      ]
+    },
+    "cloud": {
+      "url": "/resources/#cloud",
+      "nativeAllowList": [
+        "app.*"
+      ]
+    },
+    "chrome": {
+      "width": 1400,
+      "height": 900,
+      "args": "--user-agent=\"Neutralinojs chrome mode\"",
+      "nativeBlockList": [
+        "filesystem.*",
+        "os.*",
+        "server.*"
+      ]
+    }
+  },
+  "cli": {
+    "binaryName": "dte",
+    "resourcesPath": "/resources/",
+    "extensionsPath": "/extensions/",
+    "clientLibrary": "/resources/js/neutralino.js",
+    "binaryVersion": "nightly",
+    "clientVersion": "nightly",
+    "autoReloadExclude": "config\\.json$|settings\\.json$",
+    "resourcesExclude": "autocomplete\\.txt$|config\\.json$|settings\\.json$|([/\\\\])locales([/\\\\]|$)",
+    "copyItems": [
+      "resources/data",
+      "resources/locales",
+      "resources/config.json",
+      "resources/settings.json"
+    ]
+  }
+}

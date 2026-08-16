@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据集标签编辑器</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="app">
+        <!-- ======================= 顶栏 ======================= -->
+        <header class="topbar">
+            <div class="toprow-left">
+                <div class="row">
+                    <button id="btn_save_all_changes" class="btn primary" data-i18n="common.save_all">保存所有更改</button>
+                    <label class="checkbox">
+                        <input type="checkbox" id="cb_backup" checked>
+                        <span data-i18n="common.backup_note" data-i18n-title="common.backup_note_title">备份原始文本文件</span>
+                    </label>
+                </div>
+                <div class="note" data-i18n="common.filename_note"><b>注意：</b>如果使用文件名作为标注，将创建新的文本文件。</div>
+            </div>
+            <div class="toprow-right">
+                <div class="topbar-group">
+                    <div class="topbar-group-title" data-i18n="topbar.load_edit_config">加载与编辑配置</div>
+                    <div class="btn-group">
+                        <button id="btn_reload_config_file" class="btn" data-i18n="topbar.reload_settings">重新加载配置</button>
+                        <button id="btn_save_setting_as_default" class="btn" data-i18n="topbar.save_current_settings">保存当前配置</button>
+                        <button id="btn_restore_default" class="btn" data-i18n="topbar.restore_default">恢复默认配置</button>
+                    </div>
+                </div>
+                <div class="topbar-group">
+                    <div class="topbar-group-title" data-i18n="settings.general_settings">通用设置</div>
+                    <div class="btn-group">
+                        <button id="btn_open_settings" class="btn primary" data-i18n="settings.general_settings">通用设置</button>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- ======================= 主体 ======================= -->
+        <main class="main">
+            <!-- 左列：加载 + 画廊 -->
+            <aside class="left-panel" id="left_panel">
+                <!-- 加载数据集 -->
+                <section class="panel" id="load-panel">
+                    <div class="row load-row">
+                        <div class="grow">
+                            <label class="field-label" data-i18n="dataset.directory">数据集目录</label>
+                            <div class="dir-input-wrap">
+                                <input type="text" id="tb_img_directory" placeholder="C:\directory\of\datasets">
+                                <button type="button" id="btn_dir_history" class="dir-drop-btn" title="历史">▾</button>
+                                <div id="dir_history_menu" class="dir-dropdown hidden"></div>
+                            </div>
+                        </div>
+                        <div class="small">
+                            <label class="field-label" data-i18n="dataset.caption_ext">扩展名</label>
+                            <input type="text" id="tb_caption_file_ext" value=".txt" placeholder=".txt（加载和保存时）">
+                        </div>
+                        <div class="btns">
+                            <button id="btn_load_datasets" class="btn" data-i18n="dataset.load">加载</button>
+                            <button id="btn_unload_datasets" class="btn" data-i18n="dataset.unload">卸载</button>
+                        </div>
+                    </div>
+                    <details class="accordion" id="load-settings-accordion">
+                        <summary data-i18n="dataset.load_settings">数据集加载设置</summary>
+                        <div class="col">
+                            <label class="checkbox">
+                                <input type="checkbox" id="cb_load_recursive">
+                                <span data-i18n="dataset.load_recursive">从子目录加载</span>
+                            </label>
+                            <label class="checkbox">
+                                <input type="checkbox" id="cb_load_caption_from_filename" checked>
+                                <span data-i18n="dataset.load_from_filename">如果不存在文本文件，则从文件名加载标注</span>
+                            </label>
+                            <label class="checkbox">
+                                <input type="checkbox" id="cb_replace_new_line_with_comma">
+                                <span data-i18n="dataset.replace_newline">将换行符替换为逗号</span>
+                            </label>
+                            <label class="checkbox">
+                                <input type="checkbox" id="cb_load_caption_llm_reverse">
+                                <span data-i18n="dataset.load_caption_llm_reverse">如果不存在文本文件，则使用 LLM 反推标注</span>
+                            </label>
+                        </div>
+                    </details>
+                </section>
+
+                <!-- 画廊 -->
+                <section class="panel grow-panel" id="gallery-panel">
+                    <div class="gallery-label">
+                        <div class="gallery-title-group">
+                            <span class="gallery-label-title" data-i18n="gallery.dataset_images">数据集图像</span>
+                            <button id="btn_open_llm_progress" class="btn compact" data-i18n="llm_progress.open">反推进度</button>
+                        </div>
+                        <span class="gallery-sort">
+                            <select id="gallery_sort_key" data-i18n-title="gallery.sort_by">
+                                <option value="name" data-i18n="gallery.sort_name">按名称排序</option>
+                                <option value="resolution" data-i18n="gallery.sort_resolution">按分辨率排序</option>
+                                <option value="mtime" data-i18n="gallery.sort_mtime">按修改时间排序</option>
+                                <option value="edit" data-i18n="gallery.sort_edit">按编辑状态排序</option>
+                            </select>
+                            <button id="gallery_sort_dir" class="sort-dir-btn" data-i18n-title="gallery.toggle_sort_dir">▲</button>
+                        </span>
+                    </div>
+                    <div id="dataset_gallery" class="gallery-grid"></div>
+                    <div id="gallery_progress" class="gallery-progress" hidden></div>
+                </section>
+            </aside>
+
+            <!-- 左/中分隔条 -->
+            <div class="splitter" id="splitter_lm" title="拖动调整左栏宽度"></div>
+
+            <!-- 中列：原图预览 + 画廊状态 -->
+            <section class="center-panel" id="center_panel">
+                <div class="preview-label" data-i18n="gallery.original_preview">原图预览</div>
+                <div id="image_preview" class="image-preview">
+                    <img id="preview_img" alt="" draggable="false">
+                    <canvas id="bbox_canvas" class="bbox-canvas"></canvas>
+                    <button id="btn_prev_image" class="preview-nav-btn preview-nav-prev" data-i18n-title="gallery.previous">&#8249;</button>
+                    <button id="btn_next_image" class="preview-nav-btn preview-nav-next" data-i18n-title="gallery.next">&#8250;</button>
+                </div>
+                <section class="panel gallery-state" id="gallery_state_txt"></section>
+            </section>
+
+            <!-- 中/右分隔条 -->
+            <div class="splitter" id="splitter_mr" title="拖动调整中栏宽度"></div>
+
+            <!-- 右列 -->
+            <div class="right-panel" id="right_panel">
+                <nav class="tabs" id="main-tabs">
+                    <button class="tab-btn" data-tab="tab_filter_tags" data-i18n="tab.filter_tags">按标签筛选</button>
+                    <button class="tab-btn" data-tab="tab_filter_selection" data-i18n="tab.filter_selection">按选择筛选</button>
+                    <button class="tab-btn" data-tab="tab_batch_edit" data-i18n="tab.batch_edit">批量编辑</button>
+                    <button class="tab-btn active" data-tab="tab_edit_caption" data-i18n="tab.edit_caption">编辑选中图像</button>
+                    <button class="tab-btn" data-tab="tab_rename" data-i18n="tab.file_operations">文件操作</button>
+                </nav>
+
+                <!-- ========== 按标签筛选 ========== -->
+                <section class="tab-content" id="tab_filter_tags">
+                    <div class="row">
+                        <button id="btn_clear_tag_filters" class="btn" data-i18n="filter_tags.clear_tag_filters">清除标签筛选</button>
+                        <button id="btn_clear_all_filters" class="btn" data-i18n="filter_tags.clear_all_filters">清除所有筛选</button>
+                    </div>
+                    <nav class="sub-tabs">
+                        <button class="sub-tab-btn active" data-subtab="subtab_filter_positive" data-i18n="filter_tags.positive">正向筛选</button>
+                        <button class="sub-tab-btn" data-subtab="subtab_filter_negative" data-i18n="filter_tags.negative">负向筛选</button>
+                    </nav>
+                    <div class="sub-tab-content active" id="subtab_filter_positive">
+                        <div class="markdown small-note" data-i18n="filter_tags.inclusive_note">搜索标签 / 按标签筛选图像 <b>（包含）</b></div>
+                        <div id="tag-filter-positive"></div>
+                    </div>
+                    <div class="sub-tab-content" id="subtab_filter_negative">
+                        <div class="markdown small-note" data-i18n="filter_tags.exclusive_note">搜索标签 / 按标签筛选图像 <b>（排除）</b></div>
+                        <div id="tag-filter-negative"></div>
+                    </div>
+                </section>
+
+                <!-- ========== 按选择筛选 ========== -->
+                <section class="tab-content" id="tab_filter_selection">
+                    <div class="markdown" data-i18n="filter_selection.help">从左侧画廊选择图像。</div>
+                    <div class="panel">
+                        <div class="row">
+                            <button id="btn_add_image_selection" class="btn" data-i18n="filter_selection.add_selection">添加选择 [Enter]</button>
+                            <button id="btn_add_all_displayed_image_selection" class="btn" data-i18n="filter_selection.add_all_displayed">添加所有显示的</button>
+                        </div>
+                        <div id="filter_gallery" class="gallery-grid"></div>
+                        <div id="txt_selection" class="selection-txt"></div>
+                        <div class="row">
+                            <button id="btn_remove_image_selection" class="btn" data-i18n="filter_selection.remove_selection">移除选择 [Delete]</button>
+                            <button id="btn_invert_image_selection" class="btn" data-i18n="filter_selection.invert_selection">反选</button>
+                            <button id="btn_clear_image_selection" class="btn" data-i18n="filter_selection.clear_selection">清除选择</button>
+                        </div>
+                    </div>
+                    <button id="btn_apply_image_selection_filter" class="btn primary" data-i18n="filter_selection.apply">应用选择筛选</button>
+                </section>
+
+                <!-- ========== 批量编辑 ========== -->
+                <section class="tab-content" id="tab_batch_edit">
+                    <nav class="sub-tabs">
+                        <button class="sub-tab-btn active" data-subtab="subtab_be_common" data-i18n="batch_edit.edit_common_tags">编辑通用标签</button>
+                        <button class="sub-tab-btn" data-subtab="subtab_be_remove" data-i18n="common.remove">移除</button>
+                    </nav>
+                    <div class="sub-tab-content active" id="subtab_be_common">
+                        <div class="markdown" data-i18n="batch_edit.help">编辑通用标签。</div>
+                        <label class="checkbox">
+                            <input type="checkbox" id="cb_show_only_tags_selected" checked>
+                            <span data-i18n="batch_edit.show_only_selected">仅显示正向筛选中选中的标签</span>
+                        </label>
+                        <div class="field">
+                            <label class="field-label" data-i18n="batch_edit.common_tags">通用标签</label>
+                            <textarea id="tb_common_tags" rows="3" readonly></textarea>
+                        </div>
+                        <div class="field">
+                            <label class="field-label" data-i18n="batch_edit.edit_tags">编辑标签</label>
+                            <textarea id="tb_edit_tags" rows="3"></textarea>
+                        </div>
+                        <label class="checkbox">
+                            <input type="checkbox" id="cb_prepend_tags">
+                            <span data-i18n="batch_edit.prepend_tags">前置附加标签</span>
+                        </label>
+                        <button id="btn_apply_edit_tags" class="btn primary" data-i18n="batch_edit.apply_to_filtered">将更改应用于筛选后的图像</button>
+                        <details class="accordion">
+                            <summary data-i18n="batch_edit.show_help">显示如何编辑标签的说明</summary>
+                            <div class="markdown help-text">
+                                1. 所有显示图像共有的标签以逗号分隔的形式显示。<br>
+                                2. 应用更改后，每张显示图像中的所有标签会被替换。<br>
+                                3. 如果将某些标签改为空白，它们将被删除。<br>
+                                4. 如果在末尾添加标签，它们会被添加到文本文件的末尾/开头。<br>
+                                5. 在按下「保存所有更改」按钮之前，更改不会应用到文本文件。<br>
+                                <b>示例 A.</b><br>&emsp;原文本 = "A, A, B, C"&emsp;通用标签 = "B, A"&emsp;编辑标签 = "X, Y"<br>&emsp;结果 = "Y, Y, X, C"&emsp;（B→X，A→Y）<br>
+                                <b>示例 B.</b><br>&emsp;原文本 = "A, B, C"&emsp;通用标签 = "（无）"&emsp;编辑标签 = "X, Y"<br>&emsp;结果 = "A, B, C, X, Y"&emsp;（将 X 和 Y 添加到末尾（默认））<br>&emsp;结果 = "X, Y, A, B, C"&emsp;（将 X 和 Y 添加到开头（勾选「前置附加标签」））<br>
+                                <b>示例 C.</b><br>&emsp;原文本 = "A, B, C, D, E"&emsp;通用标签 = "A, B, D"&emsp;编辑标签 = ", X, "<br>&emsp;结果 = "X, C, E"&emsp;（A→"", B→X, D→""）
+                            </div>
+                        </details>
+                        <hr class="section-divider">
+                        <div class="markdown" data-i18n="batch_edit.sr_help">对所有显示的图像执行查找并替换。</div>
+                        <div class="field">
+                            <label class="field-label" data-i18n="batch_edit.search_text">搜索文本</label>
+                            <input type="text" id="tb_sr_search_tags">
+                        </div>
+                        <div class="field">
+                            <label class="field-label" data-i18n="batch_edit.replace_text">替换文本</label>
+                            <input type="text" id="tb_sr_replace_tags">
+                        </div>
+                        <label class="checkbox">
+                            <input type="checkbox" id="cb_use_regex">
+                            <span data-i18n="batch_edit.use_regex">使用正则表达式</span>
+                        </label>
+                        <div class="field">
+                            <label class="field-label" data-i18n="batch_edit.sr_in">查找并替换范围</label>
+                            <div class="radio-row">
+                                <label class="checkbox"><input type="radio" name="sr_target" value="Only Selected Tags" checked><span data-i18n="batch_edit.only_selected_tags">仅选中的标签</span></label>
+                                <label class="checkbox"><input type="radio" name="sr_target" value="Each Tags"><span data-i18n="batch_edit.each_tags">每个标签</span></label>
+                                <label class="checkbox"><input type="radio" name="sr_target" value="Entire Caption"><span data-i18n="batch_edit.entire_caption">整个标注</span></label>
+                            </div>
+                        </div>
+                        <div class="field">
+                            <label class="field-label" data-i18n="batch_edit.selected_tags">选中的标签</label>
+                            <textarea id="tb_sr_selected_tags" rows="2" readonly></textarea>
+                        </div>
+                        <button id="btn_apply_sr_tags" class="btn primary" data-i18n="batch_edit.search_replace">查找并替换</button>
+                    </div>
+                    <div class="sub-tab-content" id="subtab_be_remove">
+                        <div class="markdown" data-i18n="batch_edit.remove_dup_help">从显示的图像中移除<b>重复</b>的标签。</div>
+                        <button id="btn_remove_duplicate" class="btn primary" data-i18n="batch_edit.remove_duplicate">移除重复标签</button>
+                        <div class="markdown" data-i18n="batch_edit.remove_sel_help">从显示的图像中移除<b>选中的</b>标签。</div>
+                        <button id="btn_remove_selected" class="btn primary" data-i18n="batch_edit.remove_selected">移除选中标签</button>
+                        <div id="tag-select-remove"></div>
+                    </div>
+                </section>
+
+                <!-- ========== 编辑选中图像 ========== -->
+                <section class="tab-content active" id="tab_edit_caption">
+                    <div class="panel">
+                        <div class="markdown" data-i18n="edit_caption.read_caption">读取选中图像的标注</div>
+                        <div id="html_caption_display" class="caption-display"></div>
+                        <div class="row">
+                            <button id="btn_copy_caption" class="btn" data-i18n="edit_caption.copy_overwrite">复制并覆盖</button>
+                            <button id="btn_prepend_caption" class="btn" data-i18n="edit_caption.prepend">在前面添加</button>
+                            <button id="btn_append_caption" class="btn" data-i18n="edit_caption.append">在后面添加</button>
+                        </div>
+                    </div>
+                    <details class="accordion" id="edit_selected_settings">
+                        <summary data-i18n="common.settings">设置</summary>
+                        <div class="col">
+                            <label class="checkbox">
+                                <input type="checkbox" id="cb_copy_caption_automatically">
+                                <span data-i18n="edit_caption.auto_copy">自动复制选中图像的标注</span>
+                            </label>
+                            <label class="checkbox">
+                                <input type="checkbox" id="cb_ask_save_when_caption_changed" checked>
+                                <span data-i18n="edit_caption.warn_unsaved">如果标注更改未保存则警告</span>
+                            </label>
+                            <div class="highlight-header">
+                                <span data-i18n="edit_caption.highlight_rules">高亮规则</span>
+                                <button id="btn_highlight_help" class="btn">帮助</button>
+                            </div>
+                            <textarea id="tb_highlight_rules" rows="4" placeholder="每行一条规则，用逗号分隔。示例: ori,girl,bg:#777700,fg:#ff0000,b:1,partial:0,cs:0"></textarea>
+                        </div>
+                    </details>
+                    <div class="panel">
+                        <div class="row actions-row">
+                            <label class="field-label field-label-inline" for="dte_edit_caption" data-i18n="edit_caption.edit_caption">编辑标注</label>
+                            <div id="llm-fn-buttons" class="actions-scroll"></div>
+                        </div>
+                        <div class="field edit-caption-field">
+                            <div class="caption-textarea-wrap">
+                                <div id="dte_caption_overlay" aria-hidden="true">
+                                    <div id="dte_caption_overlay_inner"></div>
+                                </div>
+                                <textarea id="dte_edit_caption" rows="8"></textarea>
+                            </div>
+                        </div>
+                    </div>
+                    <button id="btn_apply_changes" class="btn primary" data-i18n="edit_caption.apply_changes">将更改应用于选中图像</button>
+                    <div id="tool-result" class="panel tool-result"></div>
+                    <button id="btn_append_result_to_caption" class="btn compact" disabled data-i18n="llm_progress.append_result">追加到标注</button>
+                    <div class="markdown small-note" data-i18n="edit_caption.not_saved_note">在按下「保存所有更改」按钮之前，更改不会应用到文本文件。</div>
+                </section>
+
+                <!-- ========== 文件操作（重命名 + 删除） ========== -->
+                <section class="tab-content" id="tab_rename">
+                    <div class="markdown small-note" data-i18n="file_ops.note"><b>注意：</b>直接编辑文件名后点击「应用」生效。勾选删除可标记文件移入回收站。重复名称会自动添加数字序号。</div>
+                    <div class="field rename-field">
+                        <label class="field-label" data-i18n="file_ops.file_list">文件列表</label>
+                        <div class="rename-table-wrap">
+                            <table id="df_rename" class="rename-table">
+                                <thead>
+                                    <tr>
+                                        <th class="rename-col-preview" data-i18n="file_ops.preview">预览</th>
+                                        <th class="rename-col-name" data-i18n="file_ops.filename">文件名</th>
+                                        <th class="rename-col-del" data-i18n="common.delete">删除</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <button id="btn_apply_rename" class="btn primary" data-i18n="common.apply">应用</button>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <!-- ======================= 设置浮动窗口 ======================= -->
+    <div id="settings_modal" class="modal-overlay hidden">
+        <div class="modal modal-wide settings-modal">
+            <div class="modal-title settings-title-row">
+                <span data-i18n="settings.general_settings">通用设置</span>
+                <span class="settings-profile-row">
+                    <label class="checkbox"><input type="radio" name="settings_profile" value="local" checked><span data-i18n="settings.local">本地</span></label>
+                    <label class="checkbox"><input type="radio" name="settings_profile" value="example"><span data-i18n="settings.example">示例</span></label>
+                </span>
+            </div>
+            <nav class="sub-tabs settings-tabs">
+                <button class="sub-tab-btn active" data-subtab="st_settings_general" data-i18n="settings.general">通用</button>
+                <button class="sub-tab-btn" data-subtab="st_settings_llmcfg">LLM 配置</button>
+                <button class="sub-tab-btn" data-subtab="st_settings_llmfn">LLM 功能</button>
+            </nav>
+            <div class="modal-body settings-modal-body">
+                <div class="sub-tab-content active" id="st_settings_general">
+                    <div class="settings-grid" id="settings-grid"></div>
+                    <div id="lbl_cache_status" class="cache-status" hidden></div>
+                    <div class="row">
+                        <button id="btn_clear_cache" class="btn" data-i18n="settings.clear_cache">清除缩略图缓存</button>
+                    </div>
+                </div>
+                <div class="sub-tab-content" id="st_settings_llmcfg">
+                    <div class="field">
+                        <label class="field-label" data-i18n="settings.llm_reverse_prompt">反推标注提示词</label>
+                        <textarea id="tb_llm_reverse_prompt" rows="4" placeholder="该提示词用于加载数据集时，对不存在文本文件的图像进行 LLM 反推标注"></textarea>
+                    </div>
+                    <div class="field">
+                        <label class="field-label">反推标注使用的配置</label>
+                        <select id="tb_llm_reverse_config"></select>
+                    </div>
+                    <div class="field">
+                        <label class="field-label" data-i18n="settings.llm_translate_prompt">翻译提示词</label>
+                        <textarea id="tb_llm_translate_prompt" rows="4" placeholder="该提示词用于编辑框选中文本的 LLM 翻译（译按钮）"></textarea>
+                    </div>
+                    <div class="field">
+                        <label class="field-label">翻译使用的配置</label>
+                        <select id="tb_llm_translate_config"></select>
+                    </div>
+                    <div class="settings-note">可配置多个模型（本地 / 云端），每个配置独立设置 API 地址、Key、模型名与自定义参数。</div>
+                    <div id="llm-configs-box"></div>
+                    <div class="row">
+                        <button id="btn_add_llm_config" class="btn">+ 添加配置</button>
+                    </div>
+                </div>
+                <div class="sub-tab-content" id="st_settings_llmfn">
+                    <div class="settings-note">自定义基于 LLM 的功能按钮（如翻译、反推提示）。可添加任意数量，在编辑选中图像时会话中动态显示。</div>
+                    <div id="llm-functions-box"></div>
+                    <div class="row">
+                        <button id="btn_add_llm_function" class="btn">+ 添加功能</button>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button id="btn_save_settings" class="btn primary" data-i18n="settings.save_settings">保存设置</button>
+                <button id="btn_restore_default_settings" class="btn" data-i18n="settings.restore_default">恢复默认设置</button>
+                <button id="btn_close_settings" class="btn" data-i18n="common.close">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ======================= LLM 反推管理窗口（无背景遮罩，可接收拖入） ======================= -->
+    <div id="llm_progress_panel" class="llm-progress-panel hidden">
+        <div class="llm-progress-header">
+            <span class="gallery-label-title" data-i18n="llm_progress.title">LLM 反推管理</span>
+            <label class="checkbox llm-progress-opt" title="如果图像已有标注内容，选择追加或覆盖">
+                <input type="checkbox" id="cb_llm_reverse_append" checked>
+                <span data-i18n="llm_progress.append_opt">已有标注则追加</span>
+            </label>
+            <button id="btn_llm_progress_close" class="btn compact" data-i18n="llm_progress.close">关闭</button>
+        </div>
+        <div class="llm-progress-summary" id="llm_progress_summary">0 / 0</div>
+        <div class="llm-progress-bar"><div class="llm-progress-fill" id="llm_progress_fill"></div></div>
+        <div class="llm-progress-list" id="llm_progress_list"></div>
+        <div class="llm-progress-footer">
+            <button id="btn_llm_progress_cancel_all" class="btn compact danger" data-i18n="llm_progress.cancel_all">全部移除</button>
+        </div>
+    </div>
+
+    <!-- ======================= 选中文本翻译（译按钮 + 可拖动固定浮窗） ======================= -->
+    <div id="translate_trigger" class="translate-trigger hidden">译</div>
+    <div id="translate_popup" class="translate-popup hidden">
+        <div class="translate-popup-header">
+            <span class="translate-popup-title">翻译</span>
+            <button id="translate_pin" class="translate-pin-btn" title="固定（点击外部时保持显示）">📌</button>
+            <button id="translate_close" class="translate-close-btn">✕</button>
+        </div>
+        <div class="translate-popup-body">
+            <textarea id="translate_source" class="translate-source" rows="2" placeholder="原文（回车翻译）"></textarea>
+            <div id="translate_output" class="translate-output"></div>
+        </div>
+        <!-- 右下角三角角标：拖动调整浮窗大小 -->
+        <div id="translate_resize" class="translate-resize">
+            <svg viewBox="0 0 10 10" width="10" height="10"><path d="M3 9 L9 3 L9 9 Z" fill="currentColor"/></svg>
+        </div>
+    </div>
+
+    <!-- ======================= 自定义确认对话框 ======================= -->
+    <div id="confirm_modal" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-title"></div>
+            <div class="modal-message"></div>
+            <div class="modal-actions"></div>
+        </div>
+    </div>
+
+    <!-- ======================= 高亮规则编辑对话框 ======================= -->
+    <div id="highlight_rule_modal" class="modal-overlay hidden">
+        <div class="modal modal-wide">
+            <div class="modal-title" data-i18n="highlight.edit_rule">编辑高亮规则</div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="field-label" data-i18n="highlight.matched_tags">匹配标签</label>
+                    <textarea id="hr_tags" rows="3" placeholder="girl, 1girl, long hair"></textarea>
+                </div>
+                <div class="field hr-color-row">
+                    <label class="checkbox">
+                        <input type="checkbox" id="hr_enable_bg">
+                        <span data-i18n="highlight.bg_color">背景色</span>
+                    </label>
+                    <input type="color" id="hr_bg" value="#777700" disabled>
+                </div>
+                <div class="field hr-color-row">
+                    <label class="checkbox">
+                        <input type="checkbox" id="hr_enable_fg">
+                        <span data-i18n="highlight.fg_color">文字色</span>
+                    </label>
+                    <input type="color" id="hr_fg" value="#ffffff" disabled>
+                </div>
+                <label class="checkbox">
+                    <input type="checkbox" id="hr_bold">
+                    <span data-i18n="highlight.bold">加粗</span>
+                </label>
+                <label class="checkbox">
+                    <input type="checkbox" id="hr_partial">
+                    <span data-i18n="highlight.partial_match">子串匹配</span>
+                </label>
+                <label class="checkbox">
+                    <input type="checkbox" id="hr_cs">
+                    <span data-i18n="highlight.case_sensitive">区分大小写</span>
+                </label>
+            </div>
+            <div class="modal-actions">
+                <button id="hr_cancel" class="btn" data-i18n="common.cancel">取消</button>
+                <button id="hr_save" class="btn primary" data-i18n="common.save">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/neutralino.js"></script>
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>

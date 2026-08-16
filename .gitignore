@@ -1,0 +1,15 @@
+# Neutralinojs binaries and builds
+/bin
+/dist
+
+# Neutralinojs related files
+.storage
+*.log
+/cache
+/.tmp
+
+AGENTS.md
+
+resources/settings.local.json
+resources/config.local.json
+resources/.profile.json

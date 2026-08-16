@@ -1,0 +1,45 @@
+{
+    "general": {
+        "backup": false,
+        "dataset_dir": "E:\\ai\\1趣图-创意",
+        "caption_ext": ".txt",
+        "load_recursive": false,
+        "load_caption_from_filename": false,
+        "load_caption_llm_reverse": false,
+        "replace_new_line": false
+    },
+    "filter": {
+        "positive": {
+            "sw_prefix": false,
+            "sw_suffix": false,
+            "sw_regex": false,
+            "sort_by": "Alphabetical Order",
+            "sort_order": "Ascending",
+            "logic": "NONE"
+        },
+        "negative": {
+            "sw_prefix": false,
+            "sw_suffix": false,
+            "sw_regex": false,
+            "sort_by": "Alphabetical Order",
+            "sort_order": "Ascending",
+            "logic": "NONE"
+        }
+    },
+    "batch_edit": {
+        "show_only_selected": true,
+        "prepend": false,
+        "use_regex": false,
+        "target": "Only Selected Tags",
+        "sw_prefix": false,
+        "sw_suffix": false,
+        "sw_regex": false,
+        "sort_by": "Alphabetical Order",
+        "sort_order": "Ascending"
+    },
+    "edit_selected": {
+        "auto_copy": true,
+        "warn_change_not_saved": true,
+        "highlight_rules": "//基本\nmale,boy,boys,his,he,fg:#ff7700,b:1\nfemale,girl,1girl,she,her,fg:#ff00ff,b:1\nnsfw,sfw,bg:#996600,b:1\n//物种\nwolf,cat,lion,horse,tiger,shark,dragon,bg:#151,b:1,partial:1\n//杂项\nclose up,angle,realistic,background,bg:#555,b:1,partial:1\n@,lora,(,),<,>,bg:#880088,b:1,partial:1\ncharacter,by,or,bg:#880088,b:1\nori,fg:#ff7700"
+    }
+}
