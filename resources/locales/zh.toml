@@ -61,10 +61,13 @@ unknown = "未知"
 copy_image = "复制图像"
 copy_link = "复制连接"
 add_to_reverse = "加入反推列表"
+add_to_selection = "加入选择筛选"
+add_all_displayed_to_selection = "将所有显示加入选择筛选"
 copied_image = "已复制图像到剪贴板"
 copied_link = "已复制图像路径"
 copy_failed = "复制失败"
 added_to_reverse = "已加入反推列表"
+added_to_selection = "已加入选择筛选"
 
 [tab]
 filter_tags = "按标签筛选"
@@ -140,6 +143,22 @@ append = "在后面添加"
 auto_copy = "自动复制选中图像的标注"
 warn_unsaved = "如果标注更改未保存则警告"
 highlight_rules = "高亮规则"
+highlight_help = "帮助"
+highlight_help_title = "高亮规则说明"
+highlight_help_content = '''右键点击规则行可在界面中直接编辑该条规则。
+高亮规则格式说明：
+每行一条规则。逗号分隔各个部分：
+  · 词语... : 匹配标签（多个词语间为「或」关系，匹配任一即应用）
+  · bg:#颜色 : 背景色，如 bg:#ff0000
+  · fg:#颜色 : 文字色，如 fg:#ffffff
+  · b:0/1 : 加粗，1=加粗
+  · partial:0/1 : 匹配模式，0=完整词边界（默认），1=子串匹配
+  · cs:0/1 : 大小写，0=忽略大小写（默认），1=区分大小写
+多条规则按顺序匹配，先匹配的先应用。
+示例：
+  ori,bg:#777700,fg:#ffff00
+  girl,bg:#0066cc,fg:#ffffff,b:1
+  1girl,partial:1'''
 edit_caption = "编辑标注"
 replace_punct = "替换标点"
 apply_changes = "将更改应用于选中图像"
@@ -211,6 +230,7 @@ cancel = "取消"
 cancel_all = "全部移除"
 remove_done = "移除已完成"
 close = "关闭"
+pin = "固定（点击外部时保持显示）"
 append_opt = "已有标注则追加（取消勾选则覆盖）"
 append_result = "追加到标注"
 missing_hint = "有图像缺少文本文件"

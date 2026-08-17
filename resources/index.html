@@ -276,7 +276,7 @@
                             </label>
                             <div class="highlight-header">
                                 <span data-i18n="edit_caption.highlight_rules">高亮规则</span>
-                                <button id="btn_highlight_help" class="btn">帮助</button>
+                                <button id="btn_highlight_help" class="btn compact" data-i18n="edit_caption.highlight_help">帮助</button>
                             </div>
                             <textarea id="tb_highlight_rules" rows="4" placeholder="每行一条规则，用逗号分隔。示例: ori,girl,bg:#777700,fg:#ff0000,b:1,partial:0,cs:0"></textarea>
                         </div>
@@ -387,22 +387,27 @@
         </div>
     </div>
 
-    <!-- ======================= LLM 反推管理窗口（无背景遮罩，可接收拖入） ======================= -->
+    <!-- ======================= LLM 反推管理窗口（可拖动浮窗，点击外部或 ✕ 关闭） ======================= -->
     <div id="llm_progress_panel" class="llm-progress-panel hidden">
-        <div class="llm-progress-header">
-            <span class="gallery-label-title" data-i18n="llm_progress.title">LLM 反推管理</span>
+        <div class="translate-popup-header">
+            <span class="translate-popup-title" data-i18n="llm_progress.title">LLM 反推管理</span>
+            <button id="llm_progress_pin" class="translate-pin-btn" data-i18n-title="llm_progress.pin">📌</button>
+            <button id="btn_llm_progress_close" class="translate-close-btn" data-i18n-title="llm_progress.close">✕</button>
+        </div>
+        <div class="llm-progress-body">
             <label class="checkbox llm-progress-opt" title="如果图像已有标注内容，选择追加或覆盖">
                 <input type="checkbox" id="cb_llm_reverse_append" checked>
                 <span data-i18n="llm_progress.append_opt">已有标注则追加</span>
             </label>
-            <button id="btn_llm_progress_close" class="btn compact" data-i18n="llm_progress.close">关闭</button>
-        </div>
-        <div class="llm-progress-summary" id="llm_progress_summary">0 / 0</div>
-        <div class="llm-progress-bar"><div class="llm-progress-fill" id="llm_progress_fill"></div></div>
-        <div class="llm-progress-list" id="llm_progress_list"></div>
-        <div class="llm-progress-footer">
-            <button id="btn_llm_progress_cancel_all" class="btn compact danger" data-i18n="llm_progress.cancel_all">全部移除</button>
-            <button id="btn_llm_progress_remove_done" class="btn compact" data-i18n="llm_progress.remove_done">移除已完成</button>
+            <div class="llm-progress-overview">
+                <div class="llm-progress-bar"><div class="llm-progress-fill" id="llm_progress_fill"></div></div>
+                <div class="llm-progress-summary" id="llm_progress_summary">0 / 0</div>
+            </div>
+            <div class="llm-progress-list" id="llm_progress_list"></div>
+            <div class="llm-progress-footer">
+                <button id="btn_llm_progress_cancel_all" class="btn compact danger" data-i18n="llm_progress.cancel_all">全部移除</button>
+                <button id="btn_llm_progress_remove_done" class="btn compact" data-i18n="llm_progress.remove_done">移除已完成</button>
+            </div>
         </div>
     </div>
 
@@ -424,6 +429,20 @@
         </div>
         <!-- 右下角三角角标：拖动调整浮窗大小 -->
         <div id="translate_resize" class="translate-resize">
+            <svg viewBox="0 0 10 10" width="10" height="10"><path d="M3 9 L9 3 L9 9 Z" fill="currentColor"/></svg>
+        </div>
+    </div>
+
+    <!-- ======================= 高亮规则帮助（可拖动浮窗，点击外部或 ✕ 关闭） ======================= -->
+    <div id="highlight_help_popup" class="translate-popup hidden">
+        <div class="translate-popup-header">
+            <span class="translate-popup-title" data-i18n="edit_caption.highlight_help_title">高亮规则说明</span>
+            <button id="highlight_help_close" class="translate-close-btn">✕</button>
+        </div>
+        <div class="translate-popup-body">
+            <div id="highlight_help_content" class="highlight-help-content"></div>
+        </div>
+        <div id="highlight_help_resize" class="translate-resize">
             <svg viewBox="0 0 10 10" width="10" height="10"><path d="M3 9 L9 3 L9 9 Z" fill="currentColor"/></svg>
         </div>
     </div>
@@ -485,6 +504,8 @@
         <button type="button" data-action="copy_image" data-i18n="gallery.copy_image">复制图像</button>
         <button type="button" data-action="copy_link" data-i18n="gallery.copy_link">复制连接</button>
         <button type="button" data-action="reverse" data-i18n="gallery.add_to_reverse">加入反推列表</button>
+        <button type="button" data-action="add_selection" data-i18n="gallery.add_to_selection">加入选择筛选</button>
+        <button type="button" data-action="add_selection_all" data-i18n="gallery.add_all_displayed_to_selection">将所有显示加入选择筛选</button>
     </div>
 
     <script src="js/neutralino.js"></script>

@@ -412,7 +412,17 @@ function updateSelectionGallery() {
         onSelect: (i, p) => {
             app.tmpSelectionSelectedPath = p;
             updateSelectionTxt();
+            syncFilterGalleryHighlight();
         },
+    });
+    // 渲染后统一按当前选中路径同步高亮，避免残留/误高亮
+    syncFilterGalleryHighlight();
+}
+
+// 同步选择筛选画廊高亮：仅当前选中且仍在选择集合中的路径高亮
+function syncFilterGalleryHighlight() {
+    document.querySelectorAll("#filter_gallery .thumb-item").forEach(item => {
+        item.classList.toggle("selected", !!app.tmpSelectionSelectedPath && item.dataset.path === app.tmpSelectionSelectedPath);
     });
 }
 
@@ -762,6 +772,14 @@ const llmReverse = {
 };
 // 任务代际：数据集重载时递增，使进行中的反推任务失效，避免并发
 let llmReverseRunId = 0;
+// 窗口是否固定（固定后点击窗口外不关闭）
+let llmPinned = false;
+
+// 更新反推窗口固定状态样式
+function updateLlmPinState() {
+    const panel = document.getElementById("llm_progress_panel");
+    if (panel) panel.classList.toggle("pinned", llmPinned);
+}
 
 // 清空反推队列（数据集重载 / 卸载时调用）
 function resetLlmReverse() {
@@ -775,16 +793,23 @@ function resetLlmReverse() {
     updateProgress();
 }
 
-// 打开 / 关闭反推管理窗口（无背景遮罩，点击窗口外不关闭）
+// 打开 / 关闭反推管理窗口（可拖动窗口：点击窗口外关闭，拖入图像不触发关闭）
 function toggleLlmReversePanel(force) {
     const panel = document.getElementById("llm_progress_panel");
     const show = force !== undefined ? force : panel.classList.contains("hidden");
     if (show) {
+        panel.classList.remove("hidden");
+        // 首次打开：设置初始居中位置（之后拖动会记住位置）
+        if (!panel.style.left || !panel.style.top) {
+            const w = Math.min(Math.max(panel.offsetWidth, 420), 560);
+            const h = Math.min(panel.offsetHeight, window.innerHeight - 16);
+            panel.style.left = Math.max(0, Math.round((window.innerWidth - w) / 2)) + "px";
+            panel.style.top = Math.max(0, Math.round((window.innerHeight - h) / 2)) + "px";
+        }
         // 同步追加/覆盖选项
         document.getElementById("cb_llm_reverse_append").checked = getSetting("llm_reverse_append") !== false;
         renderAllRows();
         updateProgress();
-        panel.classList.remove("hidden");
     } else {
         panel.classList.add("hidden");
         hideLlmPreview();
@@ -983,6 +1008,12 @@ function initLlmReverse() {
     document.getElementById("cb_llm_reverse_append").addEventListener("change", (e) => {
         setSetting("llm_reverse_append", e.target.checked);
     });
+    // 固定 / 取消固定（点击外部时保持显示）
+    document.getElementById("llm_progress_pin").addEventListener("click", (e) => {
+        e.stopPropagation();
+        llmPinned = !llmPinned;
+        updateLlmPinState();
+    });
     // 全部移除：清空反推列表（已应用的标注保留在数据集中）
     document.getElementById("btn_llm_progress_cancel_all").addEventListener("click", () => {
         for (const path of [...llmReverse.paths]) removeLlmReverseImage(path);
@@ -1020,6 +1051,35 @@ function initLlmReverse() {
         if (path && addLlmReverseImage(path)) {
             showToast(`${t("gallery.added_to_reverse")}: ${getBasename(path)}`, "success");
         }
+    });
+
+    // 点击窗口外部关闭（固定时除外；用 click 而非 pointerdown：拖拽图像不会产生 click，避免误关）
+    document.addEventListener("click", (e) => {
+        if (panel.classList.contains("hidden")) return;
+        if (llmPinned) return;
+        if (panel.contains(e.target)) return;
+        const openBtn = document.getElementById("btn_open_llm_progress");
+        if (openBtn && openBtn.contains(e.target)) return;
+        toggleLlmReversePanel(false);
+    });
+
+    // 按住标题栏拖动窗口（标题栏上的按钮交给按钮自己处理）
+    const header = panel.querySelector(".translate-popup-header");
+    let drag = null;
+    header.addEventListener("mousedown", (e) => {
+        if (e.target.closest("button, label, input, select, a")) return;
+        drag = { dx: e.clientX - panel.offsetLeft, dy: e.clientY - panel.offsetTop };
+        e.preventDefault();
+        document.body.style.userSelect = "none";
+    });
+    window.addEventListener("mousemove", (e) => {
+        if (!drag) return;
+        panel.style.left = Math.max(0, Math.min(e.clientX - drag.dx, window.innerWidth - panel.offsetWidth)) + "px";
+        panel.style.top = Math.max(0, Math.min(e.clientY - drag.dy, window.innerHeight - panel.offsetHeight)) + "px";
+    });
+    window.addEventListener("mouseup", () => {
+        drag = null;
+        document.body.style.userSelect = "";
     });
 }
 
@@ -1124,6 +1184,45 @@ function addSelectedToReverse() {
     showToast(`${t("gallery.added_to_reverse")}: ${list.length}`, "success");
 }
 
+// 菜单动作：将右键目标加入选择筛选。
+// 若右键目标属于当前选中集合（当前单选或 Ctrl 多选），则加入全部选中图像；
+// 否则只加入右键目标本身
+function addContextToSelection() {
+    const ctxInSelection = galleryContextPath
+        && (app.galleryMultiSelected.has(galleryContextPath)
+            || galleryContextPath === app.gallerySelectedPath);
+    const paths = new Set();
+    if (ctxInSelection) {
+        for (const p of app.galleryMultiSelected) paths.add(p);
+        if (app.gallerySelectedPath) paths.add(app.gallerySelectedPath);
+    }
+    if (galleryContextPath) paths.add(galleryContextPath);
+    if (paths.size === 0) return;
+    let added = 0;
+    for (const p of paths) {
+        if (!app.tmpSelection.has(p)) {
+            app.tmpSelection.add(p);
+            added++;
+        }
+    }
+    if (added > 0) updateSelectionGallery();
+    showToast(`${t("gallery.added_to_selection")}: ${paths.size}`, "success");
+}
+
+// 菜单动作：将当前所有显示（经筛选后）的图像加入选择筛选
+function addAllDisplayedToSelection() {
+    const imgs = app.dte.getFilteredImgpaths(app.getFilters());
+    let added = 0;
+    for (const p of imgs) {
+        if (!app.tmpSelection.has(p)) {
+            app.tmpSelection.add(p);
+            added++;
+        }
+    }
+    if (added > 0) updateSelectionGallery();
+    showToast(`${t("gallery.added_to_selection")}: ${imgs.length}`, "success");
+}
+
 // 初始化画廊右键菜单
 function initGalleryContextMenu() {
     const galleryEl = document.getElementById("dataset_gallery");
@@ -1137,6 +1236,13 @@ function initGalleryContextMenu() {
         if (!item) return;
         e.preventDefault();
         galleryContextPath = item.dataset.path;
+        // 仅在选择筛选选项卡激活时显示"加入选择筛选"菜单项
+        const selTabActive = document.getElementById("tab_filter_selection")
+            ? document.getElementById("tab_filter_selection").classList.contains("active")
+            : false;
+        menu.querySelectorAll('[data-action="add_selection"], [data-action="add_selection_all"]').forEach(b => {
+            b.hidden = !selTabActive;
+        });
         showGalleryContextMenu(e.clientX, e.clientY);
     });
 
@@ -1148,6 +1254,8 @@ function initGalleryContextMenu() {
         if (action === "copy_image") copyImageAction();
         else if (action === "copy_link") copyLinkAction();
         else if (action === "reverse") addSelectedToReverse();
+        else if (action === "add_selection") addContextToSelection();
+        else if (action === "add_selection_all") addAllDisplayedToSelection();
         hideGalleryContextMenu();
     });
 
@@ -1209,6 +1317,7 @@ function initEditSelected() {
     // 若此时把按钮 display:none，后续 click 事件不会触发，且选中范围会塌缩。
     editTa.addEventListener("mouseup", onEditSelectionMouseUp);
     initTranslatePopup();
+    initHighlightHelpPopup();
 
     // 侧栏宽度变化、窗口缩放、滚动条出现/消失都会改变 textarea 的客户区宽度，
     // 用 ResizeObserver 实时重测高亮内层宽度，保证始终与 textarea 文本区等宽
@@ -1606,21 +1715,77 @@ function triggerEditInput() {
 }
 
 function showHighlightHelp() {
-    showToast(
-        "高亮规则格式说明：\n\n" +
-        "每行一条规则。逗号分隔各个部分：\n" +
-        "  · 词语... : 匹配标签（多个词语间为「或」关系，匹配任一即应用）\n" +
-        "  · bg:#颜色 : 背景色，如 bg:#ff0000\n" +
-        "  · fg:#颜色 : 文字色，如 fg:#ffffff\n" +
-        "  · b:0/1 : 加粗，1=加粗\n" +
-        "  · partial:0/1 : 匹配模式，0=完整词边界（默认），1=子串匹配\n" +
-        "  · cs:0/1 : 大小写，0=忽略大小写（默认），1=区分大小写\n\n" +
-        "多条规则按顺序匹配，先匹配的先应用。\n\n" +
-        "示例：\n" +
-        "  ori,bg:#777700,fg:#ffff00\n" +
-        "  girl,bg:#0066cc,fg:#ffffff,b:1\n" +
-        "  1girl,partial:1"
-    );
+    const popup = document.getElementById("highlight_help_popup");
+    const content = document.getElementById("highlight_help_content");
+    if (!popup || !content) return;
+    content.textContent = t("edit_caption.highlight_help_content");
+    popup.classList.remove("hidden");
+    // 首次打开时设置默认尺寸与居中位置（之后可拖动/缩放并保持位置）
+    if (!popup.style.width || !popup.style.left) {
+        const w = Math.min(480, window.innerWidth - 16);
+        const h = Math.min(380, window.innerHeight - 16);
+        popup.style.width = w + "px";
+        popup.style.height = h + "px";
+        popup.style.left = Math.max(0, Math.round((window.innerWidth - w) / 2)) + "px";
+        popup.style.top = Math.max(0, Math.round((window.innerHeight - h) / 2 - 40)) + "px";
+    }
+}
+
+// 高亮规则帮助浮窗：与翻译浮窗一致的交互（按住标题栏拖动、右下角缩放，
+// 点击外部或 ✕ 按钮关闭，不会自动消失）
+function initHighlightHelpPopup() {
+    const popup = document.getElementById("highlight_help_popup");
+    if (!popup) return;
+
+    // 点击外部关闭
+    document.addEventListener("pointerdown", (e) => {
+        if (popup.classList.contains("hidden")) return;
+        if (popup.contains(e.target)) return;
+        popup.classList.add("hidden");
+    });
+
+    // ✕ 关闭
+    const closeBtn = document.getElementById("highlight_help_close");
+    if (closeBtn) closeBtn.addEventListener("click", () => popup.classList.add("hidden"));
+
+    // 右下角三角角标：拖动调整浮窗大小
+    const resize = document.getElementById("highlight_help_resize");
+    let rs = null;
+    resize.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        rs = { w: popup.offsetWidth, h: popup.offsetHeight, x: e.clientX, y: e.clientY };
+        document.body.style.userSelect = "none";
+    });
+    window.addEventListener("mousemove", (e) => {
+        if (!rs) return;
+        const MIN_W = 260, MIN_H = 160;
+        const MAX_W = Math.min(640, window.innerWidth - 8);
+        const MAX_H = window.innerHeight - 8;
+        const w = Math.max(MIN_W, Math.min(rs.w + (e.clientX - rs.x), MAX_W));
+        const h = Math.max(MIN_H, Math.min(rs.h + (e.clientY - rs.y), MAX_H));
+        popup.style.width = w + "px";
+        popup.style.height = h + "px";
+    });
+    window.addEventListener("mouseup", () => { rs = null; });
+
+    // 按住标题栏拖动浮窗
+    const header = popup.querySelector(".translate-popup-header");
+    let drag = null;
+    header.addEventListener("mousedown", (e) => {
+        if (e.target.closest("button")) return; // 标题栏上的按钮交给按钮处理
+        drag = { dx: e.clientX - popup.offsetLeft, dy: e.clientY - popup.offsetTop };
+        e.preventDefault();
+        document.body.style.userSelect = "none";
+    });
+    window.addEventListener("mousemove", (e) => {
+        if (!drag) return;
+        popup.style.left = Math.max(0, Math.min(e.clientX - drag.dx, window.innerWidth - popup.offsetWidth)) + "px";
+        popup.style.top = Math.max(0, Math.min(e.clientY - drag.dy, window.innerHeight - popup.offsetHeight)) + "px";
+    });
+    window.addEventListener("mouseup", () => {
+        drag = null;
+        document.body.style.userSelect = "";
+    });
 }
 
 // ================================================================
@@ -2187,11 +2352,29 @@ function readEditSelectedConfig() {
 // 9. 选择筛选
 // ================================================================
 
+// 当前左侧画廊选中的图像集合（单选 + Ctrl 多选）
+function getGallerySelectedPaths() {
+    const paths = new Set();
+    for (const p of app.galleryMultiSelected) paths.add(p);
+    if (app.gallerySelectedPath) paths.add(app.gallerySelectedPath);
+    return paths;
+}
+
+// 将左侧画廊当前选中的全部图像加入选择筛选（有新增才重绘）
+function addSelectedToTmpSelection() {
+    let added = 0;
+    for (const p of getGallerySelectedPaths()) {
+        if (!app.tmpSelection.has(p)) {
+            app.tmpSelection.add(p);
+            added++;
+        }
+    }
+    if (added > 0) updateSelectionGallery();
+}
+
 function initFilterSelection() {
     document.getElementById("btn_add_image_selection").addEventListener("click", () => {
-        const path = app.gallerySelectedPath;
-        if (path) app.tmpSelection.add(path);
-        updateSelectionGallery();
+        addSelectedToTmpSelection();
     });
 
     document.getElementById("btn_add_all_displayed_image_selection").addEventListener("click", () => {
@@ -2234,9 +2417,7 @@ function initFilterSelection() {
     // 键盘快捷键
     document.addEventListener("keydown", (e) => {
         if (e.key === "Enter" && e.target !== document.getElementById("dte_edit_caption")) {
-            const path = app.gallerySelectedPath;
-            if (path) app.tmpSelection.add(path);
-            updateSelectionGallery();
+            addSelectedToTmpSelection();
         } else if (e.key === "Delete") {
             const path = app.tmpSelectionSelectedPath;
             if (path) app.tmpSelection.delete(path);
@@ -2902,15 +3083,6 @@ export async function setupUI() {
     window.addEventListener("resize", () => {
         applyColumns();
         syncOverlayLayout();
-    });
-
-    // 选择筛选画廊点击更新文字
-    document.getElementById("filter_gallery").addEventListener("click", (e) => {
-        const item = e.target.closest(".thumb-item");
-        if (item) {
-            app.tmpSelectionSelectedPath = item.dataset.path;
-            updateSelectionTxt();
-        }
     });
 
     refreshAll();

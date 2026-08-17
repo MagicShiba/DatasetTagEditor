@@ -62,10 +62,13 @@ unknown = "Unknown"
 copy_image = "Copy Image"
 copy_link = "Copy Path"
 add_to_reverse = "Add to Reverse List"
+add_to_selection = "Add to selection filter"
+add_all_displayed_to_selection = "Add all displayed to selection filter"
 copied_image = "Image copied to clipboard"
 copied_link = "Image path copied"
 copy_failed = "Copy failed"
 added_to_reverse = "Added to reverse list"
+added_to_selection = "Added to selection filter"
 
 [tab]
 filter_tags = "Filter by Tags"
@@ -141,6 +144,22 @@ append = "Append"
 auto_copy = "Copy caption from selected images automatically"
 warn_unsaved = "Warn if changes in caption is not saved"
 highlight_rules = "Highlight Rules"
+highlight_help = "Help"
+highlight_help_title = "Highlight Rules Help"
+highlight_help_content = '''Right-click a rule line to edit it directly in the UI.
+Highlight rule format:
+One rule per line. Separate parts with commas:
+  · word... : tag to match (multiple words are "OR" — any match applies)
+  · bg:#color : background color, e.g. bg:#ff0000
+  · fg:#color : text color, e.g. fg:#ffffff
+  · b:0/1 : bold, 1=bold
+  · partial:0/1 : match mode, 0=whole word (default), 1=substring
+  · cs:0/1 : case sensitivity, 0=ignore case (default), 1=case sensitive
+Rules are applied in order; the first match wins.
+Examples:
+  ori,bg:#777700,fg:#ffff00
+  girl,bg:#0066cc,fg:#ffffff,b:1
+  1girl,partial:1'''
 edit_caption = "Edit Caption"
 replace_punct = "Replace Punctuation"
 apply_changes = "Apply changes to selected image"
@@ -212,6 +231,7 @@ cancel = "Cancel"
 cancel_all = "Remove All"
 remove_done = "Remove Done"
 close = "Close"
+pin = "Pin (keep open when clicking outside)"
 append_opt = "Append to existing caption (uncheck to overwrite)"
 append_result = "Append to Caption"
 missing_hint = "Some images have no text file"

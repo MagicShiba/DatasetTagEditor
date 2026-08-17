@@ -80,7 +80,7 @@ html, body {
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--border);
-  padding: 4px;
+  padding: 4px 1px 1px 1px;
   gap: 4px;
   background: var(--bg);
   overflow: hidden;
@@ -98,7 +98,7 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #000;
+  background: #000000aa;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
@@ -539,6 +539,7 @@ textarea {
   overflow: auto;
   border-radius:0px;
   margin:0px;
+  padding:4px 1px 1px 1px;
 }
 
 .accordion {
@@ -595,7 +596,7 @@ textarea {
 
 .tab-content {
   display: none;
-  padding: 6px;
+  padding: 4px;
   overflow-y: auto;
   flex: 1;
 }
@@ -837,6 +838,11 @@ textarea {
 
 .thumb-item:hover {
   border-color: #4d86f7;
+}
+
+/* 选择筛选画廊：仅高亮当前选中项，悬停不再高亮未选中项，避免误判选中 */
+#filter_gallery .thumb-item:not(.selected):hover {
+  border-color: transparent;
 }
 
 /* 缩略图图像名称：悬停时以半透明浮层显示在图像底部内侧，
@@ -1501,47 +1507,55 @@ textarea {
 /* 浮动窗口：无背景遮罩，点击窗口外不会关闭，可接收从画廊拖入的图像 */
 .llm-progress-panel {
   position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
   z-index: 1000000;
   min-width: 420px;
   max-width: 560px;
   width: 80vw;
+  display: flex;
+  flex-direction: column;
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 12px;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
 }
 
-.llm-progress-header {
+.llm-progress-body {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 8px;
-  margin-bottom: 8px;
+  padding: 12px;
 }
 
 .llm-progress-opt {
-  flex: 1;
+  display: flex;
+  align-items: center;
   font-weight: 400;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+/* 进度条 + 数字同一行：进度条占满剩余宽度，数字在末尾 */
+.llm-progress-overview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .llm-progress-summary {
   font-size: 13px;
   color: var(--text-dim);
-  margin-bottom: 6px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .llm-progress-bar {
+  flex: 1;
   height: 6px;
   background: var(--bg-input);
   border-radius: 3px;
   overflow: hidden;
-  margin-bottom: 10px;
 }
 
 .llm-progress-fill {
@@ -1561,7 +1575,6 @@ textarea {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 6px;
-  margin-bottom: 12px;
   min-height: 48px;
 }
 
@@ -1711,6 +1724,10 @@ textarea {
 .context-menu button:hover {
   background: var(--accent);
   color: #fff;
+}
+
+.context-menu button[hidden] {
+  display: none;
 }
 
 /* ============ 底部提示（Toast） ============ */
@@ -1863,7 +1880,8 @@ textarea {
 }
 
 /* 固定状态：图钉恢复彩色与完整不透明度 */
-.translate-popup.pinned .translate-pin-btn {
+.translate-popup.pinned .translate-pin-btn,
+.llm-progress-panel.pinned .translate-pin-btn {
   filter: none;
   opacity: 1;
 }
@@ -1905,6 +1923,19 @@ textarea {
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--text);
+}
+
+/* 高亮规则帮助浮窗内容：可选中复制，保留换行，纵向滚动 */
+.highlight-help-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text);
+  user-select: text;
 }
 
 /* 右下角三角角标：拖动调整浮窗大小 */
