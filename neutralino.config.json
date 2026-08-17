@@ -37,7 +37,6 @@
       "icon": "/resources/icons/appIcon.png",
       "enableInspector": true,
       "openInspectorOnStartup": false,
-      "emitDropEvents": true,
       "borderless": false,
       "maximize": false,
       "hidden": false,
