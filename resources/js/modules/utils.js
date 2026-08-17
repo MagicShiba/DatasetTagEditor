@@ -223,28 +223,37 @@ export function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// 常见宽高比列表（标签 + 宽/高数值），覆盖横竖两种方向
+// 常见宽高比列表（标签 + 宽/高数值 + 基准分母），覆盖横竖两种方向
 const ASPECT_RATIOS = [
-    ["1:1", 1],
-    ["5:4", 1.25], ["4:5", 0.8],
-    ["4:3", 4 / 3], ["3:4", 3 / 4],
-    ["3:2", 1.5], ["2:3", 2 / 3],
-    ["16:9", 16 / 9], ["9:16", 9 / 16],
-    ["21:9", 21 / 9], ["9:21", 9 / 21],
+    ["1:1", 1, 1],
+    ["5:4", 1.25, 4], ["4:5", 0.8, 5],
+    ["4:3", 4 / 3, 3], ["3:4", 3 / 4, 4],
+    ["3:2", 1.5, 2], ["2:3", 2 / 3, 3],
+    ["16:9", 16 / 9, 9], ["9:16", 9 / 16, 16],
+    ["21:9", 21 / 9, 9], ["9:21", 9 / 21, 21],
 ];
 
-// 计算最接近的常见宽高比标签（如 1024×768 -> "4:3"）
-export function closestAspectRatio(w, h) {
+// 按最接近的常用比例换算宽高比显示：
+// 保留常用比例的基准分母，将实际比值换算为该基准下的值并保留两位小数，
+// 小数为 0 时省略小数位（如 1024×768 -> "4:3"，比 4:3 略宽 -> "4.15:3"）
+export function formatAspectRatio(w, h) {
     if (!w || !h) return "";
     const r = w / h;
-    let best = ASPECT_RATIOS[0][0];
+    let best = ASPECT_RATIOS[0];
     let bestDiff = Infinity;
-    for (const [label, value] of ASPECT_RATIOS) {
-        const diff = Math.abs(r - value);
+    for (const item of ASPECT_RATIOS) {
+        const diff = Math.abs(r - item[1]);
         if (diff < bestDiff) {
             bestDiff = diff;
-            best = label;
+            best = item;
         }
     }
-    return best;
+    const base = best[2];
+    const numStr = (r * base).toFixed(2).replace(/\.00$/, "");
+    return `${numStr}:${base}`;
+}
+
+// 将数值向下取整到 n 的倍数（如 513 向下取整到 512）
+export function floorToMultiple(v, n = 64) {
+    return Math.floor(v / n) * n;
 }

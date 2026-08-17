@@ -6,7 +6,7 @@ import * as api from "./api.js";
 import * as thumbs from "./thumbnails.js";
 import { config, settings, getSetting } from "./config.js";
 import { t } from "./i18n.js";
-import { normalizePath, getStem, getExtension } from "./utils.js";
+import { normalizePath, getStem, getExtension, getBasename } from "./utils.js";
 
 class App {
     constructor() {
@@ -18,6 +18,7 @@ class App {
         this.gallerySelectedPath = "";
         this.galleryPaths = []; // 当前画廊显示的路径（已排序）
         this.galleryState = {}; // key -> text
+        this.galleryMultiSelected = new Set(); // Ctrl 多选选中的路径
 
         // 画廊排序方式：key 为 name/resolution/mtime，dir 为 1（升序）或 -1（降序）
         this.gallerySort = { key: "name", dir: 1 };
@@ -210,7 +211,7 @@ const ERROR_SRC = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/sv
 // opts: { el, paths, selectedIndex, onSelect, renderThumbs }
 // 复用已存在的缩略图 item（按路径匹配），刷新时不会闪黑/重新加载
 export function renderGallery(opts) {
-    const { el, paths, selectedIndex = -1, onSelect, useThumbs = true } = opts;
+    const { el, paths, selectedIndex = -1, onSelect, useThumbs = true, multiSelected } = opts;
     const maxRes = useThumbs ? (getSetting("max_resolution") || 0) : 0;
 
     el.classList.remove("thumb-loading");
@@ -249,13 +250,15 @@ export function renderGallery(opts) {
             img.loading = "lazy";
             img.src = PLACEHOLDER_SRC;
             item.appendChild(img);
-            item.addEventListener("click", () => {
-                if (onSelect) onSelect(Number(item.dataset.index), path);
+            item.addEventListener("click", (e) => {
+                if (onSelect) onSelect(Number(item.dataset.index), path, e);
             });
         }
         item.dataset.index = idx;
-        item.classList.toggle("selected", idx === selectedIndex);
+        // 高亮：单选索引或 Ctrl 多选集合中的路径
+        item.classList.toggle("selected", idx === selectedIndex || (multiSelected && multiSelected.has(path)));
         syncThumbBadge(item, path);
+        syncThumbName(item, path);
         used.add(path);
         frag.appendChild(item);
     });
@@ -325,6 +328,17 @@ function syncThumbBadge(item, path) {
     } else if (badge) {
         badge.remove();
     }
+}
+
+// 缩略图底部图像名称（悬停时显示）：首次创建或重命名后同步
+function syncThumbName(item, path) {
+    let name = item.querySelector(".thumb-name");
+    if (!name) {
+        name = document.createElement("span");
+        name.className = "thumb-name";
+        item.appendChild(name);
+    }
+    name.textContent = getBasename(path);
 }
 
 // LLM 反推 / 应用更改后刷新指定缩略图的状态角标

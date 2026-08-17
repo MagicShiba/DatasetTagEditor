@@ -49,15 +49,13 @@
                             <label class="field-label" data-i18n="dataset.directory">数据集目录</label>
                             <div class="dir-input-wrap">
                                 <input type="text" id="tb_img_directory" placeholder="C:\directory\of\datasets">
-                                <button type="button" id="btn_pick_dir" class="dir-drop-btn" title="选择文件夹" data-i18n-title="dataset.pick_dir">
-                                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                                </button>
-                                <button type="button" id="btn_dir_history" class="dir-drop-btn" title="历史">▾</button>
+                                <button type="button" id="btn_pick_dir" class="dir-drop-btn" title="选择文件夹" data-i18n-title="dataset.pick_dir">📁</button>
+                                <button type="button" id="btn_dir_history" class="dir-drop-btn" title="历史">▼</button>
                                 <div id="dir_history_menu" class="dir-dropdown hidden"></div>
                             </div>
                         </div>
                         <div class="btns">
-                            <button id="btn_load_datasets" class="btn" data-i18n="dataset.load">加载</button>
+                            <button id="btn_load_datasets" class="btn primary" data-i18n="dataset.load">加载</button>
                             <button id="btn_unload_datasets" class="btn" data-i18n="dataset.unload">卸载</button>
                         </div>
                     </div>
@@ -407,6 +405,9 @@
         </div>
     </div>
 
+    <!-- 反推列表悬停时的图像预览（body 级元素，避免受面板 transform 影响定位） -->
+    <img id="llm_progress_preview" class="llm-preview hidden" alt="">
+
     <!-- ======================= 选中文本翻译（译按钮 + 可拖动固定浮窗） ======================= -->
     <div id="translate_trigger" class="translate-trigger hidden">译</div>
     <div id="translate_popup" class="translate-popup hidden">
@@ -476,6 +477,13 @@
                 <button id="hr_save" class="btn primary" data-i18n="common.save">保存</button>
             </div>
         </div>
+    </div>
+
+    <!-- ======================= 画廊右键菜单 ======================= -->
+    <div id="gallery_context_menu" class="context-menu hidden">
+        <button type="button" data-action="copy_image" data-i18n="gallery.copy_image">复制图像</button>
+        <button type="button" data-action="copy_link" data-i18n="gallery.copy_link">复制连接</button>
+        <button type="button" data-action="reverse" data-i18n="gallery.add_to_reverse">加入反推列表</button>
     </div>
 
     <script src="js/neutralino.js"></script>

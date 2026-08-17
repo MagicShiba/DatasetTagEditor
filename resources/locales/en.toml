@@ -57,6 +57,13 @@ edited_badge = "Edited and applied"
 reversed_badge = "Tagged via LLM reverse"
 resolution = "Resolution"
 unknown = "Unknown"
+copy_image = "Copy Image"
+copy_link = "Copy Path"
+add_to_reverse = "Add to Reverse List"
+copied_image = "Image copied to clipboard"
+copied_link = "Image path copied"
+copy_failed = "Copy failed"
+added_to_reverse = "Added to reverse list"
 
 [tab]
 filter_tags = "Filter by Tags"

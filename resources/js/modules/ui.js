@@ -7,7 +7,7 @@ import { PathFilter, FilterMode, FilterLogic, SortBy, SortOrder } from "./datase
 import { TagFilterState } from "./tagfilter_state.js";
 import * as api from "./api.js";
 import * as thumbs from "./thumbnails.js";
-import { normalizePath, getStem, getExtension, withSuffix, getBasename, getDirname, closestAspectRatio } from "./utils.js";
+import { normalizePath, getStem, getExtension, withSuffix, getBasename, getDirname, formatAspectRatio, floorToMultiple } from "./utils.js";
 import { parseRules, applyHighlight, escapeHtml } from "./highlight.js";
 import { initAutocomplete, loadAutocompleteData, bindAutocomplete } from "./autocomplete.js";
 import * as llm from "./llm.js";
@@ -55,6 +55,7 @@ function initTagFilters() {
         app.pathFilter = new PathFilter();
         app.gallerySelectedIndex = -1;
         app.gallerySelectedPath = "";
+        app.galleryMultiSelected.clear();
         const gl = document.getElementById("filter_gallery");
         gl.innerHTML = "";
         refreshAll();
@@ -101,6 +102,7 @@ async function updateGallery(imgs) {
         el: galleryEl,
         paths: sorted,
         selectedIndex: selIdx,
+        multiSelected: app.galleryMultiSelected,
         onSelect: onGallerySelect,
     });
     updateSelectionGallery();
@@ -160,7 +162,21 @@ function updatePreview(path) {
 }
 
 // 画廊选择（切换图像时检测未保存修改）
-async function onGallerySelect(idx, path) {
+async function onGallerySelect(idx, path, e) {
+    // Ctrl/Meta 点击：仅切换多选状态，不切换预览/编辑（避免未保存修改弹窗打断多选）
+    if (e && (e.ctrlKey || e.metaKey)) {
+        if (app.galleryMultiSelected.has(path)) {
+            app.galleryMultiSelected.delete(path);
+        } else {
+            app.galleryMultiSelected.add(path);
+        }
+        syncGallerySelectionHighlight();
+        return;
+    }
+    // 普通点击：清空多选，恢复单选
+    if (app.galleryMultiSelected.size > 0) {
+        app.galleryMultiSelected.clear();
+    }
     // 点击同一图像不处理
     if (idx === app.gallerySelectedIndex && path === app.gallerySelectedPath) return;
     // 切换前检测未保存修改
@@ -170,21 +186,29 @@ async function onGallerySelect(idx, path) {
     app.gallerySelectedPath = path;
     app.registerGalleryState(t("gallery.selected_image"), path);
 
-    // 异步显示选中图像分辨率与最接近的宽高比
+    // 异步显示选中图像分辨率、宽高比（两位小数）与最接近的 64 倍数分辨率
     api.getImageSize(path).then(size => {
         if (app.gallerySelectedPath !== path) return; // 期间已切换图像
-        const text = size ? `${size.w}×${size.h} (${closestAspectRatio(size.w, size.h)})` : t("gallery.unknown");
+        const text = size
+            ? `${size.w}×${size.h} (${formatAspectRatio(size.w, size.h)}) [${floorToMultiple(size.w)}×${floorToMultiple(size.h)}]`
+            : t("gallery.unknown");
         app.registerGalleryState(t("gallery.resolution"), text);
     });
 
     // 高亮选中
-    document.querySelectorAll("#dataset_gallery .thumb-item").forEach((item, i) => {
-        item.classList.toggle("selected", i === idx);
-    });
+    syncGallerySelectionHighlight();
 
     // 更新编辑选中图像面板与预览
     updateEditCaptionPanel();
     updatePreview(path);
+}
+
+// 同步画廊选中高亮：单选当前路径 + Ctrl 多选集合
+function syncGallerySelectionHighlight() {
+    document.querySelectorAll("#dataset_gallery .thumb-item").forEach(item => {
+        const path = item.dataset.path;
+        item.classList.toggle("selected", path === app.gallerySelectedPath || app.galleryMultiSelected.has(path));
+    });
 }
 
 // 将当前编辑框内容应用到当前选中图像（内存中）
@@ -623,6 +647,7 @@ function initLoadDataset() {
         app.pathFilter = new PathFilter();
         app.gallerySelectedIndex = -1;
         app.gallerySelectedPath = "";
+        app.galleryMultiSelected.clear();
         document.getElementById("dataset_gallery").innerHTML = "";
         document.getElementById("filter_gallery").innerHTML = "";
         document.getElementById("tb_common_tags").value = "";
@@ -640,8 +665,9 @@ function initLoadDataset() {
 async function doLoadDataset() {
     // 加载新数据集前检测未保存修改
     if (!(await confirmUnsavedDataset())) return;
-    // 清空上一轮的反推队列
+    // 清空上一轮的反推队列与画廊多选
     resetLlmReverse();
+    app.galleryMultiSelected.clear();
 
     const dir = document.getElementById("tb_img_directory").value.trim();
     const captionExt = document.getElementById("tb_caption_file_ext").value.trim() || ".txt";
@@ -744,6 +770,7 @@ function toggleLlmReversePanel(force) {
         panel.classList.remove("hidden");
     } else {
         panel.classList.add("hidden");
+        hideLlmPreview();
     }
 }
 
@@ -753,15 +780,16 @@ function startLlmReverseProcess(missingPaths) {
     for (const p of missingPaths) addLlmReverseImage(p);
 }
 
-// 将图像加入待反推队列（画廊拖入 / 加载缺失文件）
+// 将图像加入待反推队列（画廊拖入 / 加载缺失文件）；成功加入返回 true
 function addLlmReverseImage(path) {
-    if (llmReverse.status.has(path)) return;
-    if (!app.dte.dataset.getData(path)) return;
+    if (llmReverse.status.has(path)) return false;
+    if (!app.dte.dataset.getData(path)) return false;
     llmReverse.paths.push(path);
     llmReverse.status.set(path, "pending");
     renderRow(path);
     updateProgress();
     pumpLlmReverse(); // 空闲则开始处理
+    return true;
 }
 
 // 从队列移除（取消）：行元素直接删除
@@ -809,8 +837,44 @@ function renderRow(path) {
     row.appendChild(nameEl);
     row.appendChild(statusEl);
     row.appendChild(cancelBtn);
+    // 悬停行时显示对应的图像预览
+    row.addEventListener("mouseenter", (e) => showLlmPreview(path, e.clientX, e.clientY));
+    row.addEventListener("mousemove", (e) => moveLlmPreview(e.clientX, e.clientY));
+    row.addEventListener("mouseleave", hideLlmPreview);
     listEl.appendChild(row);
     llmReverse.rows.set(path, { row, statusEl, cancelBtn });
+}
+
+// 反推列表悬停预览：在鼠标附近显示对应图像
+function showLlmPreview(path, x, y) {
+    const img = document.getElementById("llm_progress_preview");
+    if (!img) return;
+    img.src = thumbs.getOriginalImageUrl(path);
+    img.classList.remove("hidden");
+    positionLlmPreview(img, x, y);
+}
+
+// 鼠标移动时跟随定位
+function moveLlmPreview(x, y) {
+    const img = document.getElementById("llm_progress_preview");
+    if (img && !img.classList.contains("hidden")) positionLlmPreview(img, x, y);
+}
+
+// 将预览定位到鼠标右下侧，空间不足时移到左上侧，避免超出窗口
+function positionLlmPreview(img, x, y) {
+    const pad = 14;
+    const w = img.offsetWidth || 160;
+    const h = img.offsetHeight || 160;
+    img.style.left = Math.max(4, x + pad) + "px";
+    img.style.top = Math.max(4, y + pad) + "px";
+    if (x + pad + w > window.innerWidth - 4) img.style.left = Math.max(4, x - pad - w) + "px";
+    if (y + pad + h > window.innerHeight - 4) img.style.top = Math.max(4, y - pad - h) + "px";
+}
+
+// 隐藏预览
+function hideLlmPreview() {
+    const img = document.getElementById("llm_progress_preview");
+    if (img) img.classList.add("hidden");
 }
 
 // 重建全部行（打开窗口时同步当前状态）
@@ -910,17 +974,174 @@ function initLlmReverse() {
             if (llmReverse.status.get(path) === "done") removeLlmReverseImage(path);
         }
     });
-    // 支持从画廊拖入图像
+    // 支持从画廊拖入图像：拖拽悬停高亮 + 放下后加入队列
     const panel = document.getElementById("llm_progress_panel");
+    let dropCounter = 0;
+    panel.addEventListener("dragenter", (e) => {
+        e.preventDefault();
+        dropCounter++;
+        panel.classList.add("drag-over");
+    });
     panel.addEventListener("dragover", (e) => {
         e.preventDefault();
         e.dataTransfer.dropEffect = "copy";
+        if (!panel.classList.contains("drag-over")) panel.classList.add("drag-over");
+    });
+    panel.addEventListener("dragleave", (e) => {
+        e.preventDefault();
+        dropCounter = Math.max(0, dropCounter - 1);
+        if (dropCounter === 0) panel.classList.remove("drag-over");
     });
     panel.addEventListener("drop", (e) => {
         e.preventDefault();
-        const path = e.dataTransfer.getData("text/plain");
-        if (path) addLlmReverseImage(path);
+        e.stopPropagation();
+        dropCounter = 0;
+        panel.classList.remove("drag-over");
+        const path = e.dataTransfer && e.dataTransfer.getData("text/plain");
+        if (path && addLlmReverseImage(path)) {
+            showToast(`${t("gallery.added_to_reverse")}: ${getBasename(path)}`, "success");
+        }
     });
+}
+
+// ================================================================
+// 画廊右键菜单 + Ctrl 多选
+// ================================================================
+
+// 右键点击的图像路径（复制图像 / 复制连接 作用于此图）
+let galleryContextPath = "";
+
+// 在指定坐标显示画廊右键菜单（自动限制在窗口内）
+function showGalleryContextMenu(x, y) {
+    const menu = document.getElementById("gallery_context_menu");
+    const mw = menu.offsetWidth || 160;
+    const mh = menu.offsetHeight || 90;
+    const left = Math.max(4, Math.min(x, window.innerWidth - mw - 4));
+    const top = Math.max(4, Math.min(y, window.innerHeight - mh - 4));
+    menu.style.left = left + "px";
+    menu.style.top = top + "px";
+    menu.classList.remove("hidden");
+}
+
+function hideGalleryContextMenu() {
+    const menu = document.getElementById("gallery_context_menu");
+    if (menu) menu.classList.add("hidden");
+}
+
+// 复制纯文本到系统剪贴板（优先使用原生 API，失败时回退 navigator.clipboard）
+async function copyTextToClipboard(text) {
+    try {
+        await Neutralino.clipboard.writeText(text);
+        return true;
+    } catch (e) {
+        try {
+            await navigator.clipboard.writeText(text);
+            return true;
+        } catch (e2) {
+            return false;
+        }
+    }
+}
+
+// 复制图像到剪贴板（读取原图 → 绘制到 canvas → 以 PNG 写入剪贴板）
+async function copyImageToClipboard(path) {
+    const url = thumbs.getOriginalImageUrl(path);
+    if (!url) return false;
+    if (!navigator.clipboard || !window.ClipboardItem) return false;
+    try {
+        const blob = await fetch(url).then(r => r.blob());
+        if (!blob) return false;
+        const bitmap = await createImageBitmap(blob).catch(() => null);
+        if (!bitmap) return false;
+        const canvas = document.createElement("canvas");
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        canvas.getContext("2d").drawImage(bitmap, 0, 0);
+        bitmap.close();
+        const pngBlob = await new Promise(res => canvas.toBlob(res, "image/png"));
+        if (!pngBlob) return false;
+        await navigator.clipboard.write([new ClipboardItem({ "image/png": pngBlob })]);
+        return true;
+    } catch (e) {
+        console.warn("copy image failed:", e);
+        return false;
+    }
+}
+
+// 菜单动作：复制图像
+async function copyImageAction() {
+    const path = galleryContextPath;
+    if (!path) return;
+    const ok = await copyImageToClipboard(path);
+    showToast(ok ? t("gallery.copied_image") : t("gallery.copy_failed"), ok ? "success" : "error");
+}
+
+// 菜单动作：复制连接（图像路径）
+async function copyLinkAction() {
+    const path = galleryContextPath;
+    if (!path) return;
+    const ok = await copyTextToClipboard(path);
+    showToast(ok ? t("gallery.copied_link") : t("gallery.copy_failed"), ok ? "success" : "error");
+}
+
+// 菜单动作：将图像加入反推列表。
+// 若右键目标属于当前选中集合（当前单选或 Ctrl 多选），则加入全部选中图像；
+// 否则只加入右键目标本身
+function addSelectedToReverse() {
+    const ctxInSelection = galleryContextPath
+        && (app.galleryMultiSelected.has(galleryContextPath)
+            || galleryContextPath === app.gallerySelectedPath);
+    const paths = new Set();
+    if (ctxInSelection) {
+        for (const p of app.galleryMultiSelected) paths.add(p);
+        if (app.gallerySelectedPath) paths.add(app.gallerySelectedPath);
+    }
+    if (galleryContextPath) paths.add(galleryContextPath);
+    const list = [...paths].filter(p => p);
+    if (list.length === 0) return;
+    // 打开反推管理窗口，便于查看队列
+    toggleLlmReversePanel(true);
+    for (const p of list) addLlmReverseImage(p);
+    showToast(`${t("gallery.added_to_reverse")}: ${list.length}`, "success");
+}
+
+// 初始化画廊右键菜单
+function initGalleryContextMenu() {
+    const galleryEl = document.getElementById("dataset_gallery");
+    const menu = document.getElementById("gallery_context_menu");
+    if (!galleryEl || !menu) return;
+
+    // 右键缩略图：仅记录菜单操作目标，不改变编辑焦点与选中状态，
+    // 避免"将更改应用于选中图像"等操作错误作用到未显示的图像上
+    galleryEl.addEventListener("contextmenu", (e) => {
+        const item = e.target.closest(".thumb-item");
+        if (!item) return;
+        e.preventDefault();
+        galleryContextPath = item.dataset.path;
+        showGalleryContextMenu(e.clientX, e.clientY);
+    });
+
+    // 点击菜单项执行对应动作
+    menu.addEventListener("click", (e) => {
+        const btn = e.target.closest("button[data-action]");
+        if (!btn) return;
+        const action = btn.dataset.action;
+        if (action === "copy_image") copyImageAction();
+        else if (action === "copy_link") copyLinkAction();
+        else if (action === "reverse") addSelectedToReverse();
+        hideGalleryContextMenu();
+    });
+
+    // 点击菜单外 / Esc / 窗口失焦时关闭菜单
+    document.addEventListener("click", (e) => {
+        if (!menu.classList.contains("hidden") && !menu.contains(e.target)) {
+            hideGalleryContextMenu();
+        }
+    });
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") hideGalleryContextMenu();
+    });
+    window.addEventListener("blur", hideGalleryContextMenu);
 }
 
 // ================================================================
@@ -2636,6 +2857,7 @@ export async function setupUI() {
     initHighlightRuleEditor();
     initGallerySort();
     initPreviewNav();
+    initGalleryContextMenu();
     // 边界框：初始化画布并注入写回回调（拖拽结束后更新编辑框文本）
     initBbox();
     setOnBboxChange((text) => {

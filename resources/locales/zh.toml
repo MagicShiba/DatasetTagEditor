@@ -56,6 +56,13 @@ edited_badge = "已编辑并应用"
 reversed_badge = "已通过 LLM 反推打标"
 resolution = "分辨率"
 unknown = "未知"
+copy_image = "复制图像"
+copy_link = "复制连接"
+add_to_reverse = "加入反推列表"
+copied_image = "已复制图像到剪贴板"
+copied_link = "已复制图像路径"
+copy_failed = "复制失败"
+added_to_reverse = "已加入反推列表"
 
 [tab]
 filter_tags = "按标签筛选"
