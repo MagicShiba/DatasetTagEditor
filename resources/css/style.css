@@ -551,7 +551,7 @@ textarea {
 
 .accordion summary {
   cursor: pointer;
-  padding: 6px 10px;
+  padding: 4px 6px;
   font-size: 13px;
   color: var(--text);
   user-select: none;
@@ -596,7 +596,7 @@ textarea {
 
 .tab-content {
   display: none;
-  padding: 4px;
+  padding: 1px;
   overflow-y: auto;
   flex: 1;
 }
@@ -1042,8 +1042,13 @@ textarea {
   white-space: nowrap;
 }
 
+#tab_edit_caption > div:nth-child(3){
+  padding:2px;
+}
+
 .edit-caption-field {
   position: relative;
+  margin-bottom: 0;
 }
 
 .caption-textarea-wrap {
@@ -1504,13 +1509,14 @@ textarea {
 
 /* ============ LLM 反推管理窗口 ============ */
 
-/* 浮动窗口：无背景遮罩，点击窗口外不会关闭，可接收从画廊拖入的图像 */
+/* 浮动窗口：可拖动、右下角调整大小，可接收从画廊拖入的图像 */
 .llm-progress-panel {
   position: fixed;
   z-index: 1000000;
-  min-width: 420px;
-  max-width: 560px;
-  width: 80vw;
+  width: min(300px, 90vw);
+  min-width: 300px;
+  max-width: min(720px, 94vw);
+  min-height: 200px;
   display: flex;
   flex-direction: column;
   background: var(--bg-panel);
@@ -1521,10 +1527,14 @@ textarea {
 }
 
 .llm-progress-body {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px;
+  gap: 6px;
+  padding: 6px;
+  /* 底部留出空间，避免右下角缩放角标遮挡底部按钮 */
+  padding-bottom: 10px;
 }
 
 .llm-progress-opt {
@@ -1567,7 +1577,8 @@ textarea {
 }
 
 .llm-progress-list {
-  max-height: 320px;
+  flex: 1;
+  min-height: 48px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -1575,7 +1586,6 @@ textarea {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 6px;
-  min-height: 48px;
 }
 
 .llm-progress-row {

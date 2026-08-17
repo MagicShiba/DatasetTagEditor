@@ -799,10 +799,12 @@ function toggleLlmReversePanel(force) {
     const show = force !== undefined ? force : panel.classList.contains("hidden");
     if (show) {
         panel.classList.remove("hidden");
-        // 首次打开：设置初始居中位置（之后拖动会记住位置）
-        if (!panel.style.left || !panel.style.top) {
-            const w = Math.min(Math.max(panel.offsetWidth, 420), 560);
-            const h = Math.min(panel.offsetHeight, window.innerHeight - 16);
+        // 首次打开：设置初始尺寸与居中位置（之后拖动/缩放会记住位置）
+        if (!panel.style.width || !panel.style.left) {
+            const w = Math.min(480, window.innerWidth - 16);
+            const h = Math.min(360, Math.max(240, window.innerHeight - 16));
+            panel.style.width = w + "px";
+            panel.style.height = h + "px";
             panel.style.left = Math.max(0, Math.round((window.innerWidth - w) / 2)) + "px";
             panel.style.top = Math.max(0, Math.round((window.innerHeight - h) / 2)) + "px";
         }
@@ -1081,6 +1083,26 @@ function initLlmReverse() {
         drag = null;
         document.body.style.userSelect = "";
     });
+
+    // 右下角三角角标：拖动调整浮窗大小（与翻译浮窗一致）
+    const resize = document.getElementById("llm_progress_resize");
+    let rs = null;
+    resize.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        rs = { w: panel.offsetWidth, h: panel.offsetHeight, x: e.clientX, y: e.clientY };
+        document.body.style.userSelect = "none";
+    });
+    window.addEventListener("mousemove", (e) => {
+        if (!rs) return;
+        const MIN_W = 300, MIN_H = 240;
+        const MAX_W = Math.min(720, window.innerWidth - 8);
+        const MAX_H = window.innerHeight - 8;
+        const w = Math.max(MIN_W, Math.min(rs.w + (e.clientX - rs.x), MAX_W));
+        const h = Math.max(MIN_H, Math.min(rs.h + (e.clientY - rs.y), MAX_H));
+        panel.style.width = w + "px";
+        panel.style.height = h + "px";
+    });
+    window.addEventListener("mouseup", () => { rs = null; });
 }
 
 // ================================================================
