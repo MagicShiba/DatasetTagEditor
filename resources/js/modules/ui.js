@@ -2,13 +2,13 @@
 
 import { app, renderGallery, openFolderDialog, applyColumns, updateGalleryStateDisplay, sortGalleryPaths, invalidateThumbUrlCache, updateThumbBadge } from "./app.js";
 import { config, settings, getSetting, setSetting, SETTINGS_DEFAULT, SETTINGS_DESCRIPTIONS, SETTINGS_HIDDEN, LLM_CONFIG_DEFAULT, LLM_FN_DEFAULT, getActiveProfile, setActiveProfile, saveProfile } from "./config.js";
-import { t, getLang, setLang, applyI18n } from "./i18n.js";
+import { t, getLang, setLang, applyI18n, discoverLanguages, getAvailableLanguages } from "./i18n.js";
 import { PathFilter, FilterMode, FilterLogic, SortBy, SortOrder } from "./dataset.js";
 import { TagFilterState } from "./tagfilter_state.js";
 import * as api from "./api.js";
 import * as thumbs from "./thumbnails.js";
 import { normalizePath, getStem, getExtension, withSuffix, getBasename, getDirname, closestAspectRatio } from "./utils.js";
-import { parseRules, applyHighlight } from "./highlight.js";
+import { parseRules, applyHighlight, escapeHtml } from "./highlight.js";
 import { initAutocomplete, loadAutocompleteData, bindAutocomplete } from "./autocomplete.js";
 import * as llm from "./llm.js";
 import { initBbox, updateBboxes, setOnBboxChange } from "./bbox.js";
@@ -458,6 +458,26 @@ function closeDirHistory() {
     document.getElementById("dir_history_menu").classList.add("hidden");
 }
 
+// 设置数据集目录输入框的值并关闭历史下拉
+function setDatasetDir(dir) {
+    if (!dir) return;
+    document.getElementById("tb_img_directory").value = dir;
+    closeDirHistory();
+}
+
+// 处理拖放得到的路径：目录直接用，文件取其所在目录，然后设置目录并加载数据集
+async function applyDroppedPath(path) {
+    try {
+        const st = await api.getStats(path);
+        // getStats 返回的是 isFile/isDirectory 字段（type 字段只存在于 readDirectory 条目）
+        const dir = (st && st.isDirectory) ? path : getDirname(path);
+        setDatasetDir(dir);
+    } catch (e) {
+        setDatasetDir(path);
+    }
+    await doLoadDataset();
+}
+
 // 初始化目录历史下拉
 function initDirHistoryDropdown() {
     const btn = document.getElementById("btn_dir_history");
@@ -489,6 +509,88 @@ function initDirHistoryDropdown() {
             closeDirHistory();
         }
     });
+
+    // 系统文件夹选择按钮（点击输入框旁打开文件夹，保留手动输入功能）
+    document.getElementById("btn_pick_dir").addEventListener("click", async () => {
+        closeDirHistory();
+        const dir = await api.showFolderDialog(t("dataset.pick_dir"));
+        if (dir) {
+            setDatasetDir(dir);
+            await doLoadDataset();
+        }
+    });
+
+    // 原生拖放事件：需要 neutralino.config.json 中 window.emitDropEvents=true
+    // 兼容 filesDropped / fileDrop / windowFileDrop 多种事件名及不同的 payload 结构
+    const handleNativeFilesDropped = (e) => {
+        const detail = e && e.detail;
+        let paths = [];
+        if (Array.isArray(detail)) {
+            paths = detail;
+        } else if (detail && Array.isArray(detail.paths)) {
+            paths = detail.paths;
+        } else if (typeof detail === "string") {
+            paths = [detail];
+        }
+        if (paths.length && paths[0]) {
+            applyDroppedPath(paths[0]);
+        }
+    };
+
+    try {
+        if (window.Neutralino && Neutralino.events) {
+            Neutralino.events.on("filesDropped", handleNativeFilesDropped);
+            Neutralino.events.on("fileDrop", handleNativeFilesDropped);
+            Neutralino.events.on("windowFileDrop", handleNativeFilesDropped);
+        }
+    } catch (e) { /* 浏览器模式下无原生拖放 */ }
+
+    // 阻止浏览器默认拖拽打开文件的行为
+    window.addEventListener("dragover", (e) => {
+        e.preventDefault();
+    });
+    window.addEventListener("drop", (e) => {
+        e.preventDefault();
+    });
+
+    // 「加载数据集」面板区域支持 DOM 拖放与高亮反馈
+    const panel = document.getElementById("load-panel");
+    if (panel) {
+        let dragCounter = 0;
+        panel.addEventListener("dragenter", (e) => {
+            e.preventDefault();
+            dragCounter++;
+            panel.classList.add("drag-over");
+        });
+        panel.addEventListener("dragover", (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "copy";
+            if (!panel.classList.contains("drag-over")) {
+                panel.classList.add("drag-over");
+            }
+        });
+        panel.addEventListener("dragleave", (e) => {
+            e.preventDefault();
+            dragCounter = Math.max(0, dragCounter - 1);
+            if (dragCounter === 0) {
+                panel.classList.remove("drag-over");
+            }
+        });
+        panel.addEventListener("drop", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dragCounter = 0;
+            panel.classList.remove("drag-over");
+            const files = e.dataTransfer && e.dataTransfer.files;
+            if (files && files.length > 0) {
+                const file = files[0];
+                // 部分 WebView2 / Electron 环境下 File 对象直接包含 path
+                if (file && file.path) {
+                    applyDroppedPath(file.path);
+                }
+            }
+        });
+    }
 }
 
 function initLoadDataset() {
@@ -1907,7 +2009,9 @@ function initSettings() {
     buildLlmFunctions();
 
     // 打开 / 关闭设置窗口
-    document.getElementById("btn_open_settings").addEventListener("click", () => {
+    document.getElementById("btn_open_settings").addEventListener("click", async () => {
+        // 刷新语言包列表（新增语言文件后自动出现在下拉框中）
+        await discoverLanguages().catch(() => {});
         // 同步档案单选框为当前档案
         const rb = document.querySelector(`input[name="settings_profile"][value="${getActiveProfile()}"]`);
         if (rb) rb.checked = true;
@@ -2019,9 +2123,21 @@ function buildSettingsGrid() {
 
         let input;
         if (name === "language") {
+            // 动态列出 locales 目录下可用的语言包（发现失败时回退 zh/en）
             input = document.createElement("select");
             input.id = "setting_" + name;
-            input.innerHTML = `<option value="auto">${t("settings.auto")}</option><option value="zh">${t("settings.chinese")}</option><option value="en">${t("settings.english")}</option>`;
+            const langs = getAvailableLanguages().length > 0
+                ? getAvailableLanguages()
+                : [{ code: "zh", name: t("settings.chinese") }, { code: "en", name: t("settings.english") }];
+            const opts = [`<option value="auto">${escapeHtml(t("settings.auto"))}</option>`];
+            for (const l of langs) {
+                // zh / en 使用当前界面语言的名称，其它语言使用语言包 meta.name（或代码本身）
+                const display = l.code === "zh" ? t("settings.chinese")
+                    : l.code === "en" ? t("settings.english")
+                    : l.name;
+                opts.push(`<option value="${escapeHtml(l.code)}">${escapeHtml(display)}</option>`);
+            }
+            input.innerHTML = opts.join("");
             input.value = value;
         } else if (typeof value === "boolean") {
             input = document.createElement("input");

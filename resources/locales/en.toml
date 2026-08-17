@@ -28,6 +28,7 @@ restore_default = "Restore to default"
 [dataset]
 directory = "Dataset directory"
 caption_ext = "File Ext"
+pick_dir = "Browse"
 load = "Load"
 unload = "Unload"
 load_settings = "Dataset Load Settings"

@@ -90,8 +90,10 @@ export async function initApp() {
     await settings.load();
 
     // 应用语言：先加载语言包（settings.load 已调用 setLang 设置当前语言）
-    const { applyI18n } = await import("./i18n.js");
+    const { applyI18n, discoverLanguages } = await import("./i18n.js");
     await applyI18n();
+    // 预发现可用语言包（设置界面的语言下拉框使用）
+    discoverLanguages().catch(() => {});
 
     // 初始化缩略图系统
     await thumbs.initThumbnails();

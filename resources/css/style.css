@@ -305,7 +305,7 @@ html, body {
     background: var(--danger-hover);
 }
 
-/* 紧凑按钮：与 .small（列宽限定 50px，用于扩展名输入框）区分开 */
+/* 紧凑按钮 */
 .btn.compact {
     padding: 2px 4px;
     width: auto;
@@ -388,7 +388,7 @@ textarea {
 }
 
 .dir-input-wrap input {
-    padding-right: 28px;
+    padding-right: 52px;
 }
 
 .dir-drop-btn {
@@ -403,6 +403,13 @@ textarea {
     font-size: 12px;
     padding: 2px 6px;
     line-height: 1;
+}
+
+/* 文件夹选择按钮位于历史按钮左侧，样式与历史按钮一致 */
+#btn_pick_dir {
+    right: 26px;
+    display: flex;
+    align-items: center;
 }
 
 .dir-drop-btn:hover {
@@ -485,7 +492,6 @@ textarea {
 }
 
 .grow { flex: 1; }
-.small { width: 50px; }
 .btns { display: flex;}
 
 .markdown {
@@ -514,8 +520,15 @@ textarea {
     padding: 4px;
     margin-bottom: 4px;
 }
-#load-panel{
-    border-radius:0px;
+#load-panel {
+    border-radius: 0px;
+    transition: background-color 0.2s, outline-color 0.2s;
+}
+
+#load-panel.drag-over {
+    outline: 2px dashed var(--accent);
+    outline-offset: -2px;
+    background: var(--bg-hover);
 }
 .grow-panel {
     flex: 1;
@@ -1499,9 +1512,6 @@ textarea {
     transition: width 0.25s ease;
 }
 
-/* ============ LLM 结果面板（tool-result） ============ */
-
-/* 追加按钮放在结果面板下方，使用紧凑按钮类避免与 .small 冲突 */
 
 /* ============ 高亮规则编辑对话框 ============ */
 

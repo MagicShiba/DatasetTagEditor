@@ -33,7 +33,8 @@
 ## 运行与构建
 
 ### Windows 直接运行
-使用项目内 `dataset-tag-editor-win_x64.exe` 即可直接启动使用。
+使用项目内 `dataset-tag-editor-win_x64.exe` 即可直接启动使用。  
+`dataset-tag-editor-win_x64-test.exe` 用于测试解决neutralinojs的一些限制，比如文件拖放无效的问题。
 
 > **平台说明**：我没有其它平台设备，因此只保证能在windows下运行。
 

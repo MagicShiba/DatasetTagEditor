@@ -27,6 +27,7 @@ restore_default = "恢复默认配置"
 [dataset]
 directory = "数据集目录"
 caption_ext = "扩展名"
+pick_dir = "选择文件夹"
 load = "加载"
 unload = "卸载"
 load_settings = "数据集加载设置"
