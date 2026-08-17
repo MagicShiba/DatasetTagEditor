@@ -1,21 +1,38 @@
 // dataset.js - 数据集与标签核心逻辑
 
 import * as api from "./api.js";
-import { normalizePath, getStem, getExtension, withSuffix, withStem, md5, getDirname, getBasename } from "./utils.js";
+import { normalizePath, getStem, getExtension, withSuffix, withStem, md5, getDirname, getBasename, splitCaption, splitCaptionWithSepts, cleanupTrailingSep } from "./utils.js";
 
 // ================================================================
 // Data: 单张图片及其标签
 // ================================================================
 
 export class Data {
-    constructor(imgpath, caption, missingCaption = false, applied = false) {
+    constructor(imgpath, caption, missingCaption = false, applied = false, septs = null) {
         this.imgpath = imgpath;
-        this.tags = caption.split(",").map(s => s.trim());
+        const res = splitCaptionWithSepts(caption);
+        this.tags = res.tags;
+        // septs[i] 为 tags[i] 之后的原始间隔文本（末位为末尾文本，如句号）
+        this.septs = septs || res.septs;
         this.tagset = new Set(this.tags);
         // 加载时该图像是否不存在文本文件（用于画廊标记 / LLM 反推）
         this.missing_caption = missingCaption;
         // 用户是否已编辑并通过"将更改应用于图像"应用过非空标注（用于画廊绿点标记）
         this.applied = applied;
+    }
+
+    // 原标注末尾文本（最后一个间隔，如句号），无则返回 ""
+    getTrailingText() {
+        if (this.septs && this.septs.length > 0) return this.septs[this.septs.length - 1];
+        return "";
+    }
+
+    // 无分隔符信息（批量编辑/替换/排序等）时重建默认间隔：标签间 ", "，末尾沿用原末尾文本（经清理）
+    static defaultSepts(tags, trailing) {
+        if (!tags || tags.length === 0) return [];
+        const arr = new Array(tags.length).fill(", ");
+        arr[arr.length - 1] = cleanupTrailingSep(trailing);
+        return arr;
     }
 
     tagContainsAllOf(tags) {
@@ -31,6 +48,15 @@ export class Data {
         }
         return false;
     }
+}
+
+// 将标签与间隔文本拼接回标注文本（保留原始分隔符与末尾句号）
+export function joinTagsWithSepts(tags, septs) {
+    if (!tags || tags.length === 0) return "";
+    if (septs && septs.length === tags.length) {
+        return tags.map((t, i) => t + (septs[i] ?? "")).join("");
+    }
+    return tags.join(", ");
 }
 
 // ================================================================
@@ -284,7 +310,7 @@ export class DatasetTagEditor {
         return this.dataset.getDataTags(imgpath);
     }
 
-    setTagsByImagePath(imgpath, tags, missingCaption, applied) {
+    setTagsByImagePath(imgpath, tags, missingCaption, applied, septs = null) {
         // 未显式指定时保留原有标记，避免覆盖丢失
         const existing = this.dataset.getData(imgpath);
         const miss = missingCaption !== undefined
@@ -293,20 +319,44 @@ export class DatasetTagEditor {
         const appld = applied !== undefined
             ? applied
             : (existing ? existing.applied : false);
-        this.dataset.appendData(new Data(imgpath, tags.join(","), miss, appld));
+        // 无分隔符信息（批量编辑/替换/排序等）时用默认间隔，末尾沿用原有句号等文本
+        const effectiveSepts = (septs && septs.length === tags.length)
+            ? septs
+            : Data.defaultSepts(tags, existing ? existing.getTrailingText() : "");
+        const data = new Data(imgpath, "", miss, appld, effectiveSepts);
+        data.tags = [...tags];
+        data.tagset = new Set(data.tags);
+        this.dataset.appendData(data);
+        return data;
     }
 
     // 更新 LLM 反推后的标签，并清除"缺失文本文件"标记
     // append 为 true 时在已有标注后追加并去重，否则覆盖
-    setReverseTags(imgpath, tags, append = true) {
+    setReverseTags(imgpath, tags, append = true, septs = null) {
         const data = this.dataset.getData(imgpath);
         if (!data) return;
         // 空标注时 tags 为 [""]，需排除空字符串后再判定是否已有内容
         const hadContent = data.tags.some(t => t);
         if (append && hadContent) {
-            data.tags = [...new Set([...data.tags, ...tags])];
+            // 追加去重：已有标签保留原间隔，末尾句号改为逗号（句子延续），新标签用默认间隔
+            const base = (data.septs && data.septs.length === data.tags.length)
+                ? data.septs.slice()
+                : data.tags.map(() => ", ");
+            if (base.length > 0) base[base.length - 1] = ", ";
+            const existingSet = new Set(data.tags);
+            for (const t of tags) {
+                if (!existingSet.has(t)) {
+                    data.tags.push(t);
+                    base.push(", ");
+                }
+            }
+            data.septs = base;
         } else {
+            const effectiveSepts = (septs && septs.length === tags.length)
+                ? septs
+                : Data.defaultSepts(tags, "");
             data.tags = tags;
+            data.septs = effectiveSepts;
         }
         data.tagset = new Set(data.tags);
         data.missing_caption = false;
@@ -494,8 +544,7 @@ export class DatasetTagEditor {
             } else {
                 caption = caption.split(searchText).join(replaceText);
             }
-            let captionTags = caption.split(",").map(s => s.trim());
-            captionTags = captionTags.filter(t => t);
+            let captionTags = splitCaption(caption);
             this.setTagsByImagePath(imgPath, captionTags);
         }
         this.constructTagInfos();
@@ -525,7 +574,7 @@ export class DatasetTagEditor {
         }
         const flat = [];
         for (const t of out) {
-            for (const t2 of t.split(",")) {
+            for (const t2 of splitCaption(t)) {
                 if (t2) flat.push(t2);
             }
         }
@@ -546,7 +595,7 @@ export class DatasetTagEditor {
         }
         const flat = new Set();
         for (const t of out) {
-            for (const t2 of t.split(",")) {
+            for (const t2 of splitCaption(t)) {
                 if (t2) flat.add(t2);
             }
         }
@@ -754,8 +803,8 @@ export class DatasetTagEditor {
             // 加载标注
             const missingPaths = [];
             for (const imgPath of imgpaths) {
-                const { tags, hasCaptionFile } = await this.loadCaptionForImage(imgPath, captionExt, loadCaptionFromFilename, replaceNewLine);
-                this.setTagsByImagePath(imgPath, tags, !hasCaptionFile);
+                const { tags, septs, hasCaptionFile } = await this.loadCaptionForImage(imgPath, captionExt, loadCaptionFromFilename, replaceNewLine);
+                this.setTagsByImagePath(imgPath, tags, !hasCaptionFile, undefined, septs);
                 if (!hasCaptionFile) missingPaths.push(imgPath);
             }
 
@@ -796,9 +845,8 @@ export class DatasetTagEditor {
             captionText = captionText.replace(RE_NEWLINES, ",");
         }
 
-        let captionTags = captionText.split(",").map(s => s.trim());
-        captionTags = captionTags.filter(t => t);
-        return { tags: captionTags, hasCaptionFile };
+        let captionSplit = splitCaptionWithSepts(captionText);
+        return { tags: captionSplit.tags, septs: captionSplit.septs, hasCaptionFile };
     }
 
     // ---------- 保存数据集 ----------
@@ -844,7 +892,7 @@ export class DatasetTagEditor {
 
             // 保存
             try {
-                await api.writeTextFile(txtPath, data.tags.join(", "));
+                await api.writeTextFile(txtPath, joinTagsWithSepts(data.tags, data.septs));
                 savedNum++;
             } catch (e) { }
         }

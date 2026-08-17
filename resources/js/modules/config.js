@@ -23,8 +23,9 @@ export const CFG_FILTER_P_DEFAULT = {
     sw_prefix: false,
     sw_suffix: false,
     sw_regex: false,
-    sort_by: SortBy.ALPHA,
-    sort_order: SortOrder.ASC,
+    sort_by: SortBy.FREQ,
+    sort_order: SortOrder.DESC,
+    list_display: false,
     logic: "AND",
 };
 
@@ -32,8 +33,9 @@ export const CFG_FILTER_N_DEFAULT = {
     sw_prefix: false,
     sw_suffix: false,
     sw_regex: false,
-    sort_by: SortBy.ALPHA,
-    sort_order: SortOrder.ASC,
+    sort_by: SortBy.FREQ,
+    sort_order: SortOrder.DESC,
+    list_display: false,
     logic: "OR",
 };
 
@@ -45,8 +47,9 @@ export const CFG_BATCH_EDIT_DEFAULT = {
     sw_prefix: false,
     sw_suffix: false,
     sw_regex: false,
-    sort_by: SortBy.ALPHA,
-    sort_order: SortOrder.ASC,
+    sort_by: SortBy.FREQ,
+    sort_order: SortOrder.DESC,
+    list_display: false,
 };
 
 export const CFG_EDIT_SELECTED_DEFAULT = {
@@ -124,6 +127,9 @@ export const SETTINGS_DEFAULT = {
     filename_word_regex: "",
     filename_join_string: " ",
     num_cpu_worker: -1,
+    // 标签分隔符（每个字符都是一个分隔符），默认英文逗号；
+    // 可添加英文句号、中文逗号、中文句号等，如 ",.，。"
+    tag_separators: ",",
     // 界面语言：auto 表示跟随系统语言（中文系统用中文，其它用英文）
     language: "auto",
     // 加载数据集时对无文本文件的图像使用 LLM 反推标注的提示词
@@ -164,6 +170,7 @@ export const SETTINGS_DESCRIPTIONS = {
     filename_word_regex: "settings.filename_word_regex",
     filename_join_string: "settings.filename_join_string",
     num_cpu_worker: "settings.num_cpu_worker",
+    tag_separators: "settings.tag_separators",
     language: "settings.language",
 };
 

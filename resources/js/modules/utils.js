@@ -257,3 +257,125 @@ export function formatAspectRatio(w, h) {
 export function floorToMultiple(v, n = 64) {
     return Math.floor(v / n) * n;
 }
+
+// ================================================================
+// 标签分隔
+// ================================================================
+
+// 标签分隔符（每个字符都是一个分隔符），默认英文逗号
+let tagSeparators = ",";
+
+// 设置标签分隔符（由设置项 tag_separators 驱动，应用启动与保存设置时调用）
+export function setTagSeparators(sep) {
+    tagSeparators = (sep && typeof sep === "string" && sep.length > 0) ? sep : ",";
+}
+
+// 将标注文本按配置的分隔符拆分为标签列表（自动 trim 并过滤空项）。
+// 特殊处理：
+//   - 缩写内部的英文句点不拆（如 "D.O.G.E." 保持为一个标签）
+//   - 数字之间的英文句点不拆（小数 / 版本号，如 "42.5"）
+//   - 被引号包裹的内容整体作为一个标签，内部不分隔（支持 "…" '…' “…” ‘…’）
+export function splitCaption(text) {
+    return splitCaptionWithSepts(text).tags;
+}
+
+// 同 splitCaption，但额外返回每个标签后的原始间隔文本 septs：
+//   septs[i] 为 tags[i] 之后的原文（i 为末位时表示末尾文本）。
+// 末尾处理策略：
+//   - 末尾只含逗号/空白时清除（清理多余的逗号）；
+//   - 末尾含句号（. 或 。）时原样保留（正常句子的合理句号）。
+export function splitCaptionWithSepts(text) {
+    if (!text) return { tags: [], septs: [] };
+    const seps = new Set(tagSeparators.split(""));
+    const isWord = (c) => c !== undefined && /[A-Za-z0-9]/.test(c);
+    const isDigit = (c) => c !== undefined && /[0-9]/.test(c);
+    // 引号配对：开引号字符 -> 对应闭引号字符
+    const CLOSE_OF = { '"': '"', "'": "'", "\u201C": "\u201D", "\u2018": "\u2019" };
+    const parts = [];
+    const septs = [];
+    let buf = "";      // 当前标签内容
+    let sepBuf = "";   // 当前分隔符段（分隔符 + 空白）
+    let inSep = false; // 是否处于分隔符段
+    let quote = null;  // 当前开引号字符，null 表示不在引号内
+
+    // 提交当前标签及它后面的间隔文本（trailing 可选覆盖，用于结尾清理）
+    const commit = (trailing) => {
+        const tag = buf.trim();
+        const gap = trailing !== undefined ? trailing : sepBuf;
+        buf = "";
+        sepBuf = "";
+        inSep = false;
+        if (tag) {
+            parts.push(tag);
+            septs.push(gap);
+        }
+    };
+
+    for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+
+        // 引号内：所有字符原样保留（含分隔符），直到遇到闭引号
+        if (quote) {
+            if (inSep) commit();
+            buf += ch;
+            if (ch === quote) quote = null;
+            continue;
+        }
+
+        // 开引号：英文/中文双引号与中文单引号
+        if (ch === '"' || ch === "\u201C" || ch === "\u2018") {
+            if (inSep) commit();
+            quote = CLOSE_OF[ch];
+            buf += ch;
+            continue;
+        }
+        // 英文单引号：仅在它位于单词开头（非撇号/所有格，如 don't、cats'）时才作为开引号
+        if (ch === "'" && !isWord(text[i - 1]) && isWord(text[i + 1])) {
+            if (inSep) commit();
+            quote = "'";
+            buf += ch;
+            continue;
+        }
+
+        let isSep = seps.has(ch);
+        // 英文句点：小数（两侧均为数字）或缩写（两侧均为单个字符）内部的句点不作为分隔符
+        if (isSep && ch === ".") {
+            if (isDigit(text[i - 1]) && isDigit(text[i + 1])) {
+                isSep = false; // 小数 / 版本号，如 42.5、1.1
+            } else if (isWord(text[i - 1]) && !isWord(text[i - 2])
+                && isWord(text[i + 1]) && !isWord(text[i + 2])) {
+                isSep = false; // 缩写，如 D.O.G.E.
+            }
+        }
+
+        if (isSep) {
+            if (!inSep) { inSep = true; sepBuf = ""; }
+            sepBuf += ch;
+        } else {
+            if (inSep) {
+                // 分隔符段内：空白并入间隔文本（保留分隔符后的空格），其余字符开始新标签
+                if (/\s/.test(ch)) {
+                    sepBuf += ch;
+                    continue;
+                }
+                commit();
+            }
+            buf += ch;
+        }
+    }
+
+    if (inSep) {
+        // 末尾：只含逗号/空白的分隔符清除，含句号的原样保留
+        commit(cleanupTrailingSep(sepBuf));
+    } else {
+        commit("");
+    }
+    return { tags: parts, septs };
+}
+
+// 清理末尾分隔符：含句号（正常句子结尾）原样保留，否则（多余的逗号/空白）清除
+export function cleanupTrailingSep(sep) {
+    if (!sep) return "";
+    if (sep.includes(".") || sep.includes("\u3002")) return sep;
+    return "";
+}

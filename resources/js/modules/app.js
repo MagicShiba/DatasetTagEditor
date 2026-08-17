@@ -2,11 +2,12 @@
 
 import { DatasetTagEditor } from "./dataset.js";
 import { PathFilter, FilterMode } from "./dataset.js";
+import { joinTagsWithSepts } from "./dataset.js";
 import * as api from "./api.js";
 import * as thumbs from "./thumbnails.js";
 import { config, settings, getSetting } from "./config.js";
 import { t } from "./i18n.js";
-import { normalizePath, getStem, getExtension, getBasename } from "./utils.js";
+import { normalizePath, getStem, getExtension, getBasename, setTagSeparators } from "./utils.js";
 
 class App {
     constructor() {
@@ -22,6 +23,9 @@ class App {
 
         // 画廊排序方式：key 为 name/resolution/mtime，dir 为 1（升序）或 -1（降序）
         this.gallerySort = { key: "name", dir: 1 };
+
+        // 画廊显示方式：grid（网格）或 list（列表，行内显示标注文本）
+        this.galleryDisplay = "grid";
 
         // 选择筛选状态
         this.tmpSelection = new Set();
@@ -89,6 +93,8 @@ app.onTagFilterChanged = null;
 export async function initApp() {
     await config.load();
     await settings.load();
+    // 应用标签分隔符设置（加载标注时按此拆分标签）
+    setTagSeparators(getSetting("tag_separators"));
 
     // 应用语言：先加载语言包（settings.load 已调用 setLang 设置当前语言）
     const { applyI18n, discoverLanguages } = await import("./i18n.js");
@@ -113,6 +119,8 @@ export function applyColumns() {
         const w = el.clientWidth;
         const cols = Math.max(1, Math.floor((w + 2) / (cellWidth + 2)));
         el.style.setProperty("--cols", cols);
+        // 列表显示方式下缩略图宽度与网格一致（使用同一设置）
+        el.style.setProperty("--thumb-w", cellWidth + "px");
     });
 }
 
@@ -214,6 +222,7 @@ export function renderGallery(opts) {
     const { el, paths, selectedIndex = -1, onSelect, useThumbs = true, multiSelected } = opts;
     const maxRes = useThumbs ? (getSetting("max_resolution") || 0) : 0;
 
+    el.classList.toggle("list", app.galleryDisplay === "list");
     el.classList.remove("thumb-loading");
 
     if (!paths || paths.length === 0) {
@@ -245,11 +254,14 @@ export function renderGallery(opts) {
                 e.dataTransfer.setData("text/plain", path);
                 e.dataTransfer.effectAllowed = "copy";
             });
+            const imgWrap = document.createElement("div");
+            imgWrap.className = "thumb-img";
             const img = document.createElement("img");
             img.alt = "";
             img.loading = "lazy";
             img.src = PLACEHOLDER_SRC;
-            item.appendChild(img);
+            imgWrap.appendChild(img);
+            item.appendChild(imgWrap);
             item.addEventListener("click", (e) => {
                 if (onSelect) onSelect(Number(item.dataset.index), path, e);
             });
@@ -257,8 +269,11 @@ export function renderGallery(opts) {
         item.dataset.index = idx;
         // 高亮：单选索引或 Ctrl 多选集合中的路径
         item.classList.toggle("selected", idx === selectedIndex || (multiSelected && multiSelected.has(path)));
+        // 列表模式下整行不拖动，允许标准文本选中/复制；仅缩略图本身可拖（拖入 LLM 反推管理窗口）
+        item.draggable = app.galleryDisplay !== "list";
         syncThumbBadge(item, path);
         syncThumbName(item, path);
+        syncThumbCaption(item, path);
         used.add(path);
         frag.appendChild(item);
     });
@@ -280,7 +295,7 @@ export function renderGallery(opts) {
     el.appendChild(frag);
 
     newImgs.forEach(img => {
-        const item = img.parentElement;
+        const item = img.closest(".thumb-item");
         const path = item.dataset.path;
         if (img.dataset.loaded === "1" && img.dataset.res === String(maxRes)) return;
         img.dataset.res = String(maxRes);
@@ -308,37 +323,60 @@ function syncThumbBadge(item, path) {
     const showYellow = !!(data && data.reversed && hasContent && !showGreen);
     const showRed = !!(data && data.missing_caption && !hasContent);
     let badge = null;
-    for (const child of item.children) {
-        if (child.classList && child.classList.contains("thumb-badge")) {
-            badge = child;
-            break;
+    const imgWrap = item.querySelector(".thumb-img");
+    if (imgWrap) {
+        for (const child of imgWrap.children) {
+            if (child.classList && child.classList.contains("thumb-badge")) {
+                badge = child;
+                break;
+            }
         }
     }
     if (showRed || showYellow || showGreen) {
-        if (!badge) {
+        if (!badge && imgWrap) {
             badge = document.createElement("span");
             badge.className = "thumb-badge";
-            item.appendChild(badge);
+            imgWrap.appendChild(badge);
         }
-        badge.classList.toggle("applied", showGreen);
-        badge.classList.toggle("reversed", showYellow);
-        badge.title = showGreen ? t("gallery.edited_badge")
-            : showYellow ? t("gallery.reversed_badge")
-            : t("gallery.missing_caption_badge");
+        if (badge) {
+            badge.classList.toggle("applied", showGreen);
+            badge.classList.toggle("reversed", showYellow);
+            badge.title = showGreen ? t("gallery.edited_badge")
+                : showYellow ? t("gallery.reversed_badge")
+                : t("gallery.missing_caption_badge");
+        }
     } else if (badge) {
         badge.remove();
     }
 }
 
-// 缩略图底部图像名称（悬停时显示）：首次创建或重命名后同步
+// 缩略图底部图像名称（悬停时显示）：位于图像浮层内，网格/列表模式一致
 function syncThumbName(item, path) {
-    let name = item.querySelector(".thumb-name");
+    const imgWrap = item.querySelector(".thumb-img");
+    if (!imgWrap) return;
+    let name = imgWrap.querySelector(".thumb-name");
     if (!name) {
         name = document.createElement("span");
         name.className = "thumb-name";
-        item.appendChild(name);
+        imgWrap.appendChild(name);
     }
     name.textContent = getBasename(path);
+}
+
+// 列表显示方式下同步标注文本：显示原始文本（仅裁剪首尾空白，不经过标签编辑处理）
+function syncThumbCaption(item, path) {
+    let cap = item.querySelector(".thumb-caption");
+    if (app.galleryDisplay !== "list") {
+        if (cap) cap.remove();
+        return;
+    }
+    if (!cap) {
+        cap = document.createElement("div");
+        cap.className = "thumb-caption";
+        item.appendChild(cap);
+    }
+    const data = app.dte.dataset.getData(path);
+    cap.textContent = data ? joinTagsWithSepts(data.tags, data.septs) : "";
 }
 
 // LLM 反推 / 应用更改后刷新指定缩略图的状态角标

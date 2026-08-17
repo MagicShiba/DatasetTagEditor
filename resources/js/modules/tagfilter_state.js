@@ -9,18 +9,19 @@ import { bindAutocomplete } from "./autocomplete.js";
 let _uid = 0;
 
 export class TagFilterState {
-    constructor({ mode = FilterMode.INCLUSIVE, showLogic = false } = {}) {
+    constructor({ mode = FilterMode.INCLUSIVE, showLogic = false, listDisplay = false } = {}) {
         this.mode = mode;          // INCLUSIVE / EXCLUSIVE
         this.showLogic = showLogic; // 是否显示 Filter Logic 单选（Positive/Negative 显示，Remove 不显示）
         this.logic = FilterLogic.AND;
         this.filterWord = "";
-        this.sortBy = SortBy.ALPHA;
-        this.sortOrder = SortOrder.ASC;
+        this.sortBy = SortBy.FREQ;
+        this.sortOrder = SortOrder.DESC;
         this.selectedTags = new Set();
         this.visibleTags = new Set();
         this.prefix = false;
         this.suffix = false;
         this.regex = false;
+        this.listDisplay = !!listDisplay; // false = 长短混排，true = 左侧对齐列表
         this.filter = new TagFilter(this.selectedTags, this.logic, this.mode);
     }
 
@@ -42,16 +43,16 @@ export class TagFilterState {
             <div class="field">
                 <label class="field-label">${t("filter_tags.sort_by")}</label>
                 <div class="radio-row">
-                    <label class="checkbox"><input type="radio" class="tf-sortby" name="${uid}-sortby" value="${SortBy.ALPHA}" checked><span>${t("filter_tags.sort_alpha")}</span></label>
-                    <label class="checkbox"><input type="radio" class="tf-sortby" name="${uid}-sortby" value="${SortBy.FREQ}"><span>${t("filter_tags.sort_frequency")}</span></label>
+                    <label class="checkbox"><input type="radio" class="tf-sortby" name="${uid}-sortby" value="${SortBy.ALPHA}"><span>${t("filter_tags.sort_alpha")}</span></label>
+                    <label class="checkbox"><input type="radio" class="tf-sortby" name="${uid}-sortby" value="${SortBy.FREQ}" checked><span>${t("filter_tags.sort_frequency")}</span></label>
                     <label class="checkbox"><input type="radio" class="tf-sortby" name="${uid}-sortby" value="${SortBy.LEN}"><span>${t("filter_tags.sort_length")}</span></label>
                 </div>
             </div>
             <div class="field">
                 <label class="field-label">${t("filter_tags.sort_order")}</label>
                 <div class="radio-row">
-                    <label class="checkbox"><input type="radio" class="tf-sortorder" name="${uid}-sortorder" value="${SortOrder.ASC}" checked><span>${t("common.ascending")}</span></label>
-                    <label class="checkbox"><input type="radio" class="tf-sortorder" name="${uid}-sortorder" value="${SortOrder.DESC}"><span>${t("common.descending")}</span></label>
+                    <label class="checkbox"><input type="radio" class="tf-sortorder" name="${uid}-sortorder" value="${SortOrder.ASC}"><span>${t("common.ascending")}</span></label>
+                    <label class="checkbox"><input type="radio" class="tf-sortorder" name="${uid}-sortorder" value="${SortOrder.DESC}" checked><span>${t("common.descending")}</span></label>
                 </div>
             </div>
             ${this.showLogic ? `
@@ -66,6 +67,10 @@ export class TagFilterState {
             <div class="row">
                 <button class="btn tf-select-visibles">${t("filter_tags.select_visible")}</button>
                 <button class="btn tf-deselect-visibles">${t("filter_tags.deselect_visible")}</button>
+                <div class="radio-row tf-display-option">
+                    <label class="checkbox"><input type="radio" class="tf-display" name="${uid}-display" value="wrap" checked><span>${t("filter_tags.display_wrap")}</span></label>
+                    <label class="checkbox"><input type="radio" class="tf-display" name="${uid}-display" value="list"><span>${t("filter_tags.display_list")}</span></label>
+                </div>
             </div>
             <div class="tf-tags"></div>
         `;
@@ -82,6 +87,12 @@ export class TagFilterState {
         this.sortOrderRadios = el.querySelectorAll(".tf-sortorder");
         this.logicRadios = el.querySelectorAll(".tf-logic");
         this.tagsEl = el.querySelector(".tf-tags");
+        this.displayRadios = el.querySelectorAll(".tf-display");
+        this.displayRadios.forEach(rb => rb.addEventListener("change", () => {
+            this.setListDisplay(getCheckedValue(this.displayRadios) === "list");
+        }));
+        // 初始化显示方式（混排 / 列表）
+        this.setListDisplay(this.listDisplay);
 
         // 绑定事件
         this.searchInput.addEventListener("input", () => {
@@ -217,8 +228,9 @@ export class TagFilterState {
         const selected = new Set(this.selectedTags);
         const html = tags.map(tag => {
             const freq = dte && dte.tag_counts ? (dte.tag_counts.get(tag) || 0) : 0;
-            const label = this.sortBy === SortBy.FREQ ? `${tag} [${freq}]`
-                : this.sortBy === SortBy.LEN ? `${tag} [${tag.length}]`
+            // 频率 / 长度数字放在标签前面
+            const label = this.sortBy === SortBy.FREQ ? `[${freq}] ${tag}`
+                : this.sortBy === SortBy.LEN ? `[${tag.length}] ${tag}`
                 : tag;
             const checked = selected.has(tag) ? "checked" : "";
             return `<label class="checkbox tf-tag-row">
@@ -238,6 +250,13 @@ export class TagFilterState {
         this.update();
     }
 
+    // 设置标签列表显示方式：true = 左侧对齐列表，false = 长短混排
+    setListDisplay(list) {
+        this.listDisplay = !!list;
+        if (this.tagsEl) this.tagsEl.classList.toggle("list", this.listDisplay);
+        if (this.displayRadios) setRadioValue(this.displayRadios, this.listDisplay ? "list" : "wrap");
+    }
+
     // 返回当前 TagFilter 对象
     getFilter() {
         return this.filter;
@@ -247,11 +266,12 @@ export class TagFilterState {
     applyConfig(cfg) {
         if (!cfg) return;
         this.logic = cfg.logic === "AND" ? FilterLogic.AND : cfg.logic === "OR" ? FilterLogic.OR : FilterLogic.NONE;
-        this.sortBy = cfg.sort_by || SortBy.ALPHA;
-        this.sortOrder = cfg.sort_order || SortOrder.ASC;
+        this.sortBy = cfg.sort_by || SortBy.FREQ;
+        this.sortOrder = cfg.sort_order || SortOrder.DESC;
         this.prefix = !!cfg.sw_prefix;
         this.suffix = !!cfg.sw_suffix;
         this.regex = !!cfg.sw_regex;
+        if (cfg.list_display !== undefined) this.setListDisplay(!!cfg.list_display);
         this.filter = new TagFilter(this.selectedTags, this.logic, this.mode);
         if (this.sortByRadios) setRadioValue(this.sortByRadios, this.sortBy);
         if (this.sortOrderRadios) setRadioValue(this.sortOrderRadios, this.sortOrder);

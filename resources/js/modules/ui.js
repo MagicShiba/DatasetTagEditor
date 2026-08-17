@@ -3,11 +3,11 @@
 import { app, renderGallery, openFolderDialog, applyColumns, updateGalleryStateDisplay, sortGalleryPaths, invalidateThumbUrlCache, updateThumbBadge } from "./app.js";
 import { config, settings, getSetting, setSetting, SETTINGS_DEFAULT, SETTINGS_DESCRIPTIONS, SETTINGS_HIDDEN, LLM_CONFIG_DEFAULT, LLM_FN_DEFAULT, getActiveProfile, setActiveProfile, saveProfile } from "./config.js";
 import { t, getLang, setLang, applyI18n, discoverLanguages, getAvailableLanguages } from "./i18n.js";
-import { PathFilter, FilterMode, FilterLogic, SortBy, SortOrder } from "./dataset.js";
+import { PathFilter, FilterMode, FilterLogic, SortBy, SortOrder, joinTagsWithSepts } from "./dataset.js";
 import { TagFilterState } from "./tagfilter_state.js";
 import * as api from "./api.js";
 import * as thumbs from "./thumbnails.js";
-import { normalizePath, getStem, getExtension, withSuffix, getBasename, getDirname, formatAspectRatio, floorToMultiple } from "./utils.js";
+import { normalizePath, getStem, getExtension, withSuffix, getBasename, getDirname, formatAspectRatio, floorToMultiple, splitCaption, splitCaptionWithSepts, setTagSeparators } from "./utils.js";
 import { parseRules, applyHighlight, escapeHtml } from "./highlight.js";
 import { initAutocomplete, loadAutocompleteData, bindAutocomplete } from "./autocomplete.js";
 import * as llm from "./llm.js";
@@ -128,6 +128,21 @@ function initGallerySort() {
 
     // 初始同步箭头方向
     dirBtn.textContent = app.gallerySort.dir === 1 ? "▲" : "▼";
+
+    // 画廊显示方式切换：⊞ 网格 / ☰ 列表（列表行内显示标注原始文本）
+    const dispBtn = document.getElementById("gallery_display_toggle");
+    const syncDispBtn = () => {
+        const isList = app.galleryDisplay === "list";
+        dispBtn.textContent = isList ? "☰" : "⊞";
+        dispBtn.title = isList ? t("gallery.display_list") : t("gallery.display_grid");
+    };
+    dispBtn.addEventListener("click", () => {
+        app.galleryDisplay = app.galleryDisplay === "list" ? "grid" : "list";
+        syncDispBtn();
+        refreshAll();
+    });
+    // 初始同步按钮符号与提示
+    syncDispBtn();
 }
 
 // 原图预览左右边缘点击切换上/下一张图像
@@ -213,7 +228,9 @@ function syncGallerySelectionHighlight() {
 
 // 将当前编辑框内容应用到当前选中图像（内存中）
 function applyEditToSelected() {
-    const tags = parseCaption(document.getElementById("dte_edit_caption").value);
+    const captionSplit = splitCaptionWithSepts(document.getElementById("dte_edit_caption").value);
+    const tags = captionSplit.tags;
+    const septs = captionSplit.septs;
     let path = null;
     // 优先按选中路径，其次按画廊排序列表中的索引
     if (app.gallerySelectedPath && app.galleryPaths.includes(app.gallerySelectedPath)) {
@@ -227,7 +244,7 @@ function applyEditToSelected() {
     }
     if (!path) return;
     // 应用非空内容时标记为"已编辑"，用于画廊绿点；空内容不标记
-    app.dte.setTagsByImagePath(path, tags, undefined, tags.length > 0);
+    app.dte.setTagsByImagePath(path, tags, undefined, tags.length > 0, septs);
     // 刷新角标：缺失标记 + 已编辑红/绿点
     updateThumbBadge(path);
     app.changeIsSaved = true;
@@ -927,8 +944,10 @@ async function pumpLlmReverse() {
         const text = await llm.reverseCaption(next);
         if (!llmReverse.status.has(next) || !statusEl.isConnected) return; // 处理期间被移除（取消）
         const append = getSetting("llm_reverse_append") !== false;
-        const tags = text.split(",").map(s => s.trim()).filter(t => t);
-        app.dte.setReverseTags(next, tags, append);
+        const captionSplit = splitCaptionWithSepts(text);
+        const tags = captionSplit.tags;
+        const septs = captionSplit.septs;
+        app.dte.setReverseTags(next, tags, append, septs);
         updateThumbBadge(next); // 刷新画廊状态角标
         // 若反推的图像正被选中编辑，直接刷新编辑面板，避免需切换图像才显示打标结果
         if (next === app.gallerySelectedPath) updateEditCaptionPanel();
@@ -1301,9 +1320,9 @@ async function runLlmFunctionButton(fn) {
     }
 }
 
-// 解析标注文本
+// 解析标注文本（按配置的分隔符拆分标签）
 function parseCaption(text) {
-    return text.split(",").map(s => s.trim()).filter(Boolean);
+    return splitCaption(text);
 }
 
 // ================================================================
@@ -1561,8 +1580,10 @@ function updateEditCaptionPanel() {
     const autoCopy = document.getElementById("cb_copy_caption_automatically").checked;
 
     if (idx >= 0 && idx < imgs.length) {
-        const tags = app.dte.getTagsByImagePath(imgs[idx]);
-        const txt = tags.join(", ");
+        // 直接使用存储的原始间隔文本重建显示文本（仅裁剪首尾空白，不补空格），
+        // 与画廊列表显示保持一致，避免将句号等标点替换为英文逗号或添加空格
+        const data = app.dte.dataset.getData(imgs[idx]);
+        const txt = data ? joinTagsWithSepts(data.tags, data.septs) : "";
         const rulesText = document.getElementById("tb_highlight_rules").value;
         const rules = parseRules(rulesText);
         captionEl.innerHTML = applyHighlight(txt, rules);
@@ -2091,6 +2112,9 @@ export function applyConfigToUI() {
         document.getElementById("cb_use_regex").checked = batchEdit.use_regex;
         const srRadio = document.querySelector(`input[name="sr_target"][value="${batchEdit.target || "Only Selected Tags"}"]`);
         if (srRadio) srRadio.checked = true;
+        if (app.removeTagSelect && batchEdit.list_display !== undefined) {
+            app.removeTagSelect.setListDisplay(!!batchEdit.list_display);
+        }
     }
     const editSelected = config.read("edit_selected");
     if (editSelected) {
@@ -2121,6 +2145,7 @@ function readFilterConfig() {
             sw_regex: app.filterP.regex,
             sort_by: app.filterP.sortBy,
             sort_order: app.filterP.sortOrder,
+            list_display: app.filterP.listDisplay,
             logic: app.filterP.logic === FilterLogic.AND ? "AND" : app.filterP.logic === FilterLogic.OR ? "OR" : "NONE",
         },
         negative: {
@@ -2129,6 +2154,7 @@ function readFilterConfig() {
             sw_regex: app.filterN.regex,
             sort_by: app.filterN.sortBy,
             sort_order: app.filterN.sortOrder,
+            list_display: app.filterN.listDisplay,
             logic: app.filterN.logic === FilterLogic.AND ? "AND" : app.filterN.logic === FilterLogic.OR ? "OR" : "NONE",
         },
     };
@@ -2145,6 +2171,7 @@ function readBatchEditConfig() {
         sw_regex: app.removeTagSelect ? app.removeTagSelect.regex : false,
         sort_by: app.removeTagSelect ? app.removeTagSelect.sortBy : SortBy.ALPHA,
         sort_order: app.removeTagSelect ? app.removeTagSelect.sortOrder : SortOrder.ASC,
+        list_display: app.removeTagSelect ? app.removeTagSelect.listDisplay : false,
     };
 }
 
@@ -2261,6 +2288,7 @@ function initSettings() {
             // 重新加载新档案的 config / settings 并刷新界面
             await config.load();
             await settings.load();
+            setTagSeparators(getSetting("tag_separators"));
             applyConfigToUI();
             buildSettingsGrid();
             buildLlmConfigs();
@@ -2283,6 +2311,8 @@ function initSettings() {
         readLlmConfigs();
         readLlmFunctions();
         await settings.save();
+        // 立即应用标签分隔符设置
+        setTagSeparators(getSetting("tag_separators"));
         const lang = getSetting("language");
         setLang(lang);
         await applyI18n();

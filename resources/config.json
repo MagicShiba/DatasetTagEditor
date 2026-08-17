@@ -13,16 +13,16 @@
             "sw_prefix": false,
             "sw_suffix": false,
             "sw_regex": false,
-            "sort_by": "Alphabetical Order",
-            "sort_order": "Ascending",
+            "sort_by": "Frequency",
+            "sort_order": "Descending",
             "logic": "NONE"
         },
         "negative": {
             "sw_prefix": false,
             "sw_suffix": false,
             "sw_regex": false,
-            "sort_by": "Alphabetical Order",
-            "sort_order": "Ascending",
+            "sort_by": "Frequency",
+            "sort_order": "Descending",
             "logic": "NONE"
         }
     },
@@ -34,8 +34,8 @@
         "sw_prefix": false,
         "sw_suffix": false,
         "sw_regex": false,
-        "sort_by": "Alphabetical Order",
-        "sort_order": "Ascending"
+        "sort_by": "Frequency",
+        "sort_order": "Descending"
     },
     "edit_selected": {
         "auto_copy": true,

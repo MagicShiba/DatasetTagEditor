@@ -660,6 +660,10 @@ textarea {
   margin-bottom: 10px;
 }
 
+.tag-filter-ui .row {
+  flex-wrap: wrap;
+}
+
 .tf-tags {
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -669,6 +673,17 @@ textarea {
   flex-wrap: wrap;
   gap: 4px;
   overflow: hidden;
+}
+
+/* 左侧对齐的列表显示（每行一个标签，占满整行） */
+.tf-tags.list {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.tf-tags.list .tf-tag-row {
+  width: 100%;
+  max-width: 100%;
 }
 
 .tf-tag-row {
@@ -749,6 +764,25 @@ textarea {
   border-color: var(--accent);
 }
 
+/* 画廊显示方式切换按钮：⊞ 网格 / ☰ 列表 */
+.gallery-display-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+  background: var(--bg-panel);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.gallery-display-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 .gallery-grid {
   display: grid;
   grid-template-columns: repeat(var(--cols, 6), 1fr);
@@ -782,14 +816,12 @@ textarea {
 .thumb-item {
   position: relative;
   aspect-ratio: 1;
-  /* 名称浮层显示在图像内部，overflow 保持 hidden 避免内容外溢干扰布局 */
   overflow: hidden;
-  /* overflow 非 visible 时网格项的最小宽度为 0，防止横向溢出 */
   min-width: 0;
-  border: 2px solid transparent;
+  border: 2px solid var(--border);
   cursor: pointer;
   background: #000;
-  border-radius: 3px;
+  border-radius: 2px;
 }
 
 .thumb-item img {
@@ -831,6 +863,52 @@ textarea {
 
 .thumb-item:hover .thumb-name {
   opacity: 0.8;
+}
+
+/* ============ 画廊列表显示方式 ============ */
+
+/* 图像容器：网格模式下铺满整个格子，作为名称/状态浮层的定位基准 */
+.thumb-item .thumb-img {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* 列表模式：行式布局，左侧缩略图 + 标注原始文本；
+   缩略图宽度与网格一致（gallery_image_width 设置），文件名悬停浮层在图像上，不单独占一列 */
+.gallery-grid.list {
+  display: block;
+}
+
+.gallery-grid.list .thumb-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  aspect-ratio: auto;
+  margin-bottom: 2px;
+  padding: 2px;
+}
+
+.gallery-grid.list .thumb-img {
+  width: var(--thumb-w, 128px);
+  height: var(--thumb-w, 128px);
+  flex: none;
+}
+
+/* 标注原始文本：不限制行数，最大高度与图像一致（超出部分裁剪）；允许标准文本选中与复制 */
+.gallery-grid.list .thumb-caption {
+  flex: 1;
+  height: var(--thumb-w, 128px);
+  font-size: 12px;
+  color: var(--text);
+  white-space: normal;
+  word-break: break-all;
+  overflow-y: auto;
+  user-select: text;
+  background: var(--bg-input);
+  border-left: 2px solid var(--border);
+  padding: 1px 3px;
+  cursor: auto;
 }
 
 .thumb-loading {
@@ -1546,10 +1624,8 @@ textarea {
 .llm-preview {
   position: fixed;
   z-index: 1000001;
-  width: 160px;
   height: 160px;
   object-fit: contain;
-  background: #000;
   border: 1px solid var(--border);
   border-radius: 4px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
