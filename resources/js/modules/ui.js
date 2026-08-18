@@ -1843,7 +1843,16 @@ function getLineRange(ta, offset) {
     return { start, end, text: text.substring(start, end) };
 }
 
-// 打开高亮规则编辑对话框
+// 高亮规则编辑窗口是否固定（固定后点击窗口外不关闭）
+let hrPinned = false;
+
+// 更新高亮规则编辑窗口固定状态样式
+function updateHrPinState() {
+    const popup = document.getElementById("highlight_rule_modal");
+    if (popup) popup.classList.toggle("pinned", hrPinned);
+}
+
+// 打开高亮规则编辑窗口
 function openHighlightRuleEditor(ta, clientX, clientY) {
     const offset = getOffsetAtPoint(ta, clientX, clientY);
     highlightEditLine = getLineRange(ta, offset);
@@ -1864,14 +1873,48 @@ function openHighlightRuleEditor(ta, clientX, clientY) {
     document.getElementById("hr_partial").checked = !!style.partial;
     document.getElementById("hr_cs").checked = !!style.cs;
 
-    document.getElementById("highlight_rule_modal").classList.remove("hidden");
+    const popup = document.getElementById("highlight_rule_modal");
+    popup.classList.remove("hidden");
+    // 首次打开：设置初始尺寸与居中位置（之后拖动/缩放会记住位置）
+    if (!popup.style.width || !popup.style.left) {
+        const w = Math.min(440, window.innerWidth - 16);
+        const h = Math.min(430, Math.max(300, window.innerHeight - 16));
+        popup.style.width = w + "px";
+        popup.style.height = h + "px";
+        popup.style.left = Math.max(0, Math.round((window.innerWidth - w) / 2)) + "px";
+        popup.style.top = Math.max(0, Math.round((window.innerHeight - h) / 2)) + "px";
+    }
     document.getElementById("hr_tags").focus();
+    updateHighlightPreview();
 }
 
-// 关闭高亮规则编辑对话框
+// 关闭高亮规则编辑窗口
 function closeHighlightRuleEditor() {
     document.getElementById("highlight_rule_modal").classList.add("hidden");
     highlightEditLine = null;
+}
+
+// 更新示例预览：将当前表单设置作为一条规则，应用到示例文本上，
+// 直观体现颜色 / 加粗 / 子串匹配 / 大小写区分的效果
+function updateHighlightPreview() {
+    const previewEl = document.getElementById("hr_preview");
+    const tags = document.getElementById("hr_tags").value
+        .split(/[\n,]/).map(s => s.trim()).filter(Boolean);
+    if (tags.length === 0) {
+        previewEl.textContent = t("highlight.preview_empty");
+        return;
+    }
+    const style = {};
+    if (document.getElementById("hr_enable_bg").checked) style.bg = document.getElementById("hr_bg").value;
+    if (document.getElementById("hr_enable_fg").checked) style.fg = document.getElementById("hr_fg").value;
+    if (document.getElementById("hr_bold").checked) style.b = "1";
+    if (document.getElementById("hr_partial").checked) style.partial = true;
+    if (document.getElementById("hr_cs").checked) style.cs = true;
+
+    // 示例文本：独立标签、前缀子串、后缀子串、大写变体（分别体现词边界/子串/大小写）
+    const tag = tags[0];
+    const sample = `${tag}, ${tag}. abc${tag}s\n${tag.toUpperCase()}.abc${tag.toUpperCase()}ABC`;
+    previewEl.innerHTML = applyHighlight(sample, [{ tags: [tag], style }]);
 }
 
 // 保存高亮规则并写回当前行
@@ -1902,7 +1945,7 @@ function saveHighlightRule() {
 function initHighlightRuleEditor() {
     const ta = document.getElementById("tb_highlight_rules");
 
-    // 右键点击：读取点击行并打开编辑对话框
+    // 右键点击：读取点击行并打开编辑窗口
     ta.addEventListener("contextmenu", (e) => {
         e.preventDefault();
         openHighlightRuleEditor(ta, e.clientX, e.clientY);
@@ -1919,14 +1962,78 @@ function initHighlightRuleEditor() {
     document.getElementById("hr_save").addEventListener("click", saveHighlightRule);
     document.getElementById("hr_cancel").addEventListener("click", closeHighlightRuleEditor);
 
-    // 点击遮罩关闭；按 Esc 关闭
-    const overlay = document.getElementById("highlight_rule_modal");
-    overlay.addEventListener("click", (e) => {
-        if (e.target === overlay) closeHighlightRuleEditor();
+    // 固定 / 取消固定（点击外部时保持显示）
+    document.getElementById("hr_pin").addEventListener("click", (e) => {
+        e.stopPropagation();
+        hrPinned = !hrPinned;
+        updateHrPinState();
     });
-    overlay.addEventListener("keydown", (e) => {
-        if (e.key === "Escape") closeHighlightRuleEditor();
+    // ✕ 关闭
+    document.getElementById("hr_close").addEventListener("click", closeHighlightRuleEditor);
+
+    // 点击窗口外部关闭（固定时除外）
+    document.addEventListener("click", (e) => {
+        if (hrPinned) return;
+        if (e.target.closest("#highlight_rule_modal")) return;
+        closeHighlightRuleEditor();
     });
+
+    // 按 Esc 关闭
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && !document.getElementById("highlight_rule_modal").classList.contains("hidden")) {
+            closeHighlightRuleEditor();
+        }
+    });
+
+    // 表单变化实时刷新示例预览
+    document.getElementById("hr_tags").addEventListener("input", updateHighlightPreview);
+    document.getElementById("hr_enable_bg").addEventListener("change", updateHighlightPreview);
+    document.getElementById("hr_bg").addEventListener("input", updateHighlightPreview);
+    document.getElementById("hr_enable_fg").addEventListener("change", updateHighlightPreview);
+    document.getElementById("hr_fg").addEventListener("input", updateHighlightPreview);
+    document.getElementById("hr_bold").addEventListener("change", updateHighlightPreview);
+    document.getElementById("hr_partial").addEventListener("change", updateHighlightPreview);
+    document.getElementById("hr_cs").addEventListener("change", updateHighlightPreview);
+
+    // 按住标题栏拖动窗口（标题栏上的按钮交给按钮自己处理）
+    const popup = document.getElementById("highlight_rule_modal");
+    const header = popup.querySelector(".translate-popup-header");
+    let drag = null;
+    header.addEventListener("mousedown", (e) => {
+        if (e.target.closest("button, label, input, select, a")) return;
+        drag = { dx: e.clientX - popup.offsetLeft, dy: e.clientY - popup.offsetTop };
+        e.preventDefault();
+        document.body.style.userSelect = "none";
+    });
+    window.addEventListener("mousemove", (e) => {
+        if (!drag) return;
+        popup.style.left = Math.max(0, Math.min(e.clientX - drag.dx, window.innerWidth - popup.offsetWidth)) + "px";
+        popup.style.top = Math.max(0, Math.min(e.clientY - drag.dy, window.innerHeight - popup.offsetHeight)) + "px";
+    });
+    window.addEventListener("mouseup", () => {
+        drag = null;
+        document.body.style.userSelect = "";
+    });
+
+    // 右下角三角角标：拖动调整浮窗大小（与翻译浮窗一致）
+    const resize = document.getElementById("hr_resize");
+    let rs = null;
+    resize.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        rs = { w: popup.offsetWidth, h: popup.offsetHeight, x: e.clientX, y: e.clientY };
+        document.body.style.userSelect = "none";
+    });
+    window.addEventListener("mousemove", (e) => {
+        if (!rs) return;
+        const MIN_W = 380, MIN_H = 300;
+        const MAX_W = Math.min(720, window.innerWidth - 8);
+        const MAX_H = window.innerHeight - 8;
+        const w = Math.max(MIN_W, Math.min(rs.w + (e.clientX - rs.x), MAX_W));
+        const h = Math.max(MIN_H, Math.min(rs.h + (e.clientY - rs.y), MAX_H));
+        popup.style.width = w + "px";
+        popup.style.height = h + "px";
+    });
+    window.addEventListener("mouseup", () => { rs = null; });
 }
 
 // ================================================================

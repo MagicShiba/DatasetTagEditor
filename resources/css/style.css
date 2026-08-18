@@ -1007,6 +1007,9 @@ textarea {
   margin-bottom: 6px;
   font-size: 13px;
   word-break: break-all;
+  max-height: 400px;
+  overflow-y: auto;
+  color:#ccc;
 }
 
 .actions-row {
@@ -1691,16 +1694,73 @@ textarea {
   background: var(--bg-input);
 }
 
-/* 高亮规则编辑对话框中的颜色选择行：复选框 + 颜色选择器同一行 */
+/* 高亮规则编辑对话框中的颜色选择行：复选框 + 颜色选择器挨在一起，纵向居中对齐 */
 .modal-body .hr-color-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
 }
 
+/* 复选框固定宽度，保证 hr_bg 与 hr_fg 两行颜色选择框上下对齐 */
 .modal-body .hr-color-row .checkbox {
+  flex: 0 0 140px;
+}
+#highlight_rule_modal .field{
+  margin-bottom: 0px;
+}
+
+/* 高亮规则编辑窗口（浮动窗口）内容区：表单 + 示例预览 */
+.hr-body {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin-bottom: 0;
+  padding: 4px;
+}
+
+.hr-body textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 48px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--bg-input);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px;
+}
+
+.hr-body textarea:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+/* 底部按钮区：留出右下角缩放角标的空间 */
+.hr-actions {
+  padding: 0 6px 6px;
+}
+
+/* 示例预览区：实时反映当前规则设置的高亮效果 */
+.hr-preview {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px;
+  background: var(--bg-input);
+}
+
+.hr-preview-label {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+
+.hr-preview-content {
+  font-size: 13px;
+  line-height: 1.9;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
 }
 
 /* ============ 画廊右键菜单 ============ */

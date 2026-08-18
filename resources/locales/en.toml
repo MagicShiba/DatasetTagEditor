@@ -205,6 +205,9 @@ fg_color = "Text Color"
 bold = "Bold"
 partial_match = "Partial Match"
 case_sensitive = "Case Sensitive"
+pin = "Pin (keep open when clicking outside)"
+preview = "Sample Preview"
+preview_empty = "(No matching tags set)"
 
 [dialog]
 switch_image = "Switch Image"

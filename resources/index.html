@@ -460,46 +460,57 @@
         </div>
     </div>
 
-    <!-- ======================= 高亮规则编辑对话框 ======================= -->
-    <div id="highlight_rule_modal" class="modal-overlay hidden">
-        <div class="modal modal-wide">
-            <div class="modal-title" data-i18n="highlight.edit_rule">编辑高亮规则</div>
-            <div class="modal-body">
-                <div class="field">
-                    <label class="field-label" data-i18n="highlight.matched_tags">匹配标签</label>
-                    <textarea id="hr_tags" rows="3" placeholder="girl, 1girl, long hair"></textarea>
-                </div>
-                <div class="field hr-color-row">
-                    <label class="checkbox">
-                        <input type="checkbox" id="hr_enable_bg">
-                        <span data-i18n="highlight.bg_color">背景色</span>
-                    </label>
-                    <input type="color" id="hr_bg" value="#777700" disabled>
-                </div>
-                <div class="field hr-color-row">
-                    <label class="checkbox">
-                        <input type="checkbox" id="hr_enable_fg">
-                        <span data-i18n="highlight.fg_color">文字色</span>
-                    </label>
-                    <input type="color" id="hr_fg" value="#ffffff" disabled>
-                </div>
-                <label class="checkbox">
-                    <input type="checkbox" id="hr_bold">
-                    <span data-i18n="highlight.bold">加粗</span>
-                </label>
-                <label class="checkbox">
-                    <input type="checkbox" id="hr_partial">
-                    <span data-i18n="highlight.partial_match">子串匹配</span>
-                </label>
-                <label class="checkbox">
-                    <input type="checkbox" id="hr_cs">
-                    <span data-i18n="highlight.case_sensitive">区分大小写</span>
-                </label>
+    <!-- ======================= 高亮规则编辑窗口（可拖动浮窗，点击外部或 ✕ 关闭） ======================= -->
+    <div id="highlight_rule_modal" class="translate-popup hidden">
+        <div class="translate-popup-header">
+            <span class="translate-popup-title" data-i18n="highlight.edit_rule">编辑高亮规则</span>
+            <button id="hr_pin" class="translate-pin-btn" data-i18n-title="highlight.pin">📌</button>
+            <button id="hr_close" class="translate-close-btn" data-i18n-title="common.close">✕</button>
+        </div>
+        <div class="hr-body modal-body">
+            <div class="field">
+                <label class="field-label" data-i18n="highlight.matched_tags">匹配标签</label>
+                <textarea id="hr_tags" rows="2" placeholder="girl, 1girl, long hair"></textarea>
             </div>
-            <div class="modal-actions">
-                <button id="hr_cancel" class="btn" data-i18n="common.cancel">取消</button>
-                <button id="hr_save" class="btn primary" data-i18n="common.save">保存</button>
+            <div class="field hr-color-row">
+                <label class="checkbox">
+                    <input type="checkbox" id="hr_enable_bg">
+                    <span data-i18n="highlight.bg_color">背景色</span>
+                </label>
+                <input type="color" id="hr_bg" value="#777700" disabled>
             </div>
+            <div class="field hr-color-row">
+                <label class="checkbox">
+                    <input type="checkbox" id="hr_enable_fg">
+                    <span data-i18n="highlight.fg_color">文字色</span>
+                </label>
+                <input type="color" id="hr_fg" value="#ffffff" disabled>
+            </div>
+            <label class="checkbox">
+                <input type="checkbox" id="hr_bold">
+                <span data-i18n="highlight.bold">加粗</span>
+            </label>
+            <label class="checkbox">
+                <input type="checkbox" id="hr_partial">
+                <span data-i18n="highlight.partial_match">子串匹配</span>
+            </label>
+            <label class="checkbox">
+                <input type="checkbox" id="hr_cs">
+                <span data-i18n="highlight.case_sensitive">区分大小写</span>
+            </label>
+            <!-- 示例预览：实时反映颜色 / 加粗 / 子串匹配 / 大小写区分效果 -->
+            <div class="hr-preview-label" data-i18n="highlight.preview">示例预览</div>
+            <div class="hr-preview">
+                <div id="hr_preview" class="hr-preview-content"></div>
+            </div>
+        </div>
+        <div class="modal-actions hr-actions">
+            <button id="hr_cancel" class="btn" data-i18n="common.cancel">取消</button>
+            <button id="hr_save" class="btn primary" data-i18n="common.save">保存</button>
+        </div>
+        <!-- 右下角三角角标：拖动调整浮窗大小 -->
+        <div id="hr_resize" class="translate-resize">
+            <svg viewBox="0 0 10 10" width="10" height="10"><path d="M3 9 L9 3 L9 9 Z" fill="currentColor"/></svg>
         </div>
     </div>
 

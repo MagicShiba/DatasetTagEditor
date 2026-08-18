@@ -12,7 +12,9 @@ function buildRegexForTag(tag, style) {
     if (style.partial) {
         return new RegExp(escaped, flag);
     }
-    return new RegExp("(?<=^|[,\\s])" + escaped + "(?=$|[,\\s])", flag);
+    // 完整词边界匹配：前后不能是文字/数字/下划线（标点如 . ! ? , 以及空白等都可作为边界；
+    // 含 Unicode，避免中文字符串中的子串被误匹配，如 "女孩" 不匹配 "女孩儿"）
+    return new RegExp("(?<![\\p{L}\\p{N}_])" + escaped + "(?![\\p{L}\\p{N}_])", flag + "u");
 }
 
 // 生成行内样式

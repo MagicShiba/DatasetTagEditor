@@ -236,7 +236,7 @@ function ensureAcSetup() {
     if (!document.getElementById("ac-style")) {
         const st = document.createElement("style");
         st.id = "ac-style";
-        st.textContent = '.ac-autocomplete-box{position:fixed;z-index:999999;border-radius:6px;background:#212121ee;color:#eee;font-family:inherit;font-size:14px;display:none;box-shadow:0 0 1px 1px #00bbcc77;max-width:450px;min-width:250px;overflow-y:auto}.ac-row{display:grid;grid-template-columns:6fr 4fr 1fr;gap:8px;padding:2px 6px;cursor:pointer;align-items:center;white-space:nowrap;overflow:hidden;border-bottom:2px solid #666}.ac-eng{overflow:hidden;text-overflow:ellipsis;border-right:2px solid #666}.ac-chi{overflow:hidden;text-overflow:ellipsis;color:#cfcfcf}.ac-num{text-align:right;color:#bdbdbd;font-size:12px;min-width:36px}.ac-row:hover,.ac-row.ac-act{background:#444}.ac-hl{color:#ffdb4d;font-weight:bold}';
+        st.textContent = '.ac-autocomplete-box{position:fixed;z-index:3000000;border-radius:6px;background:#212121ee;color:#eee;font-family:inherit;font-size:14px;display:none;box-shadow:0 0 1px 1px #00bbcc77;max-width:450px;min-width:250px;overflow-y:auto}.ac-row{display:grid;grid-template-columns:6fr 4fr 1fr;gap:8px;padding:2px 6px;cursor:pointer;align-items:center;white-space:nowrap;overflow:hidden;border-bottom:2px solid #666}.ac-eng{overflow:hidden;text-overflow:ellipsis;border-right:2px solid #666}.ac-chi{overflow:hidden;text-overflow:ellipsis;color:#cfcfcf}.ac-num{text-align:right;color:#bdbdbd;font-size:12px;min-width:36px}.ac-row:hover,.ac-row.ac-act{background:#444}.ac-hl{color:#ffdb4d;font-weight:bold}';
         document.head.appendChild(st);
     }
     if (!acBox) {

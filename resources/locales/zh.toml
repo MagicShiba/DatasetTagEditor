@@ -204,6 +204,9 @@ fg_color = "文字色"
 bold = "加粗"
 partial_match = "子串匹配"
 case_sensitive = "区分大小写"
+pin = "固定（点击外部时保持显示）"
+preview = "示例预览"
+preview_empty = "（未设置匹配标签）"
 
 [dialog]
 switch_image = "切换图像"
