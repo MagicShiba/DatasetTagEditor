@@ -386,6 +386,15 @@ export function updateThumbBadge(path) {
     });
 }
 
+// 应用更改 / 反推后刷新指定缩略图的名称与标注文本（列表模式显示文本）
+export function updateThumbCaption(path) {
+    document.querySelectorAll(".thumb-item").forEach(item => {
+        if (item.dataset.path !== path) return;
+        syncThumbName(item, path);
+        syncThumbCaption(item, path);
+    });
+}
+
 // 使用 requestIdleCallback 分批填充缩略图，避免一次性全部加载
 let thumbQueue = [];
 let thumbScheduled = false;

@@ -338,11 +338,14 @@ export class DatasetTagEditor {
         // 空标注时 tags 为 [""]，需排除空字符串后再判定是否已有内容
         const hadContent = data.tags.some(t => t);
         if (append && hadContent) {
-            // 追加去重：已有标签保留原间隔，末尾句号改为逗号（句子延续），新标签用默认间隔
+            // 追加去重：保留已有标签的原始间隔与末尾标点，反推内容另起一行以便区分
             const base = (data.septs && data.septs.length === data.tags.length)
                 ? data.septs.slice()
                 : data.tags.map(() => ", ");
-            if (base.length > 0) base[base.length - 1] = ", ";
+            if (base.length > 0) {
+                // 末尾标点（如句号 . 。）原样保留，其余末尾逗号/空白清空，统一以换行衔接反推内容
+                base[base.length - 1] = cleanupTrailingSep(base[base.length - 1]) + "\n";
+            }
             const existingSet = new Set(data.tags);
             for (const t of tags) {
                 if (!existingSet.has(t)) {

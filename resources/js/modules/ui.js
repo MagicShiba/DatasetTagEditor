@@ -1,6 +1,6 @@
 // ui.js - UI 事件绑定与各功能模块初始化
 
-import { app, renderGallery, openFolderDialog, applyColumns, updateGalleryStateDisplay, sortGalleryPaths, invalidateThumbUrlCache, updateThumbBadge } from "./app.js";
+import { app, renderGallery, openFolderDialog, applyColumns, updateGalleryStateDisplay, sortGalleryPaths, invalidateThumbUrlCache, updateThumbBadge, updateThumbCaption } from "./app.js";
 import { config, settings, getSetting, setSetting, SETTINGS_DEFAULT, SETTINGS_DESCRIPTIONS, SETTINGS_HIDDEN, LLM_CONFIG_DEFAULT, LLM_FN_DEFAULT, getActiveProfile, setActiveProfile, saveProfile } from "./config.js";
 import { t, getLang, setLang, applyI18n, discoverLanguages, getAvailableLanguages } from "./i18n.js";
 import { PathFilter, FilterMode, FilterLogic, SortBy, SortOrder, joinTagsWithSepts } from "./dataset.js";
@@ -245,8 +245,9 @@ function applyEditToSelected() {
     if (!path) return;
     // 应用非空内容时标记为"已编辑"，用于画廊绿点；空内容不标记
     app.dte.setTagsByImagePath(path, tags, undefined, tags.length > 0, septs);
-    // 刷新角标：缺失标记 + 已编辑红/绿点
+    // 刷新角标：缺失标记 + 已编辑红/绿点；列表模式同步刷新名称与标注文本
     updateThumbBadge(path);
+    updateThumbCaption(path);
     app.changeIsSaved = true;
     app.datasetDirty = true;
 }
@@ -952,6 +953,22 @@ function updateProgress() {
     }
 }
 
+// 更新某行状态显示（行元素可能因窗口重新渲染被替换，需取当前元素）
+function updateRowStatus(path) {
+    const info = llmReverse.rows.get(path);
+    if (!info) return;
+    const s = llmReverse.status.get(path) || "pending";
+    info.statusEl.classList.remove("pending", "processing", "done", "failed");
+    info.statusEl.classList.add(s);
+    const labels = {
+        pending: "llm_progress.pending",
+        processing: "llm_progress.processing",
+        done: "llm_progress.done",
+        failed: "llm_progress.failed",
+    };
+    info.statusEl.textContent = t(labels[s] || "llm_progress.pending");
+}
+
 // 单任务队列处理：每次处理一个待反推图像，完成后自动处理下一个
 async function pumpLlmReverse() {
     if (llmReverse.running) return;
@@ -962,33 +979,27 @@ async function pumpLlmReverse() {
     if (!next) return;
     const myRunId = llmReverseRunId;
     llmReverse.running = true;
-    const { statusEl } = llmReverse.rows.get(next);
     llmReverse.status.set(next, "processing");
-    statusEl.classList.remove("pending");
-    statusEl.classList.add("processing");
-    statusEl.textContent = t("llm_progress.processing");
+    updateRowStatus(next);
     try {
         const text = await llm.reverseCaption(next);
-        if (!llmReverse.status.has(next) || !statusEl.isConnected) return; // 处理期间被移除（取消）
+        if (!llmReverse.status.has(next)) return; // 处理期间被移除（取消）
         const append = getSetting("llm_reverse_append") !== false;
         const captionSplit = splitCaptionWithSepts(text);
         const tags = captionSplit.tags;
         const septs = captionSplit.septs;
         app.dte.setReverseTags(next, tags, append, septs);
         updateThumbBadge(next); // 刷新画廊状态角标
+        updateThumbCaption(next); // 列表模式刷新标注文本
         // 若反推的图像正被选中编辑，直接刷新编辑面板，避免需切换图像才显示打标结果
         if (next === app.gallerySelectedPath) updateEditCaptionPanel();
         llmReverse.status.set(next, "done");
-        statusEl.classList.remove("processing");
-        statusEl.classList.add("done");
-        statusEl.textContent = t("llm_progress.done");
+        updateRowStatus(next);
     } catch (e) {
         console.warn("LLM reverse caption failed:", next, e);
-        if (!llmReverse.status.has(next) || !statusEl.isConnected) return;
+        if (!llmReverse.status.has(next)) return;
         llmReverse.status.set(next, "failed");
-        statusEl.classList.remove("processing");
-        statusEl.classList.add("failed");
-        statusEl.textContent = t("llm_progress.failed");
+        updateRowStatus(next);
     } finally {
         llmReverse.running = false;
         if (myRunId === llmReverseRunId) {
