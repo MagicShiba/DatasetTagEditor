@@ -1,6 +1,7 @@
 {
     "general": {
         "backup": false,
+        "remove_newlines": false,
         "dataset_dir": "E:\\ai\\1趣图-创意",
         "caption_ext": ".txt",
         "load_recursive": false,
@@ -15,7 +16,8 @@
             "sw_regex": false,
             "sort_by": "Frequency",
             "sort_order": "Descending",
-            "logic": "NONE"
+            "list_display": false,
+            "logic": "AND"
         },
         "negative": {
             "sw_prefix": false,
@@ -23,6 +25,7 @@
             "sw_regex": false,
             "sort_by": "Frequency",
             "sort_order": "Descending",
+            "list_display": false,
             "logic": "NONE"
         }
     },
@@ -35,11 +38,12 @@
         "sw_suffix": false,
         "sw_regex": false,
         "sort_by": "Frequency",
-        "sort_order": "Descending"
+        "sort_order": "Descending",
+        "list_display": false
     },
     "edit_selected": {
         "auto_copy": true,
         "warn_change_not_saved": true,
-        "highlight_rules": "//基本\nmale,boy,boys,his,he,fg:#ff7700,b:1\nfemale,girl,1girl,she,her,fg:#ff00ff,b:1\nnsfw,sfw,bg:#996600,b:1\n//物种\nwolf,cat,lion,horse,tiger,shark,dragon,bg:#151,b:1,partial:1\n//杂项\nclose up,angle,realistic,background,bg:#555,b:1,partial:1\n@,lora,(,),<,>,bg:#880088,b:1,partial:1\ncharacter,by,or,bg:#880088,b:1\nori,fg:#ff7700"
+        "highlight_rules": "//基本\nmale,boy,boys,his,he,fg:#ff7700,b:1\nfemale,girl,1girl,she,her,fg:#ff00ff,b:1\nnsfw,sfw,bg:#996600,b:1\n//物种\nwolf,cat,lion,horse,tiger,shark,dragon,bg:#115511,b:1\n//杂项\nclose up,angle,realistic,background,bg:#555555,b:1\n@,lora,(,),<,>,bg:#880088,b:1,partial:1\ncharacter,by,or,bg:#880088,b:1\nori,fg:#ff7700"
     }
 }
