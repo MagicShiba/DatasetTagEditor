@@ -7,7 +7,7 @@ import { PathFilter, FilterMode, FilterLogic, SortBy, SortOrder, joinTagsWithSep
 import { TagFilterState } from "./tagfilter_state.js";
 import * as api from "./api.js";
 import * as thumbs from "./thumbnails.js";
-import { normalizePath, getStem, getExtension, withSuffix, getBasename, getDirname, formatAspectRatio, floorToMultiple, splitCaption, splitCaptionWithSepts, setTagSeparators } from "./utils.js";
+import { normalizePath, getStem, getExtension, withSuffix, getBasename, getDirname, formatAspectRatio, floorToMultiple, splitCaption, splitCaptionWithSepts, setTagSeparators, normalizeSepSpaces } from "./utils.js";
 import { parseRules, applyHighlight, escapeHtml } from "./highlight.js";
 import { initAutocomplete, loadAutocompleteData, bindAutocomplete } from "./autocomplete.js";
 import * as llm from "./llm.js";
@@ -228,7 +228,14 @@ function syncGallerySelectionHighlight() {
 
 // 将当前编辑框内容应用到当前选中图像（内存中）
 function applyEditToSelected() {
-    const captionSplit = splitCaptionWithSepts(document.getElementById("dte_edit_caption").value);
+    const ta = document.getElementById("dte_edit_caption");
+    // 规范化分隔符后的空格：无则补一个，多个则合并为一个，并写回编辑框
+    const text = normalizeSepSpaces(ta.value);
+    ta.value = text;
+    // 文本被规范化改写后，刷新高亮层与边界框
+    updateHighlightOverlay();
+    updateBboxes();
+    const captionSplit = splitCaptionWithSepts(text);
     const tags = captionSplit.tags;
     const septs = captionSplit.septs;
     let path = null;
@@ -375,7 +382,7 @@ async function saveAllChangesToDisk() {
     if (!app.changeIsSaved) applyEditToSelected();
     const backup = document.getElementById("cb_backup").checked;
     const captionExt = document.getElementById("tb_caption_file_ext").value.trim() || ".txt";
-    await app.dte.saveDataset(backup, captionExt);
+    await app.dte.saveDataset(backup, captionExt, document.getElementById("cb_remove_newlines").checked);
     app.changeIsSaved = true;
     app.datasetDirty = false;
 }
@@ -2354,7 +2361,7 @@ function initTopbar() {
     document.getElementById("btn_save_all_changes").addEventListener("click", async () => {
         const backup = document.getElementById("cb_backup").checked;
         const captionExt = document.getElementById("tb_caption_file_ext").value.trim() || ".txt";
-        const result = await app.dte.saveDataset(backup, captionExt);
+        const result = await app.dte.saveDataset(backup, captionExt, document.getElementById("cb_remove_newlines").checked);
         const el = document.getElementById("tool-result");
         if (el) {
             el.textContent = `Saved: ${result.saved}/${result.total} captions`;
@@ -2394,6 +2401,7 @@ export function applyConfigToUI() {
     const general = config.read("general");
     if (general) {
         document.getElementById("cb_backup").checked = general.backup;
+        document.getElementById("cb_remove_newlines").checked = general.remove_newlines;
         document.getElementById("tb_img_directory").value = general.dataset_dir || "";
         document.getElementById("tb_caption_file_ext").value = general.caption_ext || ".txt";
         document.getElementById("cb_load_recursive").checked = general.load_recursive;
@@ -2433,6 +2441,7 @@ export function applyConfigToUI() {
 function readGeneralConfig() {
     return {
         backup: document.getElementById("cb_backup").checked,
+        remove_newlines: document.getElementById("cb_remove_newlines").checked,
         dataset_dir: document.getElementById("tb_img_directory").value.trim(),
         caption_ext: document.getElementById("tb_caption_file_ext").value.trim() || ".txt",
         load_recursive: document.getElementById("cb_load_recursive").checked,

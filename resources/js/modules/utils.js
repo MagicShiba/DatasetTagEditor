@@ -270,6 +270,50 @@ export function setTagSeparators(sep) {
     tagSeparators = (sep && typeof sep === "string" && sep.length > 0) ? sep : ",";
 }
 
+// 获取当前标签分隔符字符串（每个字符都是一个分隔符）
+export function getTagSeparators() {
+    return tagSeparators;
+}
+
+// 将标注文本规范化：分隔符之后恰好保留一个空格（无则补一个，多个则合并为一个）。
+// 分隔符本身（如 ",,"、"，"）原样保留；末尾文本沿用 splitCaptionWithSepts 的清理规则。
+export function normalizeSepSpaces(text) {
+    if (!text) return "";
+    const { tags, septs } = splitCaptionWithSepts(text);
+    if (tags.length === 0) return text;
+    const parts = [];
+    for (let i = 0; i < tags.length; i++) {
+        parts.push(tags[i]);
+        if (i < tags.length - 1) {
+            parts.push((septs[i] || "").replace(/\s+$/, "") + " ");
+        } else {
+            parts.push(septs[i] || "");
+        }
+    }
+    return parts.join("");
+}
+
+// 移除标注中的所有换行：
+// 若原文有多行，除最后一行外，行末没有分隔符时补上第一个分隔符（取 tag_separators 首字符）；
+// 行末若已是分隔符或中/英文句号（天然分句符）则不再追加分隔符。
+// 行与行之间以单个空格拼接（行末已有分隔符时自然形成"分隔符+空格"）。
+export function removeNewlines(text) {
+    if (!text) return "";
+    if (!/[\r\n]/.test(text)) return text;
+    const seps = new Set(tagSeparators.split(""));
+    const firstSep = tagSeparators[0] || ",";
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (lines.length <= 1) return lines[0] || "";
+    const parts = lines.map((line, i) => {
+        const last = line[line.length - 1];
+        if (i < lines.length - 1 && !seps.has(last) && last !== "." && last !== "\u3002") {
+            return line + firstSep;
+        }
+        return line;
+    });
+    return parts.join(" ");
+}
+
 // 将标注文本按配置的分隔符拆分为标签列表（自动 trim 并过滤空项）。
 // 特殊处理：
 //   - 缩写内部的英文句点不拆（如 "D.O.G.E." 保持为一个标签）

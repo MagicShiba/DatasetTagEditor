@@ -1,7 +1,7 @@
 // dataset.js - 数据集与标签核心逻辑
 
 import * as api from "./api.js";
-import { normalizePath, getStem, getExtension, withSuffix, withStem, md5, getDirname, getBasename, splitCaption, splitCaptionWithSepts, cleanupTrailingSep } from "./utils.js";
+import { normalizePath, getStem, getExtension, withSuffix, withStem, md5, getDirname, getBasename, splitCaption, splitCaptionWithSepts, cleanupTrailingSep, removeNewlines } from "./utils.js";
 
 // ================================================================
 // Data: 单张图片及其标签
@@ -854,7 +854,7 @@ export class DatasetTagEditor {
 
     // ---------- 保存数据集 ----------
 
-    async saveDataset(backup, captionExt) {
+    async saveDataset(backup, captionExt, stripNewlines = false) {
         if (this.dataset.length === 0) {
             return { saved: 0, total: 0, dir: this.dataset_dir };
         }
@@ -893,9 +893,11 @@ export class DatasetTagEditor {
                 }
             }
 
-            // 保存
+            // 保存（勾选"移除所有换行"时先对保存文本做换行清理）
             try {
-                await api.writeTextFile(txtPath, joinTagsWithSepts(data.tags, data.septs));
+                let captionText = joinTagsWithSepts(data.tags, data.septs);
+                if (stripNewlines) captionText = removeNewlines(captionText);
+                await api.writeTextFile(txtPath, captionText);
                 savedNum++;
             } catch (e) { }
         }

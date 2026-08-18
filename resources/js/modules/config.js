@@ -11,6 +11,7 @@ import { setLang, getLang } from "./i18n.js";
 
 export const CFG_GENERAL_DEFAULT = {
     backup: true,
+    remove_newlines: false,
     dataset_dir: "",
     caption_ext: ".txt",
     load_recursive: false,

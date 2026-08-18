@@ -7,6 +7,7 @@
 save_all = "Save all changes"
 backup_note = "Backup original text file"
 backup_note_title = "Backup original text file (original file will be renamed like filename.000, .001, .002, ...)"
+remove_newlines = "Remove all newlines when saving"
 filename_note = "<b>Note:</b> New text file will be created if you are using filename as captions."
 save = "Save"
 cancel = "Cancel"

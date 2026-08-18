@@ -11,14 +11,18 @@
         <!-- ======================= 顶栏 ======================= -->
         <header class="topbar">
             <div class="toprow-left">
+                <div class="topbar-group-title" data-i18n="common.filename_note"><b>注意：</b>如果使用文件名作为标注，将创建新的文本文件。</div>
                 <div class="row">
                     <button id="btn_save_all_changes" class="btn primary" data-i18n="common.save_all">保存所有更改</button>
                     <label class="checkbox">
                         <input type="checkbox" id="cb_backup" checked>
                         <span data-i18n="common.backup_note" data-i18n-title="common.backup_note_title">备份原始文本文件</span>
                     </label>
+                    <label class="checkbox">
+                        <input type="checkbox" id="cb_remove_newlines">
+                        <span data-i18n="common.remove_newlines">保存时移除所有换行</span>
+                    </label>
                 </div>
-                <div class="note" data-i18n="common.filename_note"><b>注意：</b>如果使用文件名作为标注，将创建新的文本文件。</div>
             </div>
             <div class="toprow-right">
                 <div class="topbar-group">

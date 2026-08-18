@@ -6,6 +6,7 @@
 save_all = "保存所有更改"
 backup_note = "备份原始文本文件"
 backup_note_title = "备份原始文本文件（原文件将重命名为 filename.000, .001, .002, ...）"
+remove_newlines = "保存时移除所有换行"
 filename_note = "<b>注意：</b>如果使用文件名作为标注，将创建新的文本文件。"
 save = "保存"
 cancel = "取消"
