@@ -131,6 +131,8 @@ export const SETTINGS_DEFAULT = {
     // 标签分隔符（每个字符都是一个分隔符），默认英文逗号；
     // 可添加英文句号、中文逗号、中文句号等，如 ",.，。"
     tag_separators: ",",
+    // 点击"将更改应用于选中图像"保存后，自动切换至下一个图像
+    auto_switch_next: false,
     // 界面语言：auto 表示跟随系统语言（中文系统用中文，其它用英文）
     language: "auto",
     // 加载数据集时对无文本文件的图像使用 LLM 反推标注的提示词
@@ -172,6 +174,7 @@ export const SETTINGS_DESCRIPTIONS = {
     filename_join_string: "settings.filename_join_string",
     num_cpu_worker: "settings.num_cpu_worker",
     tag_separators: "settings.tag_separators",
+    auto_switch_next: "settings.auto_switch_next",
     language: "settings.language",
 };
 

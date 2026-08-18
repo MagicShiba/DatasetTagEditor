@@ -153,12 +153,15 @@ function initPreviewNav() {
         const idx = app.gallerySelectedIndex <= 0 ? n - 1 : app.gallerySelectedIndex - 1;
         onGallerySelect(idx, app.galleryPaths[idx]);
     });
-    document.getElementById("btn_next_image").addEventListener("click", () => {
-        const n = app.galleryPaths.length;
-        if (n === 0 || app.gallerySelectedIndex < 0) return;
-        const idx = app.gallerySelectedIndex >= n - 1 ? 0 : app.gallerySelectedIndex + 1;
-        onGallerySelect(idx, app.galleryPaths[idx]);
-    });
+    document.getElementById("btn_next_image").addEventListener("click", selectNextImage);
+}
+
+// 切换到画廊中当前选中图像的下一张（末张回到第一张）
+function selectNextImage() {
+    const n = app.galleryPaths.length;
+    if (n === 0 || app.gallerySelectedIndex < 0) return;
+    const idx = app.gallerySelectedIndex >= n - 1 ? 0 : app.gallerySelectedIndex + 1;
+    onGallerySelect(idx, app.galleryPaths[idx]);
 }
 
 // 更新中列原图预览
@@ -1375,6 +1378,10 @@ function initEditSelected() {
         applyEditToSelected();
         // 只刷新标签相关面板，不重绘画廊（保存标注时画廊无需刷新）
         refreshTagPanels();
+        // 设置开启时，应用后自动切换至下一个图像
+        if (getSetting("auto_switch_next")) {
+            selectNextImage();
+        }
     });
 
     // 将 LLM 结果追加到标注编辑框
