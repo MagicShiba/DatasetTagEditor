@@ -1522,7 +1522,7 @@ textarea {
   min-height: 200px;
   display: flex;
   flex-direction: column;
-  background: var(--bg-panel);
+  background: #1c2127dd;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
@@ -1637,7 +1637,7 @@ textarea {
 .llm-progress-footer {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 4px;
 }
 
 /* 从画廊拖入图像时的高亮反馈 */
