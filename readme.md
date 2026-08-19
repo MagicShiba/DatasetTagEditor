@@ -31,7 +31,8 @@
 ![alt text](other/sc-st.png)  
 
 标签编辑模式与json自动展开(现在有的模型支持粗略百分比边界框，不是id4格式，id4太麻烦，我不玩它。)
-![alt text](other/sc-jn.png)
+![alt text](other/sc-jn.png)  
+
 进度管理与高亮规则编辑窗口    
 ![alt text](other/sc-hl.png)
 
