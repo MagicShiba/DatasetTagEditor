@@ -14,6 +14,7 @@
 
 import { getSetting } from "./config.js";
 import { formatJsonPretty } from "./utils.js";
+import { bindAutocomplete } from "./autocomplete.js";
 
 // 每帧绘制所依赖的元素
 let canvas = null;
@@ -27,6 +28,8 @@ let boxes = [];
 let selected = -1;
 // 进行中的拖动交互状态
 let dragging = null;
+// 标签编辑输入框（选中框左上角文本编辑）
+let labelInput = null;
 
 // 拖拽结束后写回文本框的回调（由 ui.js 注入，避免循环依赖）
 let onBboxChange = null;
@@ -34,6 +37,8 @@ let onBboxChange = null;
 const COLOR_PALETTE = ["#00e5ff", "#ffd54f", "#7ef29a", "#ff8a80", "#ce93d8", "#ffab91"];
 const HANDLE = 8;        // 手柄命中半径（CSS 像素）：鼠标距角点/边缘该距离内即判定命中，应略大于手柄边长 hs
 const MIN_SIZE = 0.01;   // 最小边长（归一化）
+const MIN_LABEL_W = 40;  // 标签背景/命中区域最小宽度（CSS 像素），空标签时仍可点击编辑
+const MIN_EDIT_W = 120;  // 标签编辑输入框最小宽度（CSS 像素）
 
 // 注入写回回调：onBboxChange(text)
 export function setOnBboxChange(cb) {
@@ -161,6 +166,10 @@ export function serializeBboxes(list, key = "object", isMap = false) {
 function writeBackText(text) {
     const block = extractBboxBlock(text);
     if (!block) return text;
+    if (boxes.length === 0) {
+        // 删除最后一个框后移除文本中的 JSON 块
+        return text.slice(0, block.start) + text.slice(block.end + 1);
+    }
     return text.slice(0, block.start) + serializeBboxes(boxes, block.key, block.isMap) + text.slice(block.end + 1);
 }
 
@@ -168,6 +177,8 @@ function writeBackText(text) {
 export function updateBboxes() {
     const ta = document.getElementById("dte_edit_caption");
     if (!ta || !preview || !canvas) return;
+    // 切换图像/文本变化时关闭未完成的标签编辑
+    cancelLabelEdit();
     const block = extractBboxBlock(ta.value);
     if (block) {
         boxes = block.items;
@@ -243,12 +254,13 @@ function drawBox(i, w, h) {
     const lw = ctx.lineWidth;
     ctx.strokeRect(L + lw / 2, T + lw / 2, Math.max(0, R - L - lw), Math.max(0, B - T - lw));
 
-    // 标签：框内左上角
+    // 标签：框内左上角（背景/命中区域有最小宽度，空标签时仍可点击编辑）
     const label = b.label || "";
     ctx.font = "13px sans-serif";
     const tw = ctx.measureText(label).width;
+    const bw = Math.max(MIN_LABEL_W, tw + 6);
     ctx.fillStyle = "rgba(0,0,0,0.6)";
-    ctx.fillRect(L, T, tw + 6, 15);
+    ctx.fillRect(L, T, bw, 15);
     ctx.fillStyle = color;
     ctx.fillText(label, L + 3, T + 11);
 
@@ -363,11 +375,75 @@ function applyDrag(curX, curY, w, h) {
 
 // 拖拽结束：将新坐标写回文本框（不改变块外内容）
 function writeBack() {
-    if (!onBboxChange || boxes.length === 0) return;
+    if (!onBboxChange) return;
     const ta = document.getElementById("dte_edit_caption");
     if (!ta) return;
     const newText = writeBackText(ta.value);
     if (newText !== ta.value) onBboxChange(newText);
+}
+
+// 删除当前选中的边界框并写回
+function deleteSelectedBox() {
+    if (selected < 0 || selected >= boxes.length) return;
+    cancelLabelEdit();
+    boxes.splice(selected, 1);
+    selected = -1;
+    draw();
+    writeBack();
+}
+
+// 判断点是否命中选中框左上角的标签文本区域
+function hitLabel(px, py, w, h) {
+    if (selected < 0 || selected >= boxes.length) return false;
+    const b = boxes[selected];
+    const L = b.x1 * w;
+    const T = b.y1 * h;
+    ctx.font = "13px sans-serif";
+    const tw = ctx.measureText(b.label || "").width;
+    const bw = Math.max(MIN_LABEL_W, tw + 6);
+    return px >= L && px <= L + bw && py >= T && py <= T + 15;
+}
+
+// 打开选中框标签编辑（左上角），定位输入框并聚焦（支持自动补全）
+function openLabelEdit() {
+    if (!labelInput || selected < 0 || selected >= boxes.length) return;
+    const b = boxes[selected];
+    const imgRect = img.getBoundingClientRect();
+    const w = imgRect.width;
+    const h = imgRect.height;
+    const L = b.x1 * w;
+    const T = b.y1 * h;
+    // 输入框相对 preview 绝对定位，需叠加画布相对 preview 的偏移
+    const cs = getComputedStyle(canvas);
+    const offX = parseFloat(cs.left) || 0;
+    const offY = parseFloat(cs.top) || 0;
+    labelInput.value = b.label || "";
+    labelInput.style.left = (offX + L) + "px";
+    labelInput.style.top = (offY + T) + "px";
+    ctx.font = "13px sans-serif";
+    const tw = ctx.measureText(labelInput.value || "").width;
+    labelInput.style.width = (Math.max(MIN_EDIT_W, tw) + 24) + "px";
+    labelInput.style.display = "block";
+    labelInput.focus();
+    labelInput.select();
+}
+
+// 提交标签编辑：非空则更新选中框标签并写回
+function commitLabelEdit() {
+    if (!labelInput || labelInput.style.display === "none") return;
+    const val = labelInput.value.trim();
+    labelInput.style.display = "none";
+    if (selected >= 0 && selected < boxes.length && val) {
+        boxes[selected].label = val;
+        draw();
+        writeBack();
+    }
+}
+
+// 取消标签编辑
+function cancelLabelEdit() {
+    if (!labelInput) return;
+    labelInput.style.display = "none";
 }
 
 // 初始化：绑定画布与交互事件
@@ -377,6 +453,32 @@ export function initBbox() {
     img = document.getElementById("preview_img");
     if (!canvas || !preview || !img) return;
     ctx = canvas.getContext("2d");
+    labelInput = document.getElementById("bbox_label_input");
+    // 画布可聚焦，以便在画布上按 Delete/Backspace 删除选中边界框
+    canvas.tabIndex = 0;
+    canvas.addEventListener("keydown", (e) => {
+        if ((e.key === "Delete" || e.key === "Backspace") && selected >= 0) {
+            e.preventDefault();
+            deleteSelectedBox();
+        }
+    });
+    // 标签编辑输入框：Enter 提交 / Esc 取消 / 失焦提交（DOM 移除触发的 blur 除外）
+    if (labelInput) {
+        bindAutocomplete(labelInput, { appendComma: false });
+        // 阻止鼠标事件冒泡到预览容器，否则左键会触发"拖动图像"，导致无法选中文本/移动光标
+        labelInput.addEventListener("mousedown", (e) => e.stopPropagation());
+        labelInput.addEventListener("dblclick", (e) => e.stopPropagation());
+        labelInput.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                commitLabelEdit();
+            } else if (e.key === "Escape") {
+                e.preventDefault();
+                cancelLabelEdit();
+            }
+        });
+        labelInput.addEventListener("blur", () => { if (labelInput.isConnected) commitLabelEdit(); });
+    }
 
     let raf = 0;
     const scheduleDraw = () => {
@@ -399,6 +501,7 @@ export function initBbox() {
     // 鼠标交互
     canvas.addEventListener("mousedown", (e) => {
         e.preventDefault();
+        canvas.focus();
         // 仅左键进行边界框编辑；中键等交给图像平移
         if (e.button !== 0) return;
         if (boxes.length === 0) return;
@@ -464,6 +567,32 @@ export function initBbox() {
         canvas.style.cursor = cursorFor(hitTestFor(target, x, y, w, h));
     });
 
+    // 右键点击创建新边界框（以鼠标为中心、归一化宽高 0.1），有边界框时才允许
+    canvas.addEventListener("contextmenu", (e) => {
+        if (boxes.length === 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const { x, y } = localPos(e);
+        const imgRect = img.getBoundingClientRect();
+        const w = imgRect.width;
+        const h = imgRect.height;
+        if (w <= 0 || h <= 0) return;
+        const nx = x / w;
+        const ny = y / h;
+        const half = 0.05;
+        const box = {
+            label: "",
+            x1: clamp01(nx - half),
+            y1: clamp01(ny - half),
+            x2: clamp01(nx + half),
+            y2: clamp01(ny + half),
+        };
+        boxes.push(box);
+        selected = boxes.length - 1;
+        draw();
+        writeBack();
+    });
+
     window.addEventListener("mouseup", (e) => {
         if (!dragging) return;
         const d = dragging;
@@ -474,6 +603,14 @@ export function initBbox() {
             // 拖动完成：写回文本框
             writeBack();
             return;
+        }
+        // 纯点击：点击选中框左上角的标签文本则进入编辑
+        if (d.i === selected) {
+            const imgRect = img.getBoundingClientRect();
+            if (hitLabel(d.startX, d.startY, imgRect.width, imgRect.height)) {
+                openLabelEdit();
+                return;
+            }
         }
         // 纯点击：若之前选中的框在该点且存在重叠，则循环切换到下一层
         if (d.wasSelected && d.clickAll.length > 1) {

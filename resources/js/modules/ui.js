@@ -1631,7 +1631,9 @@ function initEditSelected() {
     // 将 LLM 结果追加到标注编辑框
     document.getElementById("btn_append_result_to_caption").addEventListener("click", () => {
         const body = document.getElementById("tool-result");
-        const text = body.textContent.trim();
+        // 先移除首尾空白，再移除首尾的 ```json 与 ``` 代码块标记
+        let text = body.textContent.trim();
+        text = text.replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim();
         if (!text) return;
         const ta = document.getElementById("dte_edit_caption");
         ta.value = [ta.value, text].filter(Boolean).join(", ");

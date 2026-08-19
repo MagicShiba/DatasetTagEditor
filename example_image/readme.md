@@ -1,10 +1,10 @@
-当前目录内文件只是用于功能测试示例。
-所有prompt文本只是功能测试，并非经过精心打标。
-所有图像均是AI生成。所有图像经过jpg压缩以减少体积，不建议用于训练或其它用途。
-<span style="color: #bbb;">The files in the current directory are only functional test examples.
-All prompt texts are for functional testing only, and are not carefully labeled/annotated.
-All images are AI-generated. All images have been compressed to JPG to reduce file size, not recommended for training or other uses.</span>
-编辑器项目地址(project address):
+当前目录内文件只是用于功能测试示例。  
+所有prompt文本只是功能测试，并非经过精心打标。  
+所有图像均是AI生成。所有图像经过jpg压缩以减少体积，不建议用于训练或其它用途。  
+<span style="color: #bbb;">The files in the current directory are only functional test examples.  
+All prompt texts are for functional testing only, and are not carefully labeled/annotated.  
+All images are AI-generated. All images have been compressed to JPG to reduce file size, not recommended for training or other uses.</span>  
+编辑器项目地址(project address):  
 <a href="https://github.com/MagicShiba/DatasetTagEditor">https://github.com/MagicShiba/DatasetTagEditor</a>
 <table class="link-table">
 	</tr>

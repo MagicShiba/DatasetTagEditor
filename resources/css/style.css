@@ -196,6 +196,22 @@ html, body {
   pointer-events: auto;
 }
 
+/* 边界框标签编辑输入框：叠加在选中框左上角的标签位置，支持自动补全 */
+.bbox-label-input {
+  position: absolute;
+  z-index: 7;
+  display: none;
+  box-sizing: border-box;
+  padding: 1px 4px;
+  font-size: 13px;
+  font-family: sans-serif;
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+  outline: none;
+}
+
 .image-preview.has-bbox .preview-nav-btn {
   top: auto;
   bottom: 6px;
