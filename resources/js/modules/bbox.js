@@ -10,7 +10,9 @@
 //   }}
 // 坐标为归一化的 x1,y1,x2,y2（0~1）。
 // 支持拖动整框移动、拖动边缘/角点缩放；重叠框通过多次点击循环切换。
-// 编辑后写回的 JSON 块为单行、两位小数，且不干扰 Caption 中其它换行。
+// 编辑后写回的 JSON 块为单行、小数位数由设置控制，且不干扰 Caption 中其它换行。
+
+import { getSetting } from "./config.js";
 
 // 每帧绘制所依赖的元素
 let canvas = null;
@@ -29,7 +31,7 @@ let dragging = null;
 let onBboxChange = null;
 
 const COLOR_PALETTE = ["#00e5ff", "#ffd54f", "#7ef29a", "#ff8a80", "#ce93d8", "#ffab91"];
-const HANDLE = 8;        // 角点/边缘命中半径（CSS 像素）
+const HANDLE = 8;        // 手柄命中半径（CSS 像素）：鼠标距角点/边缘该距离内即判定命中，应略大于手柄边长 hs
 const MIN_SIZE = 0.01;   // 最小边长（归一化）
 
 // 注入写回回调：onBboxChange(text)
@@ -125,18 +127,25 @@ export function extractBboxBlock(text) {
     return null;
 }
 
-// 将边界框序列化为单行、两位小数的 JSON 块（isMap 为 true 时输出映射形式，否则输出数组形式）
+// 边界框 JSON 坐标保留的小数位数（来自设置，默认 3 位）
+function getBboxPrecision() {
+    const v = Number(getSetting("bbox_json_decimal_places"));
+    return Number.isFinite(v) && v >= 0 ? Math.floor(v) : 3;
+}
+
+// 将边界框序列化为单行 JSON 块（小数位数由设置控制，isMap 为 true 时输出映射形式，否则输出数组形式）
 export function serializeBboxes(list, key = "object", isMap = false) {
+    const precision = getBboxPrecision();
     if (isMap) {
         const obj = {};
         for (const b of list) {
-            const coords = [b.x1, b.y1, b.x2, b.y2].map(n => +n.toFixed(2));
+            const coords = [b.x1, b.y1, b.x2, b.y2].map(n => +n.toFixed(precision));
             obj[b.label] = coords;
         }
         return JSON.stringify({ [key]: obj });
     }
     const inner = list.map(b => {
-        const coords = [b.x1, b.y1, b.x2, b.y2].map(n => +n.toFixed(2));
+        const coords = [b.x1, b.y1, b.x2, b.y2].map(n => +n.toFixed(precision));
         return `{${JSON.stringify(b.label)}:[${coords.join(",")}]}`;
     }).join(",");
     return `{"${key}":[${inner}]}`;
@@ -182,12 +191,20 @@ function draw() {
     const imgRect = img.getBoundingClientRect();
     const prevRect = preview.getBoundingClientRect();
     if (imgRect.width <= 0 || imgRect.height <= 0) { clearCanvas(); return; }
+    // canvas 为绝对定位，其 left/top 相对 preview 的 padding box 原点（border 内侧）；
+    // 而 getBoundingClientRect 返回的是 border box。若不减去 border 与 padding，
+    // 画布会整体偏移 border 宽度，导致 x1/y1=0 时边框线不贴图像边界
+    const cs = getComputedStyle(preview);
+    const borderLeft = parseFloat(cs.borderLeftWidth) || 0;
+    const borderTop = parseFloat(cs.borderTopWidth) || 0;
+    const padLeft = parseFloat(cs.paddingLeft) || 0;
+    const padTop = parseFloat(cs.paddingTop) || 0;
     const dpr = window.devicePixelRatio || 1;
     const w = imgRect.width;
     const h = imgRect.height;
     canvas.style.display = "block";
-    canvas.style.left = (imgRect.left - prevRect.left) + "px";
-    canvas.style.top = (imgRect.top - prevRect.top) + "px";
+    canvas.style.left = (imgRect.left - prevRect.left - borderLeft - padLeft) + "px";
+    canvas.style.top = (imgRect.top - prevRect.top - borderTop - padTop) + "px";
     canvas.style.width = w + "px";
     canvas.style.height = h + "px";
     const bw = Math.max(1, Math.round(w * dpr));
@@ -213,12 +230,16 @@ function drawBox(i, w, h) {
     const isSel = i === selected;
 
     ctx.strokeStyle = color;
-    ctx.lineWidth = isSel ? 2 : 1.5;
-    ctx.strokeRect(L, T, R - L, B - T);
+    // 边界框描边宽度（CSS 像素，经 dpr 缩放后绘制）：未选中 2px，选中 4px
+    ctx.lineWidth = isSel ? 4 : 2;
+    // 描边线以路径为中心绘制，若直接用 (L,T) 绘制，x1=0 时线条会向左溢出一半线宽（不贴边），
+    // x2=1 时右侧同样向外溢出出界。因此向内缩进半个线宽，使四条边正好贴合图像边界
+    const lw = ctx.lineWidth;
+    ctx.strokeRect(L + lw / 2, T + lw / 2, Math.max(0, R - L - lw), Math.max(0, B - T - lw));
 
     // 标签：框内左上角
     const label = b.label || "";
-    ctx.font = "12px sans-serif";
+    ctx.font = "13px sans-serif";
     const tw = ctx.measureText(label).width;
     ctx.fillStyle = "rgba(0,0,0,0.6)";
     ctx.fillRect(L, T, tw + 6, 15);
@@ -227,7 +248,7 @@ function drawBox(i, w, h) {
 
     // 选中框绘制 8 个手柄
     if (isSel) {
-        const hs = 5;
+        const hs = 6; // 手柄尺寸：选中框方形手柄的边长（CSS 像素），命中检测半径见下方 HANDLE 常量
         const pts = [
             [L, T], [R, T], [L, B], [R, B],           // 角点
             [(L + R) / 2, T], [(L + R) / 2, B],        // 上/下边中点
@@ -429,8 +450,12 @@ export function initBbox() {
         if (preview.classList.contains("dragging-image")) return;
         if (boxes.length === 0) return;
         const all = hitTestAll(x, y, w, h);
-        const top = all.length ? all[all.length - 1] : null;
-        canvas.style.cursor = top != null ? cursorFor(hitTestFor(top, x, y, w, h)) : "default";
+        // 与 mousedown 的目标选择保持一致：选中的框也在该点则按它判定，否则按最上层框判定。
+        // 否则重叠时下层框边缘/手柄会因上层框遮挡而错误显示移动光标
+        if (all.length === 0) { canvas.style.cursor = "default"; return; }
+        const ci = all.indexOf(selected);
+        const target = ci >= 0 ? selected : all[all.length - 1];
+        canvas.style.cursor = cursorFor(hitTestFor(target, x, y, w, h));
     });
 
     window.addEventListener("mouseup", (e) => {

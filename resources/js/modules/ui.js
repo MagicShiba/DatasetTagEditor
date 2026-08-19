@@ -464,8 +464,9 @@ function syncGallerySelectionHighlight() {
 // 将当前编辑框内容应用到当前选中图像（内存中）
 function applyEditToSelected() {
     const ta = document.getElementById("dte_edit_caption");
-    // 规范化分隔符后的空格：无则补一个，多个则合并为一个，并写回编辑框
-    const text = normalizeSepSpaces(ta.value);
+    // 规范化分隔符后的空格：无则补一个，多个则合并为一个，并写回编辑框；
+    // 最后用 trim 清除标注首尾多余的空白（空格/换行）
+    const text = normalizeSepSpaces(ta.value).trim();
     ta.value = text;
     // 文本被规范化改写后，刷新高亮层、边界框与胶囊标签
     updateHighlightOverlay();
