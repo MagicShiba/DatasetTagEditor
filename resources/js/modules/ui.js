@@ -195,6 +195,144 @@ function initPreviewBgToggle() {
     });
 }
 
+// 通用浮窗交互：点击外部/✕关闭、标题栏拖动、右下角缩放（与翻译/高亮帮助浮窗一致）
+function setupPopupWindow(popup, closeId, resizeId) {
+    if (!popup) return;
+
+    // 点击外部关闭
+    document.addEventListener("pointerdown", (e) => {
+        if (popup.classList.contains("hidden")) return;
+        if (popup.contains(e.target)) return;
+        popup.classList.add("hidden");
+    });
+
+    // ✕ 关闭
+    const closeBtn = document.getElementById(closeId);
+    if (closeBtn) closeBtn.addEventListener("click", () => popup.classList.add("hidden"));
+
+    // 右下角三角角标：拖动调整浮窗大小
+    const resize = document.getElementById(resizeId);
+    let rs = null;
+    resize.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        rs = { w: popup.offsetWidth, h: popup.offsetHeight, x: e.clientX, y: e.clientY };
+        document.body.style.userSelect = "none";
+    });
+    window.addEventListener("mousemove", (e) => {
+        if (!rs) return;
+        const MIN_W = 260, MIN_H = 160;
+        const MAX_W = Math.min(640, window.innerWidth - 8);
+        const MAX_H = window.innerHeight - 8;
+        const w = Math.max(MIN_W, Math.min(rs.w + (e.clientX - rs.x), MAX_W));
+        const h = Math.max(MIN_H, Math.min(rs.h + (e.clientY - rs.y), MAX_H));
+        popup.style.width = w + "px";
+        popup.style.height = h + "px";
+    });
+    window.addEventListener("mouseup", () => { rs = null; });
+
+    // 按住标题栏拖动浮窗
+    const header = popup.querySelector(".translate-popup-header");
+    let drag = null;
+    header.addEventListener("mousedown", (e) => {
+        if (e.target.closest("button")) return; // 标题栏上的按钮交给按钮处理
+        drag = { dx: e.clientX - popup.offsetLeft, dy: e.clientY - popup.offsetTop };
+        e.preventDefault();
+        document.body.style.userSelect = "none";
+    });
+    window.addEventListener("mousemove", (e) => {
+        if (!drag) return;
+        popup.style.left = Math.max(0, Math.min(e.clientX - drag.dx, window.innerWidth - popup.offsetWidth)) + "px";
+        popup.style.top = Math.max(0, Math.min(e.clientY - drag.dy, window.innerHeight - popup.offsetHeight)) + "px";
+    });
+    window.addEventListener("mouseup", () => {
+        drag = null;
+        document.body.style.userSelect = "";
+    });
+}
+
+// 通用信息浮窗：设置标题与内容后显示（与翻译/高亮帮助共用同一个浮窗）
+// html 为 true 时以 innerHTML 渲染内容（用于支持 readme 中的链接等标记）
+function showInfoPopup(title, text, html = false) {
+    const popup = document.getElementById("info_popup");
+    const titleEl = document.getElementById("info_popup_title");
+    const content = document.getElementById("info_popup_content");
+    if (!popup || !content) return;
+    if (titleEl) titleEl.textContent = title;
+    if (html) content.innerHTML = text;
+    else content.textContent = text;
+    popup.classList.remove("hidden");
+    // 首次打开时设置默认尺寸与居中位置（之后可拖动/缩放并保持位置）
+    if (!popup.style.width || !popup.style.left) {
+        const w = Math.min(480, window.innerWidth - 16);
+        const h = Math.min(380, window.innerHeight - 16);
+        popup.style.width = w + "px";
+        popup.style.height = h + "px";
+        popup.style.left = Math.max(0, Math.round((window.innerWidth - w) / 2)) + "px";
+        popup.style.top = Math.max(0, Math.round((window.innerHeight - h) / 2 - 40)) + "px";
+    }
+}
+
+// 清洗 readme 原始文本为可安全渲染的 HTML：移除脚本/样式等危险标签，
+// 以及 on* 事件属性、javascript:/data: 等危险协议，其余普通标记（如 <a href>）保留
+function sanitizeReadmeHtml(text) {
+    const template = document.createElement("template");
+    template.innerHTML = String(text)
+        .replace(/<script[\s\S]*?<\/script>/gi, "")
+        //.replace(/<style[\s\S]*?<\/style>/gi, "")
+        .replace(/<iframe[\s\S]*?<\/iframe>/gi, "")
+        .replace(/<object[\s\S]*?<\/object>/gi, "")
+        .replace(/<embed[\s\S]*?<\/embed>/gi, "")
+        .replace(/<\/?(base|meta|link)[^>]*>/gi, "");
+    for (const el of template.content.querySelectorAll("*")) {
+        for (const attr of [...el.attributes]) {
+            const name = attr.name.toLowerCase();
+            if (name.startsWith("on")) { el.removeAttribute(attr.name); continue; }
+            if (name === "href" || name === "src" || name === "xlink:href") {
+                if (/^(javascript|vbscript|data):/.test(attr.value.trim().toLowerCase())) {
+                    el.removeAttribute(attr.name);
+                }
+            }
+        }
+    }
+    return template.innerHTML;
+}
+
+// 预览标题行"数据集说明"按钮：读取数据集目录下 readme.md 并显示（支持 HTML 标记、保留换行）
+function initPreviewReadme() {
+    const btn = document.getElementById("btn_dataset_readme");
+    if (!btn) return;
+
+    btn.addEventListener("click", async () => {
+        let text = "";
+        try {
+            const dir = window.__app?.dte?.dataset_dir;
+            const readmePath = dir ? normalizePath(`${dir}/readme.md`) : "";
+            if (readmePath && await api.pathExists(readmePath)) {
+                text = (await api.readTextFile(readmePath)) || "";
+            }
+        } catch (e) {
+            text = "";
+        }
+        const html = sanitizeReadmeHtml(text);
+        showInfoPopup(t("gallery.dataset_readme_title"), html || escapeHtml(t("gallery.dataset_readme_missing")), true);
+    });
+}
+
+// 数据集目录下存在 readme.md 时显示"数据集说明"按钮，否则隐藏
+async function updateReadmeBtnVisibility() {
+    const btn = document.getElementById("btn_dataset_readme");
+    if (!btn) return;
+    let visible = false;
+    try {
+        const dir = window.__app?.dte?.dataset_dir;
+        const readmePath = dir ? normalizePath(`${dir}/readme.md`) : "";
+        visible = !!(readmePath && await api.pathExists(readmePath));
+    } catch (e) {
+        visible = false;
+    }
+    btn.hidden = !visible;
+}
+
 // 预览图像缩放：滚轮向上放大、向下缩小，范围为 1 ~ 20 倍，缩放以鼠标位置为锚点；支持左键拖动平移
 let previewZoom = 1;
 let previewPan = { x: 0, y: 0 };   // 图像中心的像素偏移（平移量）
@@ -793,6 +931,7 @@ function initLoadDataset() {
         if (app.removeTagSelect) app.removeTagSelect.update();
         updatePreview("");
         updateGalleryStateDisplay([]);
+        updateReadmeBtnVisibility();
     });
 }
 
@@ -857,6 +996,8 @@ async function doLoadDataset() {
     app.datasetDirty = false;
     refreshAll();
     populateRename();
+    // 依据数据集目录下是否存在 readme.md 决定是否显示"数据集说明"按钮
+    await updateReadmeBtnVisibility();
 
     // 启用 LLM 反推时，对缺失文本文件的图像启动反推处理
     if (result && loadCaptionFromLlm && result.missingPaths && result.missingPaths.length > 0) {
@@ -1456,7 +1597,7 @@ function initEditSelected() {
     // 若此时把按钮 display:none，后续 click 事件不会触发，且选中范围会塌缩。
     editTa.addEventListener("mouseup", onEditSelectionMouseUp);
     initTranslatePopup();
-    initHighlightHelpPopup();
+    initInfoPopup();
 
     // 侧栏宽度变化、窗口缩放、滚动条出现/消失都会改变 textarea 的客户区宽度，
     // 用 ResizeObserver 实时重测高亮内层宽度，保证始终与 textarea 文本区等宽
@@ -1877,77 +2018,24 @@ function triggerEditInput() {
     capsuleRefresh();
 }
 
+// 高亮规则帮助：复用通用信息浮窗显示
 function showHighlightHelp() {
-    const popup = document.getElementById("highlight_help_popup");
-    const content = document.getElementById("highlight_help_content");
-    if (!popup || !content) return;
-    content.textContent = t("edit_caption.highlight_help_content");
-    popup.classList.remove("hidden");
-    // 首次打开时设置默认尺寸与居中位置（之后可拖动/缩放并保持位置）
-    if (!popup.style.width || !popup.style.left) {
-        const w = Math.min(480, window.innerWidth - 16);
-        const h = Math.min(380, window.innerHeight - 16);
-        popup.style.width = w + "px";
-        popup.style.height = h + "px";
-        popup.style.left = Math.max(0, Math.round((window.innerWidth - w) / 2)) + "px";
-        popup.style.top = Math.max(0, Math.round((window.innerHeight - h) / 2 - 40)) + "px";
-    }
+    showInfoPopup(t("edit_caption.highlight_help_title"), t("edit_caption.highlight_help_content"));
 }
 
-// 高亮规则帮助浮窗：与翻译浮窗一致的交互（按住标题栏拖动、右下角缩放，
-// 点击外部或 ✕ 按钮关闭，不会自动消失）
-function initHighlightHelpPopup() {
-    const popup = document.getElementById("highlight_help_popup");
-    if (!popup) return;
+// 通用信息浮窗：与翻译浮窗一致的交互（按住标题栏拖动、右下角缩放，点击外部或 ✕ 关闭）
+function initInfoPopup() {
+    setupPopupWindow(document.getElementById("info_popup"), "info_popup_close", "info_popup_resize");
 
-    // 点击外部关闭
-    document.addEventListener("pointerdown", (e) => {
-        if (popup.classList.contains("hidden")) return;
-        if (popup.contains(e.target)) return;
-        popup.classList.add("hidden");
-    });
-
-    // ✕ 关闭
-    const closeBtn = document.getElementById("highlight_help_close");
-    if (closeBtn) closeBtn.addEventListener("click", () => popup.classList.add("hidden"));
-
-    // 右下角三角角标：拖动调整浮窗大小
-    const resize = document.getElementById("highlight_help_resize");
-    let rs = null;
-    resize.addEventListener("mousedown", (e) => {
+    // readme 等 HTML 内容中的链接在系统默认浏览器中打开，不让当前窗口跳转
+    const content = document.getElementById("info_popup_content");
+    if (!content) return;
+    content.addEventListener("click", (e) => {
+        const a = e.target.closest("a[href]");
+        if (!a) return;
         e.preventDefault();
-        rs = { w: popup.offsetWidth, h: popup.offsetHeight, x: e.clientX, y: e.clientY };
-        document.body.style.userSelect = "none";
-    });
-    window.addEventListener("mousemove", (e) => {
-        if (!rs) return;
-        const MIN_W = 260, MIN_H = 160;
-        const MAX_W = Math.min(640, window.innerWidth - 8);
-        const MAX_H = window.innerHeight - 8;
-        const w = Math.max(MIN_W, Math.min(rs.w + (e.clientX - rs.x), MAX_W));
-        const h = Math.max(MIN_H, Math.min(rs.h + (e.clientY - rs.y), MAX_H));
-        popup.style.width = w + "px";
-        popup.style.height = h + "px";
-    });
-    window.addEventListener("mouseup", () => { rs = null; });
-
-    // 按住标题栏拖动浮窗
-    const header = popup.querySelector(".translate-popup-header");
-    let drag = null;
-    header.addEventListener("mousedown", (e) => {
-        if (e.target.closest("button")) return; // 标题栏上的按钮交给按钮处理
-        drag = { dx: e.clientX - popup.offsetLeft, dy: e.clientY - popup.offsetTop };
-        e.preventDefault();
-        document.body.style.userSelect = "none";
-    });
-    window.addEventListener("mousemove", (e) => {
-        if (!drag) return;
-        popup.style.left = Math.max(0, Math.min(e.clientX - drag.dx, window.innerWidth - popup.offsetWidth)) + "px";
-        popup.style.top = Math.max(0, Math.min(e.clientY - drag.dy, window.innerHeight - popup.offsetHeight)) + "px";
-    });
-    window.addEventListener("mouseup", () => {
-        drag = null;
-        document.body.style.userSelect = "";
+        const href = a.getAttribute("href");
+        if (href) Neutralino.os.open(href);
     });
 }
 
@@ -3515,6 +3603,7 @@ export async function setupUI() {
     initGallerySort();
     initPreviewNav();
     initPreviewBgToggle();
+    initPreviewReadme();
     initPreviewZoom();
     initGalleryContextMenu();
     // 边界框：初始化画布并注入写回回调（拖拽结束后更新编辑框文本）

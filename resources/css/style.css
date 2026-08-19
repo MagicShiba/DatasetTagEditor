@@ -91,11 +91,16 @@ html, body {
   font-weight: 600;
 }
 
-/* 原图预览标题行：标题与背景切换按钮保持同一行 */
+/* 原图预览标题行：标题与右侧按钮保持同一行 */
 .preview-header {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+/* 把标题行右侧按钮推到最右边 */
+.preview-header-spacer {
+  flex: 1;
 }
 
 .preview-bg-btn {

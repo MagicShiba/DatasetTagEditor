@@ -121,6 +121,8 @@
             <section class="center-panel" id="center_panel">
                 <div class="preview-header">
                     <div class="preview-label" data-i18n="gallery.original_preview">原图预览</div>
+                    <span class="preview-header-spacer"></span>
+                    <button id="btn_dataset_readme" class="preview-bg-btn" hidden data-i18n-title="gallery.dataset_readme" title="数据集说明">ⓘ</button>
                     <button id="btn_toggle_preview_bg" class="preview-bg-btn" data-i18n-title="gallery.toggle_preview_bg" title="切换预览背景">⇆</button>
                 </div>
                 <div id="image_preview" class="image-preview">
@@ -450,16 +452,16 @@
         </div>
     </div>
 
-    <!-- ======================= 高亮规则帮助（可拖动浮窗，点击外部或 ✕ 关闭） ======================= -->
-    <div id="highlight_help_popup" class="translate-popup hidden">
+    <!-- ======================= 通用信息浮窗（可拖动、可调整大小，点击外部或 ✕ 关闭） ======================= -->
+    <div id="info_popup" class="translate-popup hidden">
         <div class="translate-popup-header">
-            <span class="translate-popup-title" data-i18n="edit_caption.highlight_help_title">高亮规则说明</span>
-            <button id="highlight_help_close" class="translate-close-btn">✕</button>
+            <span id="info_popup_title" class="translate-popup-title">信息</span>
+            <button id="info_popup_close" class="translate-close-btn">✕</button>
         </div>
         <div class="translate-popup-body">
-            <div id="highlight_help_content" class="highlight-help-content"></div>
+            <div id="info_popup_content" class="highlight-help-content"></div>
         </div>
-        <div id="highlight_help_resize" class="translate-resize">
+        <div id="info_popup_resize" class="translate-resize">
             <svg viewBox="0 0 10 10" width="10" height="10"><path d="M3 9 L9 3 L9 9 Z" fill="currentColor"/></svg>
         </div>
     </div>
