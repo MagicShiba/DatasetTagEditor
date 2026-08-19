@@ -169,6 +169,8 @@ function selectNextImage() {
 function updatePreview(path) {
     const img = document.getElementById("preview_img");
     if (!img) return;
+    // 切换图像时重置缩放与背景
+    resetPreviewZoom();
     if (path) {
         const url = thumbs.getOriginalImageUrl(path);
         img.src = url || "";
@@ -178,6 +180,88 @@ function updatePreview(path) {
     }
     // 依据编辑框文本同步边界框（图像加载完成后会自动重绘）
     updateBboxes();
+}
+
+// 预览背景色：黑、深灰、浅灰、透明，点击按钮轮流切换
+const PREVIEW_BG_MODES = ["#000", "#222", "#666", "transparent"];
+let previewBgIndex = 0;
+function initPreviewBgToggle() {
+    const btn = document.getElementById("btn_toggle_preview_bg");
+    const box = document.getElementById("image_preview");
+    if (!btn || !box) return;
+    btn.addEventListener("click", () => {
+        previewBgIndex = (previewBgIndex + 1) % PREVIEW_BG_MODES.length;
+        box.style.background = PREVIEW_BG_MODES[previewBgIndex];
+    });
+}
+
+// 预览图像缩放：滚轮向上放大、向下缩小，范围为 1 ~ 20 倍，缩放以鼠标位置为锚点；支持左键拖动平移
+let previewZoom = 1;
+let previewPan = { x: 0, y: 0 };   // 图像中心的像素偏移（平移量）
+let previewDragging = false;
+let previewDragStart = { x: 0, y: 0, panX: 0, panY: 0 };
+
+function applyPreviewTransform() {
+    const img = document.getElementById("preview_img");
+    if (img) img.style.transform = `translate(${previewPan.x}px, ${previewPan.y}px) scale(${previewZoom})`;
+}
+
+function resetPreviewZoom() {
+    previewZoom = 1;
+    previewPan = { x: 0, y: 0 };
+    previewDragging = false;
+    const img = document.getElementById("preview_img");
+    if (img) {
+        img.style.transform = "";
+        img.style.cursor = "";
+    }
+}
+
+function initPreviewZoom() {
+    const box = document.getElementById("image_preview");
+    const img = document.getElementById("preview_img");
+    if (!box || !img) return;
+
+    // 滚轮缩放：保持鼠标位置下的图像点不动
+    box.addEventListener("wheel", (e) => {
+        if (!img.src) return;
+        e.preventDefault();
+        const rect = box.getBoundingClientRect();
+        const mx = e.clientX - rect.left;   // 鼠标在容器内的坐标
+        const my = e.clientY - rect.top;
+        const Cx = rect.width / 2;          // 图像中心（transform-origin 为默认 center）
+        const Cy = rect.height / 2;
+        const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+        const newZoom = Math.min(20, Math.max(1, previewZoom * factor));
+        // 锚点公式：新平移量 = 鼠标位置 - 缩放后的(鼠标相对图像中心)距离
+        previewPan.x = (mx - Cx) - (mx - Cx - previewPan.x) * (newZoom / previewZoom);
+        previewPan.y = (my - Cy) - (my - Cy - previewPan.y) * (newZoom / previewZoom);
+        previewZoom = newZoom;
+        applyPreviewTransform();
+        // 缩放后重绘边界框画布，使其与图像实际显示区域对齐
+        updateBboxes();
+    }, { passive: false });
+
+    // 左键拖动平移图像
+    img.addEventListener("mousedown", (e) => {
+        if (e.button !== 0) return;
+        previewDragging = true;
+        previewDragStart = { x: e.clientX, y: e.clientY, panX: previewPan.x, panY: previewPan.y };
+        img.style.cursor = "grabbing";
+        e.preventDefault();
+    });
+    window.addEventListener("mousemove", (e) => {
+        if (!previewDragging) return;
+        previewPan.x = previewDragStart.panX + (e.clientX - previewDragStart.x);
+        previewPan.y = previewDragStart.panY + (e.clientY - previewDragStart.y);
+        applyPreviewTransform();
+        updateBboxes();
+    });
+    window.addEventListener("mouseup", () => {
+        if (!previewDragging) return;
+        previewDragging = false;
+        img.style.cursor = "";
+    });
 }
 
 // 画廊选择（切换图像时检测未保存修改）
@@ -3421,6 +3505,8 @@ export async function setupUI() {
     initHighlightRuleEditor();
     initGallerySort();
     initPreviewNav();
+    initPreviewBgToggle();
+    initPreviewZoom();
     initGalleryContextMenu();
     // 边界框：初始化画布并注入写回回调（拖拽结束后更新编辑框文本）
     initBbox();

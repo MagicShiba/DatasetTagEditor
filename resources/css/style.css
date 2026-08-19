@@ -91,6 +91,27 @@ html, body {
   font-weight: 600;
 }
 
+/* 原图预览标题行：标题与背景切换按钮保持同一行 */
+.preview-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.preview-bg-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 0;
+}
+
+.preview-bg-btn:hover {
+  color: var(--accent);
+}
+
 .image-preview {
   position: relative;
   flex: 1;
@@ -98,7 +119,7 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #000000aa;
+  background: #000;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
@@ -109,6 +130,7 @@ html, body {
   max-height: 100%;
   object-fit: contain;
   user-select: none;
+  cursor: grab;
 }
 
 /* 原图预览左右切换区域：左右各四分之一的竖条，默认隐藏，悬停显示，不干扰图像 */

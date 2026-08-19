@@ -119,7 +119,10 @@
 
             <!-- 中列：原图预览 + 画廊状态 -->
             <section class="center-panel" id="center_panel">
-                <div class="preview-label" data-i18n="gallery.original_preview">原图预览</div>
+                <div class="preview-header">
+                    <div class="preview-label" data-i18n="gallery.original_preview">原图预览</div>
+                    <button id="btn_toggle_preview_bg" class="preview-bg-btn" data-i18n-title="gallery.toggle_preview_bg" title="切换预览背景">⇆</button>
+                </div>
                 <div id="image_preview" class="image-preview">
                     <img id="preview_img" alt="" draggable="false">
                     <canvas id="bbox_canvas" class="bbox-canvas"></canvas>
