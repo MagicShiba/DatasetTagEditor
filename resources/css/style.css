@@ -1053,6 +1053,7 @@ textarea {
   max-height: 400px;
   overflow-y: auto;
   color:#ccc;
+  user-select: text;
 }
 
 .actions-row {
@@ -1256,6 +1257,7 @@ textarea {
 .capsule-tag {
   overflow: hidden;
   text-overflow: ellipsis;
+  user-select: text;
 }
 
 .capsule-chip.capsule-dragging {

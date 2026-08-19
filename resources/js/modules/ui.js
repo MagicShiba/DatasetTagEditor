@@ -1602,7 +1602,10 @@ function initEditSelected() {
     // 选中文本翻译：鼠标松开且存在选中文本时，在松开处显示 "译" 按钮
     // 注意：不要在 textarea 失焦时隐藏按钮——点击"译"会先触发失焦，
     // 若此时把按钮 display:none，后续 click 事件不会触发，且选中范围会塌缩。
-    editTa.addEventListener("mouseup", onEditSelectionMouseUp);
+    // 选中文本翻译：鼠标松开且存在选中文本时，在松开处显示 "译" 按钮。
+    // 通过 document 委托统一覆盖主标注编辑框、胶囊标签/输入框、bbox 标签输入框、
+    // 缩略图标题与 HTML 标注显示（普通元素的文本选择在 mouseup 时冒泡到 document）。
+    document.addEventListener("mouseup", onSelectionMouseUp);
     initTranslatePopup();
     initInfoPopup();
 
@@ -1762,15 +1765,50 @@ function normalizeTranslateText(text) {
     return String(text).trim().replace(/^[\s\p{P}]+|[\s\p{P}]+$/gu, "");
 }
 
-// 编辑框内鼠标松开：有选中文本则在松开处显示 "译" 按钮
-function onEditSelectionMouseUp(e) {
-    const ta = document.getElementById("dte_edit_caption");
+// 鼠标松开：若在支持翻译的文本区域选中了文本，则在松开处显示 "译" 按钮。
+// 支持范围：主标注编辑框、bbox 标签输入框、胶囊输入框（均可读 selectionStart/End），
+// 以及胶囊标签、缩略图标题、HTML 标注显示（普通元素，读取 window.getSelection()）。
+function onSelectionMouseUp(e) {
     const btn = document.getElementById("translate_trigger");
-    if (!ta || !btn) return;
-    const hasSel = ta.selectionStart != null && ta.selectionEnd != null && ta.selectionStart !== ta.selectionEnd;
-    if (!hasSel) { translateSel = null; hideTranslateTrigger(); return; }
-    // 记录选中范围，供点击"译"按钮时使用
-    translateSel = { start: ta.selectionStart, end: ta.selectionEnd };
+    if (!btn) return;
+    const target = e.target;
+    // 点击"译"按钮/浮窗内部时不重置选中来源（按钮 mouseup 也会冒泡到这里，
+    // 若清除 translateSel，后续 click 将因编辑框失焦而无从取到选中文本）
+    if (btn.contains(target)) return;
+    const popup = document.getElementById("translate_popup");
+    if (popup && popup.contains(target)) return;
+    const isInput = (el) => !!(el && (el.tagName === "TEXTAREA" || el.tagName === "INPUT"));
+    let source = null;
+    if (isInput(target)) {
+        // 输入框类：直接读取选中范围
+        if (target.selectionStart == null || target.selectionStart === target.selectionEnd) {
+            translateSel = null;
+            hideTranslateTrigger();
+            return;
+        }
+        source = { input: true, el: target, start: target.selectionStart, end: target.selectionEnd };
+    } else if (target.closest) {
+        // 普通元素：胶囊标签 / 缩略图标题 / HTML 标注显示
+        const inCapsule = target.closest(".capsule-tag");
+        const inThumb = target.closest(".thumb-caption");
+        const inDisplay = target.closest("#html_caption_display");
+        if (inCapsule || inThumb || inDisplay) {
+            const selText = window.getSelection() ? String(window.getSelection()) : "";
+            if (!selText.trim()) {
+                translateSel = null;
+                hideTranslateTrigger();
+                return;
+            }
+            source = { input: false, el: inCapsule || inThumb || inDisplay, text: selText };
+        }
+    }
+    if (!source) {
+        translateSel = null;
+        hideTranslateTrigger();
+        return;
+    }
+    // 记录选中来源，供点击"译"按钮时使用
+    translateSel = source;
     // 定位在鼠标松开处（右侧下方），并限制在视口内
     const bw = btn.offsetWidth || 28;
     const bh = btn.offsetHeight || 28;
@@ -1825,17 +1863,23 @@ async function runTranslate(text, force = false) {
 
 // 翻译选中文本：打开浮窗、填入原文并自动翻译
 async function translateSelection() {
-    const ta = document.getElementById("dte_edit_caption");
-    if (!ta) return;
-    // 优先使用鼠标松开时记录的选中范围（点击"译"按钮时 textarea 已失焦）
-    const liveSel = (ta.selectionStart != null && ta.selectionStart !== ta.selectionEnd)
-        ? { start: ta.selectionStart, end: ta.selectionEnd } : null;
-    const range = translateSel || liveSel;
-    if (!range) return;
-    const sel = ta.value.substring(range.start, range.end).trim();
-    translateSel = null;
-    if (!sel) return;
     const btn = document.getElementById("translate_trigger");
+    let selText = "";
+    if (translateSel) {
+        // 优先使用鼠标松开时记录的选中来源（点击"译"按钮时原元素可能已失焦、选中塌缩）
+        const s = translateSel;
+        selText = s.input
+            ? String(s.el.value || "").substring(s.start, s.end).trim()
+            : (s.text || "").trim();
+    } else {
+        // 回退：实时读取主编辑框的选中范围
+        const ta = document.getElementById("dte_edit_caption");
+        if (ta && ta.selectionStart != null && ta.selectionStart !== ta.selectionEnd) {
+            selText = ta.value.substring(ta.selectionStart, ta.selectionEnd).trim();
+        }
+    }
+    translateSel = null;
+    if (!selText) return;
     // 未固定时记录按钮位置用于浮窗定位（随后隐藏按钮）
     const anchorRect = (!translatePinned && btn && !btn.classList.contains("hidden")) ? btn.getBoundingClientRect() : null;
     hideTranslateTrigger();
@@ -1843,11 +1887,11 @@ async function translateSelection() {
     // 原文填入编辑框并自动翻译
     const src = document.getElementById("translate_source");
     if (src) {
-        src.value = sel;
+        src.value = selText;
         src.focus();
         src.setSelectionRange(src.value.length, src.value.length);
     }
-    runTranslate(sel);
+    runTranslate(selText);
 }
 
 // 更新浮窗固定状态样式
