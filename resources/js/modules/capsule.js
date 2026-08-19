@@ -9,6 +9,7 @@
 import { splitCaptionWithSepts, getTagSeparators, isJsonBlock, formatJsonPretty } from "./utils.js";
 import { joinTagsWithSepts } from "./dataset.js";
 import { t } from "./i18n.js";
+import { bindAutocomplete } from "./autocomplete.js";
 
 // 当前是否启用胶囊编辑模式（默认关闭，使用文本编辑）
 let active = false;
@@ -215,6 +216,8 @@ function openAddInput(pos) {
     // 替换该位置的插入点按钮
     const insert = box().querySelector(`.capsule-insert[data-pos="${pos}"]`);
     if (insert) insert.replaceWith(input);
+    // 单值标签输入自动补全（选中候选项不追加逗号）
+    bindAutocomplete(input, { appendComma: false });
     input.focus();
     fitInputWidth(input);
     input.addEventListener("input", () => fitInputWidth(input));
@@ -226,7 +229,9 @@ function openAddInput(pos) {
             renderChips();
         }
     });
-    input.addEventListener("blur", () => renderChips());
+    // 失焦时自动保存，避免未回车提交的文本丢失；
+    // 元素被 DOM 移除（删除胶囊/拖拽等）触发的 blur 不保存，避免误操作
+    input.addEventListener("blur", () => { if (input.isConnected) addChip(pos, input.value); });
 }
 
 // 将 JSON 字符串压缩为单行；非 JSON 原样返回
@@ -250,6 +255,8 @@ function openEditChip(idx) {
     input.placeholder = t("edit_caption.capsule_placeholder");
     tagEl.replaceWith(input);
     chipEl.draggable = false;
+    // 修改标签时支持自动补全（单值输入，不追加逗号）
+    bindAutocomplete(input, { appendComma: false });
     input.focus();
     input.select();
     fitInputWidth(input);
@@ -282,7 +289,7 @@ function openEditChip(idx) {
             cancel();
         }
     });
-    input.addEventListener("blur", commit);
+    input.addEventListener("blur", () => { if (input.isConnected) commit(); });
 }
 
 // 在 pos 处添加新标签
