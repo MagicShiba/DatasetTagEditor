@@ -153,8 +153,8 @@ export class TagFilterState {
         const checked = [...this.tagsEl.querySelectorAll(".tf-tag-cb:checked")]
             .map(cb => cb.value);
         const tags = new Set(checked);
-        // 保留不可见的选中标签
-        const invisibleSelected = [...this.filter.tags].filter(t => !this.visibleTags.has(t));
+        // 保留不可见的选中标签（基于当前选中集合，避免依赖可能滞后的 filter）
+        const invisibleSelected = [...this.selectedTags].filter(t => !this.visibleTags.has(t));
         this.selectedTags = new Set([...tags, ...invisibleSelected]);
         this.filter = new TagFilter(this.selectedTags, this.logic, this.mode);
         this.onFilterChanged();
@@ -312,5 +312,10 @@ function escapeHtml(s) {
 }
 
 function escapeAttr(s) {
-    return escapeHtml(s);
+    return String(s)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+        // 换行/制表符等若原样写入 value 属性，会被浏览器规范化为空格，
+        // 导致 checkbox 值与原标签不一致，筛选匹配不上（画廊为空、勾选失效）
+        .replace(/\r/g, "&#13;").replace(/\n/g, "&#10;")
+        .replace(/\t/g, "&#9;").replace(/\f/g, "&#12;").replace(/\v/g, "&#11;");
 }

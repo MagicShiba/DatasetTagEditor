@@ -2,7 +2,7 @@
     "general": {
         "backup": false,
         "remove_newlines": false,
-        "dataset_dir": "E:\\ai\\1趣图-创意",
+        "dataset_dir": "example_image",
         "caption_ext": ".txt",
         "load_recursive": false,
         "load_caption_from_filename": false,

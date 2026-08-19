@@ -14,3 +14,4 @@ resources/settings.local.json
 resources/config.local.json
 resources/.profile.json
 dataset-tag-editor-win_x64-test.exe
+/example_image
