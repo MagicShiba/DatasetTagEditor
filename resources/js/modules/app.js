@@ -133,36 +133,48 @@ export function applyColumns() {
 // 画廊排序
 // ================================================================
 
-// 图像尺寸缓存（用于按分辨率排序，缓存键为路径，值为像素面积）
-const imageSizeCache = new Map();
+// 图像宽高缓存（用于按分辨率/比例排序，缓存键为路径，值为 { w, h }）
+const imageDimsCache = new Map();
 
-async function getImageArea(path) {
-    if (imageSizeCache.has(path)) return imageSizeCache.get(path);
+async function getImageDims(path) {
+    if (imageDimsCache.has(path)) return imageDimsCache.get(path);
     return new Promise((resolve) => {
         const url = thumbs.getOriginalImageUrl(path);
         if (!url) {
-            imageSizeCache.set(path, 0);
-            return resolve(0);
+            imageDimsCache.set(path, { w: 0, h: 0 });
+            return resolve({ w: 0, h: 0 });
         }
         const img = new Image();
         const timer = setTimeout(() => {
             img.onload = img.onerror = null;
-            imageSizeCache.set(path, 0);
-            resolve(0);
+            imageDimsCache.set(path, { w: 0, h: 0 });
+            resolve({ w: 0, h: 0 });
         }, 10000);
         img.onload = () => {
             clearTimeout(timer);
-            const area = (img.naturalWidth * img.naturalHeight) || 0;
-            imageSizeCache.set(path, area);
-            resolve(area);
+            const dims = { w: img.naturalWidth || 0, h: img.naturalHeight || 0 };
+            imageDimsCache.set(path, dims);
+            resolve(dims);
         };
         img.onerror = () => {
             clearTimeout(timer);
-            imageSizeCache.set(path, 0);
-            resolve(0);
+            imageDimsCache.set(path, { w: 0, h: 0 });
+            resolve({ w: 0, h: 0 });
         };
         img.src = url;
     });
+}
+
+async function getImageArea(path) {
+    const { w, h } = await getImageDims(path);
+    return w * h;
+}
+
+// 图像与 1:1 的偏离程度（|宽高比-1|），越接近 1:1 值越小，用于按比例排序
+async function getAspectDeviation(path) {
+    const { w, h } = await getImageDims(path);
+    if (!w || !h) return 1e9; // 未知尺寸排到最后
+    return Math.abs(w / h - 1);
 }
 
 // 文件修改时间缓存（用于按修改时间排序）
@@ -182,11 +194,13 @@ async function getFileMtime(path) {
 }
 
 // 按当前排序方式对画廊路径排序
-// name 为同步排序；resolution / mtime 需要读取文件信息，为异步
+// name 为同步排序；resolution / mtime / aspect 需要读取文件信息，为异步
 export async function sortGalleryPaths(paths) {
     const { key, dir } = app.gallerySort;
-    if (key === "resolution" || key === "mtime") {
-        const keyFn = key === "resolution" ? getImageArea : getFileMtime;
+    if (key === "resolution" || key === "mtime" || key === "aspect") {
+        const keyFn = key === "resolution" ? getImageArea
+            : key === "mtime" ? getFileMtime
+            : getAspectDeviation;
         const items = await Promise.all(paths.map(async p => ({ p, v: await keyFn(p) })));
         items.sort((a, b) => (a.v - b.v) * dir || a.p.localeCompare(b.p));
         return items.map(x => x.p);
