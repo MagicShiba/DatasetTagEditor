@@ -7,6 +7,7 @@
   "num_cpu_worker": -1,
   "tag_separators": ",.。",
   "bbox_json_decimal_places": 3,
+  "auto_compress_json": true,
   "auto_switch_next": true,
   "replace_punct_enabled": false,
   "replace_punct_from": [

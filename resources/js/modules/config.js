@@ -133,6 +133,8 @@ export const SETTINGS_DEFAULT = {
     tag_separators: ",",
     // 编辑框中边界框 JSON 坐标保存时保留的小数位数（默认 3 位）
     bbox_json_decimal_places: 3,
+    // 点击"将更改应用于选中图像"时自动将 json 块压缩为单行（部分 lora 训练器只支持单行文本）
+    auto_compress_json: true,
     // 点击"将更改应用于选中图像"保存后，自动切换至下一个图像
     auto_switch_next: false,
     // 是否在编辑标注操作区显示"替换标点"按钮
@@ -182,6 +184,7 @@ export const SETTINGS_DESCRIPTIONS = {
     num_cpu_worker: "settings.num_cpu_worker",
     tag_separators: "settings.tag_separators",
     bbox_json_decimal_places: "settings.bbox_json_decimal_places",
+    auto_compress_json: "settings.auto_compress_json",
     auto_switch_next: "settings.auto_switch_next",
     replace_punct_enabled: "settings.replace_punct_enabled",
     replace_punct_from: "settings.replace_punct_from",

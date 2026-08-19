@@ -275,6 +275,116 @@ export function getTagSeparators() {
     return tagSeparators;
 }
 
+// 判断文本是否为单个 JSON 块（整段就是一个合法的 JSON 对象）
+export function isJsonBlock(text) {
+    const s = String(text || "").trim();
+    if (!s.startsWith("{") || !s.endsWith("}")) return false;
+    try {
+        JSON.parse(s);
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+// 从 start（指向 '{'）扫描到配对的 '}'，返回结束下标；非 JSON 对象（{ 后非字符串 key）返回 -1
+function findJsonBlockEnd(s, start) {
+    if (s[start] !== "{") return -1;
+    // 预检：跳过空白后应为 '"'（JSON 对象以字符串 key 开头）
+    let k = start + 1;
+    while (k < s.length && /\s/.test(s[k])) k++;
+    if (s[k] !== '"') return -1;
+    let depth = 0;
+    let inStr = false;
+    let esc = false;
+    for (let i = start; i < s.length; i++) {
+        const ch = s[i];
+        if (inStr) {
+            if (esc) esc = false;
+            else if (ch === "\\") esc = true;
+            else if (ch === '"') inStr = false;
+            continue;
+        }
+        if (ch === '"') { inStr = true; continue; }
+        if (ch === "{") depth++;
+        else if (ch === "}") {
+            depth--;
+            if (depth === 0) return i;
+        }
+    }
+    return -1;
+}
+
+// ---- JSON 块格式化（展开 / 压缩标注文本中的 JSON 块） ----
+
+// 数组（及其嵌套）内联为一行，如坐标 [ 0.12, 0.4, 0.25, 0.67 ]
+function inlineJsonArray(arr) {
+    return "[ " + arr.map(v => Array.isArray(v) ? inlineJsonArray(v) : JSON.stringify(v)).join(", ") + " ]";
+}
+
+// 判断值能否整体内联为一行：不含对象（数组元素也递归判断）时返回 true
+function canInlineJson(value) {
+    if (Array.isArray(value)) return value.every(canInlineJson);
+    return value === null || typeof value !== "object";
+}
+
+// 递归格式化 JSON 值：对象多行缩进，纯数值/数组键值对保持在一行便于编辑
+function formatJsonValue(value, indent) {
+    const pad = " ".repeat(indent * 2);
+    if (Array.isArray(value)) {
+        if (canInlineJson(value)) return inlineJsonArray(value);
+        // 含对象的数组：元素对象多行展开
+        const items = value.map(v => formatJsonValue(v, indent + 1));
+        return "[\n" + items.map(it => " ".repeat((indent + 1) * 2) + it).join(",\n") + "\n" + pad + "]";
+    }
+    if (value && typeof value === "object") {
+        const entries = Object.entries(value);
+        if (entries.length === 0) return "{}";
+        const innerPad = " ".repeat((indent + 1) * 2);
+        const lines = entries.map(([k, v]) => innerPad + JSON.stringify(k) + ": " + formatJsonValue(v, indent + 1));
+        return "{\n" + lines.join(",\n") + "\n" + pad + "}";
+    }
+    return JSON.stringify(value);
+}
+
+// 将单个 JSON 字符串格式化为多行（便于查看/编辑）；非 JSON 返回原文本
+export function formatJsonPretty(text) {
+    try { return formatJsonValue(JSON.parse(text), 0); } catch (e) { return text; }
+}
+
+// 扫描文本中的 JSON 对象块，逐块调用 fn 替换；其余内容原样保留
+function replaceJsonBlocks(text, fn) {
+    const s = String(text || "");
+    let out = "";
+    let i = 0;
+    while (i < s.length) {
+        const ch = s[i];
+        if (ch === "{") {
+            const end = findJsonBlockEnd(s, i);
+            if (end > i) {
+                try {
+                    out += fn(s.slice(i, end + 1));
+                    i = end + 1;
+                    continue;
+                } catch (e) { /* 非法 JSON，该字符原样保留 */ }
+            }
+        }
+        out += ch;
+        i++;
+    }
+    return out;
+}
+
+// 将文本中所有 JSON 对象块展开（格式化）为多行，便于查看编辑；其余内容原样保留
+export function expandJsonInText(text) {
+    return replaceJsonBlocks(text, (block) => formatJsonPretty(block));
+}
+
+// 将文本中所有 JSON 对象块压缩为单行；其余内容原样保留
+export function compressJsonInText(text) {
+    return replaceJsonBlocks(text, (block) => JSON.stringify(JSON.parse(block)));
+}
+
 // 将标注文本规范化：分隔符之后恰好保留一个空格（无则补一个，多个则合并为一个）。
 // 分隔符本身（如 ",,"、"，"）原样保留；末尾文本沿用 splitCaptionWithSepts 的清理规则。
 export function normalizeSepSpaces(text) {
@@ -379,6 +489,23 @@ export function splitCaptionWithSepts(text) {
             quote = "'";
             buf += ch;
             continue;
+        }
+
+        // JSON 块：整个作为标签的一部分，不被内部的分隔符/引号拆散
+        if (ch === "{") {
+            const end = findJsonBlockEnd(text, i);
+            if (end > i) {
+                try {
+                    const json = text.slice(i, end + 1);
+                    JSON.parse(json);
+                    // 前面是分隔符段：先提交前一标签，JSON 独立成一个标签；
+                    // 否则 JSON 与前面的普通文本合并为一个标签（无分隔符时保持原样，不丢空格）
+                    if (inSep) commit();
+                    buf += json;
+                    i = end;
+                    continue;
+                } catch (e) { /* 非合法 JSON，按普通字符处理 */ }
+            }
         }
 
         let isSep = seps.has(ch);

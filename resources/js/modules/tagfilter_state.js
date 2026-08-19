@@ -4,6 +4,7 @@
 import { FilterLogic, FilterMode, TagFilter, SortBy, SortOrder } from "./dataset.js";
 import { t } from "./i18n.js";
 import { bindAutocomplete } from "./autocomplete.js";
+import { isJsonBlock } from "./utils.js";
 
 // 实例唯一编号，用于生成互不冲突的单选框 name
 let _uid = 0;
@@ -22,6 +23,7 @@ export class TagFilterState {
         this.suffix = false;
         this.regex = false;
         this.listDisplay = !!listDisplay; // false = 长短混排，true = 左侧对齐列表
+        this.ignoreJson = true;           // 标签列表中忽略 JSON 块（JSON 整体不拆散、不展示）
         this.filter = new TagFilter(this.selectedTags, this.logic, this.mode);
     }
 
@@ -71,6 +73,7 @@ export class TagFilterState {
                     <label class="checkbox"><input type="radio" class="tf-display" name="${uid}-display" value="wrap" checked><span>${t("filter_tags.display_wrap")}</span></label>
                     <label class="checkbox"><input type="radio" class="tf-display" name="${uid}-display" value="list"><span>${t("filter_tags.display_list")}</span></label>
                 </div>
+                <label class="checkbox"><input type="checkbox" class="tf-ignore-json" checked><span>${t("filter_tags.ignore_json")}</span></label>
             </div>
             <div class="tf-tags"></div>
         `;
@@ -91,6 +94,13 @@ export class TagFilterState {
         this.displayRadios.forEach(rb => rb.addEventListener("change", () => {
             this.setListDisplay(getCheckedValue(this.displayRadios) === "list");
         }));
+        // 忽略 JSON 块复选框
+        this.ignoreJsonCb = el.querySelector(".tf-ignore-json");
+        this.ignoreJsonCb.checked = this.ignoreJson;
+        this.ignoreJsonCb.addEventListener("change", () => {
+            this.ignoreJson = this.ignoreJsonCb.checked;
+            this.update();
+        });
         // 初始化显示方式（混排 / 列表）
         this.setListDisplay(this.listDisplay);
 
@@ -177,6 +187,8 @@ export class TagFilterState {
         }
 
         this.selectedTags = dte.cleanupTagset(this.selectedTags);
+        // 忽略 JSON：从已选标签中剔除 JSON 块，使其不参与筛选
+        if (this.ignoreJson) this.selectedTags = filterOutJson(this.selectedTags);
         this.filter = new TagFilter(this.selectedTags, this.logic, this.mode);
 
         const app = window.__app;
@@ -192,6 +204,8 @@ export class TagFilterState {
             this.filter.logic === FilterLogic.AND,
             this.prefix, this.suffix, this.regex,
         );
+        // 忽略 JSON：标签列表中不显示 JSON 块
+        const tagList = this.ignoreJson ? filterOutJson(tags) : tags;
 
         // 计算应在筛选列表顶部显示的已选中标签
         let tagsInFilter = new Set();
@@ -204,7 +218,7 @@ export class TagFilterState {
         }
 
         // 从总标签中移除已在顶部显示的
-        const remaining = new Set([...tags].filter(t => !tagsInFilter.has(t)));
+        const remaining = new Set([...tagList].filter(t => !tagsInFilter.has(t)));
 
         const sortedInFilter = dte.sortTags([...tagsInFilter], this.sortBy, this.sortOrder);
         const sortedRemaining = dte.sortTags([...remaining], this.sortBy, this.sortOrder);
@@ -272,12 +286,15 @@ export class TagFilterState {
         this.suffix = !!cfg.sw_suffix;
         this.regex = !!cfg.sw_regex;
         if (cfg.list_display !== undefined) this.setListDisplay(!!cfg.list_display);
+        // 忽略 JSON 默认开启（配置文件未记录时也视为开启）
+        this.ignoreJson = cfg.ignore_json !== false;
         this.filter = new TagFilter(this.selectedTags, this.logic, this.mode);
         if (this.sortByRadios) setRadioValue(this.sortByRadios, this.sortBy);
         if (this.sortOrderRadios) setRadioValue(this.sortOrderRadios, this.sortOrder);
         if (this.prefixCb) this.prefixCb.checked = this.prefix;
         if (this.suffixCb) this.suffixCb.checked = this.suffix;
         if (this.regexCb) this.regexCb.checked = this.regex;
+        if (this.ignoreJsonCb) this.ignoreJsonCb.checked = this.ignoreJson;
         if (this.logicRadios) setRadioValue(this.logicRadios, this.logic === FilterLogic.AND ? "AND" : this.logic === FilterLogic.OR ? "OR" : "NONE");
     }
 
@@ -289,9 +306,20 @@ export class TagFilterState {
         this.selectedTags = new Set();
         this.filterWord = "";
         this.visibleTags = new Set();
+        this.ignoreJson = true;
         if (this.searchInput) this.searchInput.value = "";
+        if (this.ignoreJsonCb) this.ignoreJsonCb.checked = true;
         if (this.logicRadios) setRadioValue(this.logicRadios, logic === FilterLogic.AND ? "AND" : logic === FilterLogic.OR ? "OR" : "NONE");
     }
+}
+
+// 从标签集合中剔除 JSON 块（忽略 JSON 时使用）
+function filterOutJson(tags) {
+    const res = new Set();
+    for (const tag of tags) {
+        if (!isJsonBlock(tag)) res.add(tag);
+    }
+    return res;
 }
 
 // 取当前选中的单选框值

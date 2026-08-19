@@ -6,7 +6,7 @@
 //   - 两个标签之间（及首尾）有 "+" 插入点，点击后输入新标签
 // 编辑结果始终写回编辑框 dte_edit_caption.value，因此"应用更改/保存"等逻辑无需改动。
 
-import { splitCaptionWithSepts, getTagSeparators } from "./utils.js";
+import { splitCaptionWithSepts, getTagSeparators, isJsonBlock, formatJsonPretty } from "./utils.js";
 import { joinTagsWithSepts } from "./dataset.js";
 import { t } from "./i18n.js";
 
@@ -229,6 +229,11 @@ function openAddInput(pos) {
     input.addEventListener("blur", () => renderChips());
 }
 
+// 将 JSON 字符串压缩为单行；非 JSON 原样返回
+function minifyJson(text) {
+    try { return JSON.stringify(JSON.parse(text)); } catch (e) { return text; }
+}
+
 // 点击标签文本编辑：将标签替换为输入框，Enter 提交 / Esc 取消 / 失焦提交
 function openEditChip(idx) {
     if (idx < 0 || idx >= chips.length) return;
@@ -240,7 +245,8 @@ function openEditChip(idx) {
     const input = document.createElement("textarea");
     input.className = "capsule-input-multi";
     input.rows = 1;
-    input.value = chips[idx].tag;
+    // JSON 胶囊整体作为一个标签，编辑时以格式化形式展示便于阅读
+    input.value = isJsonBlock(chips[idx].tag) ? formatJsonPretty(chips[idx].tag) : chips[idx].tag;
     input.placeholder = t("edit_caption.capsule_placeholder");
     tagEl.replaceWith(input);
     chipEl.draggable = false;
@@ -255,7 +261,8 @@ function openEditChip(idx) {
         done = true;
         const val = input.value.trim();
         if (val && val !== chips[idx].tag) {
-            chips[idx].tag = val;
+            // JSON 编辑后保持压缩（单行）状态写回
+            chips[idx].tag = isJsonBlock(val) ? minifyJson(val) : val;
             writeChips();
         } else {
             renderChips();

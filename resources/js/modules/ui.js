@@ -7,7 +7,7 @@ import { PathFilter, FilterMode, FilterLogic, SortBy, SortOrder, joinTagsWithSep
 import { TagFilterState } from "./tagfilter_state.js";
 import * as api from "./api.js";
 import * as thumbs from "./thumbnails.js";
-import { normalizePath, getStem, getExtension, withSuffix, getBasename, getDirname, formatAspectRatio, floorToMultiple, splitCaption, splitCaptionWithSepts, setTagSeparators, normalizeSepSpaces } from "./utils.js";
+import { normalizePath, getStem, getExtension, withSuffix, getBasename, getDirname, formatAspectRatio, floorToMultiple, splitCaption, splitCaptionWithSepts, setTagSeparators, normalizeSepSpaces, expandJsonInText, compressJsonInText } from "./utils.js";
 import { parseRules, applyHighlight, escapeHtml } from "./highlight.js";
 import { initAutocomplete, loadAutocompleteData, bindAutocomplete } from "./autocomplete.js";
 import * as llm from "./llm.js";
@@ -464,9 +464,14 @@ function syncGallerySelectionHighlight() {
 // 将当前编辑框内容应用到当前选中图像（内存中）
 function applyEditToSelected() {
     const ta = document.getElementById("dte_edit_caption");
+    let text = ta.value;
+    // 启用自动压缩 json 时，将编辑框中的 json 块压缩为单行（部分 lora 训练器只支持单行文本）
+    if (getSetting("auto_compress_json")) {
+        text = compressJsonInText(text);
+    }
     // 规范化分隔符后的空格：无则补一个，多个则合并为一个，并写回编辑框；
     // 最后用 trim 清除标注首尾多余的空白（空格/换行）
-    const text = normalizeSepSpaces(ta.value).trim();
+    text = normalizeSepSpaces(text).trim();
     ta.value = text;
     // 文本被规范化改写后，刷新高亮层、边界框与胶囊标签
     updateHighlightOverlay();
@@ -1559,7 +1564,8 @@ function initGalleryContextMenu() {
 function initEditSelected() {
     document.getElementById("btn_copy_caption").addEventListener("click", () => {
         const cap = document.getElementById("html_caption_display").textContent;
-        document.getElementById("dte_edit_caption").value = cap;
+        // 复制到编辑框时同样将 json 块展开，便于编辑
+        document.getElementById("dte_edit_caption").value = expandJsonInText(cap);
         triggerEditInput();
     });
     document.getElementById("btn_prepend_caption").addEventListener("click", () => {
@@ -1999,7 +2005,8 @@ function updateEditCaptionPanel() {
         const rules = parseRules(rulesText);
         captionEl.innerHTML = applyHighlight(txt, rules);
         if (autoCopy) {
-            editTa.value = txt;
+            // 加载到编辑框时将 json 块展开（格式化）显示，便于查看与编辑
+            editTa.value = expandJsonInText(txt);
             app.changeIsSaved = true;
             updateHighlightOverlay();
         }
@@ -2673,6 +2680,7 @@ function readFilterConfig() {
             sort_by: app.filterP.sortBy,
             sort_order: app.filterP.sortOrder,
             list_display: app.filterP.listDisplay,
+            ignore_json: app.filterP.ignoreJson,
             logic: app.filterP.logic === FilterLogic.AND ? "AND" : app.filterP.logic === FilterLogic.OR ? "OR" : "NONE",
         },
         negative: {
@@ -2682,6 +2690,7 @@ function readFilterConfig() {
             sort_by: app.filterN.sortBy,
             sort_order: app.filterN.sortOrder,
             list_display: app.filterN.listDisplay,
+            ignore_json: app.filterN.ignoreJson,
             logic: app.filterN.logic === FilterLogic.AND ? "AND" : app.filterN.logic === FilterLogic.OR ? "OR" : "NONE",
         },
     };
@@ -2976,7 +2985,7 @@ function buildSettingsGrid() {
 
     // 通用设置区
     divider();
-    for (const name of ["filename_word_regex", "filename_join_string", "num_cpu_worker", "tag_separators", "auto_switch_next"]) {
+    for (const name of ["filename_word_regex", "filename_join_string", "num_cpu_worker", "tag_separators", "auto_compress_json", "auto_switch_next"]) {
         if (seen.has(name)) continue;
         markSeen(name);
         if (SETTINGS_HIDDEN.has(name)) continue;

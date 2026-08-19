@@ -10,9 +10,10 @@
 //   }}
 // 坐标为归一化的 x1,y1,x2,y2（0~1）。
 // 支持拖动整框移动、拖动边缘/角点缩放；重叠框通过多次点击循环切换。
-// 编辑后写回的 JSON 块为单行、小数位数由设置控制，且不干扰 Caption 中其它换行。
+// 编辑后写回的 JSON 块保持展开（多行）格式、小数位数由设置控制，且不干扰 Caption 中其它换行。
 
 import { getSetting } from "./config.js";
+import { formatJsonPretty } from "./utils.js";
 
 // 每帧绘制所依赖的元素
 let canvas = null;
@@ -133,22 +134,27 @@ function getBboxPrecision() {
     return Number.isFinite(v) && v >= 0 ? Math.floor(v) : 3;
 }
 
-// 将边界框序列化为单行 JSON 块（小数位数由设置控制，isMap 为 true 时输出映射形式，否则输出数组形式）
+// 将边界框序列化为 JSON 块（小数位数由设置控制，isMap 为 true 时输出映射形式，否则输出数组形式）。
+// 最终压缩由"自动压缩 json"设置项在应用更改时统一处理。
 export function serializeBboxes(list, key = "object", isMap = false) {
     const precision = getBboxPrecision();
+    let json;
     if (isMap) {
         const obj = {};
         for (const b of list) {
             const coords = [b.x1, b.y1, b.x2, b.y2].map(n => +n.toFixed(precision));
             obj[b.label] = coords;
         }
-        return JSON.stringify({ [key]: obj });
+        json = JSON.stringify({ [key]: obj });
+    } else {
+        const inner = list.map(b => {
+            const coords = [b.x1, b.y1, b.x2, b.y2].map(n => +n.toFixed(precision));
+            return `{${JSON.stringify(b.label)}:[${coords.join(",")}]}`;
+        }).join(",");
+        json = `{"${key}":[${inner}]}`;
     }
-    const inner = list.map(b => {
-        const coords = [b.x1, b.y1, b.x2, b.y2].map(n => +n.toFixed(precision));
-        return `{${JSON.stringify(b.label)}:[${coords.join(",")}]}`;
-    }).join(",");
-    return `{"${key}":[${inner}]}`;
+    // 展开为多行格式写回编辑框
+    return formatJsonPretty(json);
 }
 
 // 用当前 boxes 替换文本中的 JSON 块，返回新文本（保留块外的其它内容与换行，且保持原格式）
