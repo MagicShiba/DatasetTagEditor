@@ -10,8 +10,13 @@
 
 AGENTS.md
 
+# 本地设置
 resources/settings.local.json
 resources/config.local.json
 resources/.profile.json
+
+# 其它
 dataset-tag-editor-win_x64-test.exe
 other/*.zip
+
+/example_image
