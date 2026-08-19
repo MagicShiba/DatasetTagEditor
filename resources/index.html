@@ -271,6 +271,10 @@
                         <summary data-i18n="common.settings">设置</summary>
                         <div class="col">
                             <label class="checkbox">
+                                <input type="checkbox" id="cb_use_capsule_editor">
+                                <span data-i18n="edit_caption.use_capsule">使用胶囊标签编辑</span>
+                            </label>
+                            <label class="checkbox">
                                 <input type="checkbox" id="cb_copy_caption_automatically">
                                 <span data-i18n="edit_caption.auto_copy">自动复制选中图像的标注</span>
                             </label>
@@ -291,7 +295,8 @@
                             <div id="llm-fn-buttons" class="actions-scroll"></div>
                         </div>
                         <div class="field edit-caption-field">
-                            <div class="caption-textarea-wrap">
+                            <div id="dte_capsule_editor" class="capsule-editor hidden"></div>
+                            <div class="caption-textarea-wrap" id="dte_caption_textarea_wrap">
                                 <div id="dte_caption_overlay" aria-hidden="true">
                                     <div id="dte_caption_overlay_inner"></div>
                                 </div>

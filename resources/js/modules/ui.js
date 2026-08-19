@@ -12,6 +12,7 @@ import { parseRules, applyHighlight, escapeHtml } from "./highlight.js";
 import { initAutocomplete, loadAutocompleteData, bindAutocomplete } from "./autocomplete.js";
 import * as llm from "./llm.js";
 import { initBbox, updateBboxes, setOnBboxChange } from "./bbox.js";
+import { init as initCapsule, setOnChange as setCapsuleOnChange, refresh as capsuleRefresh, setEnabled as setCapsuleEnabled } from "./capsule.js";
 
 // ================================================================
 // 1. 标签筛选（正向/反向/移除）
@@ -235,9 +236,10 @@ function applyEditToSelected() {
     // 规范化分隔符后的空格：无则补一个，多个则合并为一个，并写回编辑框
     const text = normalizeSepSpaces(ta.value);
     ta.value = text;
-    // 文本被规范化改写后，刷新高亮层与边界框
+    // 文本被规范化改写后，刷新高亮层、边界框与胶囊标签
     updateHighlightOverlay();
     updateBboxes();
+    capsuleRefresh();
     const captionSplit = splitCaptionWithSepts(text);
     const tags = captionSplit.tags;
     const septs = captionSplit.septs;
@@ -692,6 +694,7 @@ function initLoadDataset() {
         document.getElementById("tb_edit_tags").value = "";
         document.getElementById("html_caption_display").innerHTML = "";
         document.getElementById("dte_edit_caption").value = "";
+        capsuleRefresh();
         if (app.filterP) app.filterP.clearFilter();
         if (app.filterN) app.filterN.clearFilter();
         if (app.removeTagSelect) app.removeTagSelect.update();
@@ -1402,16 +1405,49 @@ function initEditSelected() {
     bindAutocomplete(document.getElementById("tb_sr_replace_tags"));    // 查找替换-替换
     bindAutocomplete(document.getElementById("hr_tags"));               // 高亮规则-匹配标签
     loadAutocompleteData("/data/autocomplete.txt");
+
+    // 胶囊式标签编辑（默认关闭，使用文本编辑）
+    initCapsule();
+    setCapsuleOnChange(() => {
+        app.changeIsSaved = false;
+        updateHighlightOverlay();
+        updateBboxes();
+    });
 }
 
-// 替换标注中的中文标点为英文标点
+// 依据设置中的规则替换标注中的标点（规则可在设置中自定义，格式：原字符->替换为）
 function replacePunctuation() {
     const ta = document.getElementById("dte_edit_caption");
-    ta.value = ta.value.replace(
-        /[\u3002\uff0c\uff01\uff1f\uff1a\uff1b\u201c\u201d\u300e\u300f\uff08\uff09\u300a\u300b\u3010\u3011\u2014\u2026]/g,
-        c => ({ '\uff0c': ',', '\u3002': '.', '\uff1f': '?', '\uff01': '!', '\uff1a': ':', '\uff1b': ';', '\u201c': '"', '\u201d': '"', '\u300e': "'", '\u300f': "'", '\uff08': '(', '\uff09': ')', '\u300a': '<', '\u300b': '>', '\u3010': '[', '\u3011': ']', '\u2014': '-', '\u2026': '...' }[c] || c)
-    );
+    let text = ta.value;
+    // 长规则优先，避免短规则先替换破坏长规则
+    const rules = (getSetting("replace_punct_rules") || [])
+        .filter(r => r && r.from && r.to !== undefined && r.from !== r.to)
+        .sort((a, b) => b.from.length - a.from.length);
+    for (const r of rules) {
+        text = text.split(r.from).join(r.to);
+    }
+    ta.value = text;
     triggerEditInput();
+}
+
+// 将规则数组格式化为多行文本（每行 "原字符->替换为"）
+function formatPunctRulesText(rules) {
+    return (rules || []).map(r => `${r.from}->${r.to}`).join("\n");
+}
+
+// 解析多行规则文本为 [{from, to}]（支持空行与 # 注释）
+function parsePunctRulesText(text) {
+    const rules = [];
+    for (const rawLine of String(text || "").split(/\r?\n/)) {
+        const line = rawLine.trim();
+        if (!line || line.startsWith("#") || line.startsWith("//")) continue;
+        const idx = line.indexOf("->");
+        if (idx < 0) continue;
+        const from = line.slice(0, idx).trim();
+        const to = line.slice(idx + 2).trim();
+        if (from) rules.push({ from, to });
+    }
+    return rules;
 }
 
 // 动态构建编辑选中图像页面的操作按钮（替换标点 + LLM 功能），均使用紧凑样式
@@ -1420,13 +1456,15 @@ function buildLlmFunctionButtons() {
     if (!box) return;
     box.innerHTML = "";
 
-    // 替换标点按钮（置于最前，随语言切换重建）
-    const punctBtn = document.createElement("button");
-    punctBtn.type = "button";
-    punctBtn.className = "btn compact";
-    punctBtn.textContent = t("edit_caption.replace_punct");
-    punctBtn.addEventListener("click", replacePunctuation);
-    box.appendChild(punctBtn);
+    // 替换标点按钮（可在设置中关闭，置于最前，随语言切换重建）
+    if (getSetting("replace_punct_enabled")) {
+        const punctBtn = document.createElement("button");
+        punctBtn.type = "button";
+        punctBtn.className = "btn compact";
+        punctBtn.textContent = t("edit_caption.replace_punct");
+        punctBtn.addEventListener("click", replacePunctuation);
+        box.appendChild(punctBtn);
+    }
 
     // LLM 功能按钮
     const fns = getSetting("llm_functions") || [];
@@ -1751,14 +1789,17 @@ function updateEditCaptionPanel() {
     } else {
         captionEl.innerHTML = "";
     }
-    // 编辑框内容变化后同步边界框
+    // 编辑框内容变化后同步边界框与胶囊标签
     updateBboxes();
+    capsuleRefresh();
 }
 
 function triggerEditInput() {
     const ta = document.getElementById("dte_edit_caption");
     app.changeIsSaved = false;
     updateHighlightOverlay();
+    // 胶囊编辑模式下同步刷新胶囊标签
+    capsuleRefresh();
 }
 
 function showHighlightHelp() {
@@ -2441,6 +2482,7 @@ export function applyConfigToUI() {
         document.getElementById("cb_copy_caption_automatically").checked = editSelected.auto_copy;
         document.getElementById("cb_ask_save_when_caption_changed").checked = editSelected.warn_change_not_saved;
         document.getElementById("tb_highlight_rules").value = editSelected.highlight_rules || "";
+        setCapsuleEnabled(!!editSelected.use_capsule);
     }
     refreshAll();
 }
@@ -2501,6 +2543,7 @@ function readEditSelectedConfig() {
         auto_copy: document.getElementById("cb_copy_caption_automatically").checked,
         warn_change_not_saved: document.getElementById("cb_ask_save_when_caption_changed").checked,
         highlight_rules: document.getElementById("tb_highlight_rules").value,
+        use_capsule: document.getElementById("cb_use_capsule_editor").checked,
     };
 }
 
@@ -2727,6 +2770,12 @@ function buildSettingsGrid() {
             }
             input.innerHTML = opts.join("");
             input.value = value;
+        } else if (name === "replace_punct_rules") {
+            // 标点替换规则：用多行文本框编辑，每行 "原字符->替换为"
+            input = document.createElement("textarea");
+            input.id = "setting_" + name;
+            input.rows = 6;
+            input.value = formatPunctRulesText(value);
         } else if (typeof value === "boolean") {
             input = document.createElement("input");
             input.type = "checkbox";
@@ -2757,6 +2806,8 @@ function readSettingsFromGrid() {
         const cur = settings.current[name];
         if (name === "language") {
             settings.current[name] = el.value;
+        } else if (name === "replace_punct_rules") {
+            settings.current[name] = parsePunctRulesText(el.value);
         } else if (typeof cur === "boolean") {
             settings.current[name] = el.checked;
         } else if (typeof cur === "number") {
@@ -3233,6 +3284,7 @@ export async function setupUI() {
         app.changeIsSaved = false;
         updateHighlightOverlay();
         updateBboxes();
+        capsuleRefresh();
     });
 
     // 窗口大小变化时重新计算画廊列数并同步高亮 overlay 排版

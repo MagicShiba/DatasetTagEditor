@@ -318,7 +318,6 @@ input[type="text"], input[type="password"], input[type="number"], textarea, sele
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 4px;
   font-size: 13px;
   font-family: inherit;
 }
@@ -384,7 +383,7 @@ textarea {
 }
 
 .dir-input-wrap input {
-  padding-right: 52px;
+  padding:4px;
 }
 
 .dir-drop-btn {
@@ -487,6 +486,9 @@ textarea {
   display: flex;
   gap: 4px;
   align-items: center;
+}
+.load-row{
+  margin-bottom: 2px;
 }
 
 .grow { flex: 1; }
@@ -596,6 +598,7 @@ textarea {
   padding: 1px;
   overflow-y: auto;
   flex: 1;
+  min-width: 0;
 }
 
 .tab-content.active {
@@ -1136,6 +1139,133 @@ textarea {
 #btn_apply_changes {
   width: 100%;
   padding: 11px 12px;
+}
+
+/* ============ 胶囊式标签编辑 ============ */
+
+.capsule-editor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 1px;
+  min-height: 300px;
+  max-height: 400px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 2px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 13px;
+  align-content: flex-start;
+  font-family: var(--font-mono);
+}
+
+/* 标签与紧跟其后的 "+" 作为整体单元：换行时二者不拆开，"+" 不会单独占一行 */
+.capsule-unit {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  max-width: 100%;
+}
+
+.capsule-chip {
+  display: inline-flex;
+  padding: 2px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: grab;
+  user-select: none;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.capsule-tag {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.capsule-chip.capsule-dragging {
+  opacity: 0.45;
+}
+
+.capsule-chip.capsule-drop-hover,
+.capsule-insert.capsule-drop-hover {
+  outline: 2px dashed var(--accent);
+  outline-offset: 1px;
+}
+
+.capsule-x {
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 1px 4px;
+  border-radius: 50%;
+}
+
+.capsule-x:hover {
+  color: var(--danger);
+  background: rgba(220, 53, 69, 0.15);
+}
+
+/* 插入点 "+" 按钮：常态透明，悬停在编辑区时浮现 */
+.capsule-insert {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: transparent;
+  cursor: pointer;
+  padding: 0;
+  transition:background 0.3s ,color 0.3s ,margin 0.1s;
+}
+
+.capsule-insert:hover {
+  color: var(--text);
+  background: var(--accent-hover);
+  border-color: var(--border);
+  width: 18px;
+  margin: 0 1px;
+}
+
+.capsule-input {
+  width: 140px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.capsule-empty {
+  color: var(--text-dim);
+  font-style: italic;
+  padding: 4px 8px;
+}
+
+/* 编辑标签用的多行输入框：宽度由 JS 自适应，高度随内容自动增长 */
+.capsule-input-multi {
+  width: 140px;
+  min-height: 24px;
+  max-width: 100%;
+  resize: none;
+  overflow: hidden;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-size: 13px;
 }
 
 /* ============ 重命名表格 ============ */
