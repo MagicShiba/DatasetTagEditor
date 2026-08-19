@@ -271,10 +271,6 @@
                         <summary data-i18n="common.settings">设置</summary>
                         <div class="col">
                             <label class="checkbox">
-                                <input type="checkbox" id="cb_use_capsule_editor">
-                                <span data-i18n="edit_caption.use_capsule">使用胶囊标签编辑</span>
-                            </label>
-                            <label class="checkbox">
                                 <input type="checkbox" id="cb_copy_caption_automatically">
                                 <span data-i18n="edit_caption.auto_copy">自动复制选中图像的标注</span>
                             </label>
@@ -292,8 +288,13 @@
                     <div class="panel">
                         <div class="row actions-row">
                             <label class="field-label field-label-inline" for="dte_edit_caption" data-i18n="edit_caption.edit_caption">编辑标注</label>
+                            <button type="button" id="btn_toggle_mode" class="mode-btn" data-i18n-title="edit_caption.capsule_mode" title="标签编辑">
+                                <svg id="mode_icon_capsule" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.83z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                                <svg id="mode_icon_text" class="hidden" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                            </button>
                             <div id="llm-fn-buttons" class="actions-scroll"></div>
                         </div>
+                        <input type="checkbox" id="cb_use_capsule_editor" hidden>
                         <div class="field edit-caption-field">
                             <div id="dte_capsule_editor" class="capsule-editor hidden"></div>
                             <div class="caption-textarea-wrap" id="dte_caption_textarea_wrap">
@@ -352,9 +353,9 @@
             <div class="modal-body settings-modal-body">
                 <div class="sub-tab-content active" id="st_settings_general">
                     <div class="settings-grid" id="settings-grid"></div>
-                    <div id="lbl_cache_status" class="cache-status" hidden></div>
-                    <div class="row">
+                    <div id="clear-cache-box">
                         <button id="btn_clear_cache" class="btn" data-i18n="settings.clear_cache">清除缩略图缓存</button>
+                        <span id="lbl_cache_status" class="cache-status" hidden></span>
                     </div>
                 </div>
                 <div class="sub-tab-content" id="st_settings_llmcfg">

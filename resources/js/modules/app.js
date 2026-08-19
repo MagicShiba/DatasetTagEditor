@@ -105,6 +105,11 @@ export async function initApp() {
     // 初始化缩略图系统
     await thumbs.initThumbnails();
 
+    // 启动时清除缩略图缓存（若设置启用）
+    if (getSetting("cleanup_tmpdir")) {
+        await thumbs.clearThumbCache();
+    }
+
     // 设置列数
     applyColumns();
 

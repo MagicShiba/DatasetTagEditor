@@ -1415,39 +1415,21 @@ function initEditSelected() {
     });
 }
 
-// 依据设置中的规则替换标注中的标点（规则可在设置中自定义，格式：原字符->替换为）
+// 依据设置中的规则替换标注中的标点（规则在设置中以表格配置，原字符与替换字符两列）
 function replacePunctuation() {
     const ta = document.getElementById("dte_edit_caption");
     let text = ta.value;
+    const froms = getSetting("replace_punct_from") || [];
+    const tos = getSetting("replace_punct_to") || [];
     // 长规则优先，避免短规则先替换破坏长规则
-    const rules = (getSetting("replace_punct_rules") || [])
-        .filter(r => r && r.from && r.to !== undefined && r.from !== r.to)
+    const rules = froms.map((f, i) => ({ from: f, to: tos[i] }))
+        .filter(r => r.from && r.to !== undefined && r.from !== r.to)
         .sort((a, b) => b.from.length - a.from.length);
     for (const r of rules) {
         text = text.split(r.from).join(r.to);
     }
     ta.value = text;
     triggerEditInput();
-}
-
-// 将规则数组格式化为多行文本（每行 "原字符->替换为"）
-function formatPunctRulesText(rules) {
-    return (rules || []).map(r => `${r.from}->${r.to}`).join("\n");
-}
-
-// 解析多行规则文本为 [{from, to}]（支持空行与 # 注释）
-function parsePunctRulesText(text) {
-    const rules = [];
-    for (const rawLine of String(text || "").split(/\r?\n/)) {
-        const line = rawLine.trim();
-        if (!line || line.startsWith("#") || line.startsWith("//")) continue;
-        const idx = line.indexOf("->");
-        if (idx < 0) continue;
-        const from = line.slice(0, idx).trim();
-        const to = line.slice(idx + 2).trim();
-        if (from) rules.push({ from, to });
-    }
-    return rules;
 }
 
 // 动态构建编辑选中图像页面的操作按钮（替换标点 + LLM 功能），均使用紧凑样式
@@ -2737,64 +2719,220 @@ function initSettings() {
     });
 }
 
+// 构建设置中的标点替换规则表格（每行：原字符 / 替换字符，可编辑、删除、添加行）
+function createPunctRulesTable() {
+    const wrap = document.createElement("div");
+    wrap.className = "punct-rules-editor";
+    const grid = document.createElement("div");
+    grid.id = "setting_replace_punct_from";
+    grid.className = "punct-rules-table";
+
+    const addRow = (from, to) => {
+        const row = document.createElement("div");
+        row.className = "punct-rule-row";
+        const fromInput = document.createElement("input");
+        fromInput.type = "text";
+        fromInput.className = "punct-from";
+        fromInput.value = from;
+        const arrow = document.createElement("span");
+        arrow.className = "punct-arrow";
+        arrow.textContent = "→";
+        const toInput = document.createElement("input");
+        toInput.type = "text";
+        toInput.className = "punct-to";
+        toInput.value = to;
+        const del = document.createElement("button");
+        del.type = "button";
+        del.className = "btn compact punct-del";
+        del.textContent = "✕";
+        del.title = t("settings.delete_rule");
+        del.addEventListener("click", () => row.remove());
+        row.append(fromInput, arrow, toInput, del);
+        grid.appendChild(row);
+    };
+
+    const froms = getSetting("replace_punct_from") || [];
+    const tos = getSetting("replace_punct_to") || [];
+    const count = Math.max(froms.length, tos.length);
+    for (let i = 0; i < count; i++) addRow(froms[i] || "", tos[i] || "");
+
+    const addBtn = document.createElement("button");
+    addBtn.type = "button";
+    addBtn.className = "btn compact";
+    addBtn.textContent = t("settings.add_rule");
+    addBtn.addEventListener("click", () => addRow("", ""));
+    wrap.append(grid, addBtn);
+    return wrap;
+}
+
 // 构建设置表单（通用设置项）
+// 分组布局：语言置顶；画廊与缩略图分组；通用设置区；标点替换分组，各分组间以分割线分隔
 function buildSettingsGrid() {
     const grid = document.getElementById("settings-grid");
+    // 摘除清除缓存按钮容器（避免被 innerHTML 清空），画廊分组内再放回
+    const clearBox = document.getElementById("clear-cache-box");
+    if (clearBox) clearBox.remove();
     grid.innerHTML = "";
-    for (const name of Object.keys(SETTINGS_DEFAULT)) {
-        if (SETTINGS_HIDDEN.has(name)) continue;
-        const value = settings.current[name];
-        const desc = t(SETTINGS_DESCRIPTIONS[name]);
-        const field = document.createElement("div");
-        field.className = "field";
-        const label = document.createElement("label");
-        label.className = "field-label";
-        label.textContent = desc;
-        field.appendChild(label);
 
-        let input;
-        if (name === "language") {
-            // 动态列出 locales 目录下可用的语言包（发现失败时回退 zh/en）
-            input = document.createElement("select");
-            input.id = "setting_" + name;
-            const langs = getAvailableLanguages().length > 0
-                ? getAvailableLanguages()
-                : [{ code: "zh", name: t("settings.chinese") }, { code: "en", name: t("settings.english") }];
-            const opts = [`<option value="auto">${escapeHtml(t("settings.auto"))}</option>`];
-            for (const l of langs) {
-                // zh / en 使用当前界面语言的名称，其它语言使用语言包 meta.name（或代码本身）
-                const display = l.code === "zh" ? t("settings.chinese")
-                    : l.code === "en" ? t("settings.english")
-                    : l.name;
-                opts.push(`<option value="${escapeHtml(l.code)}">${escapeHtml(display)}</option>`);
-            }
-            input.innerHTML = opts.join("");
-            input.value = value;
-        } else if (name === "replace_punct_rules") {
-            // 标点替换规则：用多行文本框编辑，每行 "原字符->替换为"
-            input = document.createElement("textarea");
-            input.id = "setting_" + name;
-            input.rows = 6;
-            input.value = formatPunctRulesText(value);
-        } else if (typeof value === "boolean") {
-            input = document.createElement("input");
-            input.type = "checkbox";
-            input.id = "setting_" + name;
-            input.checked = value;
-        } else if (typeof value === "number") {
-            input = document.createElement("input");
-            input.type = "number";
-            input.id = "setting_" + name;
-            input.value = value;
-        } else {
-            input = document.createElement("input");
-            input.type = "text";
-            input.id = "setting_" + name;
-            input.value = value;
-        }
-        field.appendChild(input);
-        grid.appendChild(field);
+    const seen = new Set();
+    const markSeen = (name) => { seen.add(name); };
+    // 分组之间的分割线
+    const divider = () => {
+        const hr = document.createElement("hr");
+        hr.className = "section-divider";
+        grid.appendChild(hr);
+    };
+
+    // 语言设置置顶
+    grid.appendChild(renderSettingsField("language"));
+    markSeen("language");
+
+    // 画廊与缩略图分组（含清除缓存按钮）
+    for (const n of ["cleanup_tmpdir", "max_resolution", "gallery_image_width"]) markSeen(n);
+    divider();
+    grid.appendChild(buildGallerySection(clearBox));
+
+    // 通用设置区
+    divider();
+    for (const name of ["filename_word_regex", "filename_join_string", "num_cpu_worker", "tag_separators", "auto_switch_next"]) {
+        if (seen.has(name)) continue;
+        markSeen(name);
+        if (SETTINGS_HIDDEN.has(name)) continue;
+        grid.appendChild(renderSettingsControl(name));
     }
+
+    // 标点替换分组（默认折叠，折叠时只显示启用开关）
+    for (const n of ["replace_punct_enabled", "replace_punct_from"]) markSeen(n);
+    divider();
+    grid.appendChild(buildPunctGroup());
+
+    // 兜底：SETTINGS_DEFAULT 中其余未显式分组的键
+    for (const name of Object.keys(SETTINGS_DEFAULT)) {
+        if (seen.has(name)) continue;
+        markSeen(name);
+        if (SETTINGS_HIDDEN.has(name)) continue;
+        if (name === "replace_punct_to") continue;
+        grid.appendChild(renderSettingsControl(name));
+    }
+
+    // 兜底：画廊分组未放入时仍显示清除缓存按钮
+    if (clearBox && !clearBox.parentNode) grid.appendChild(clearBox);
+}
+
+// 生成单个设置控件：布尔设置为 label+复选框同行，其余为 label 在上、控件在下
+function renderSettingsControl(name) {
+    return typeof settings.current[name] === "boolean"
+        ? renderSettingsRow(name)
+        : renderSettingsField(name);
+}
+
+// 构建设置输入控件（含语言下拉与标点规则表格等特殊分支）
+function createSettingsInput(name, value) {
+    let input;
+    if (name === "language") {
+        // 动态列出 locales 目录下可用的语言包（发现失败时回退 zh/en）
+        input = document.createElement("select");
+        input.id = "setting_" + name;
+        const langs = getAvailableLanguages().length > 0
+            ? getAvailableLanguages()
+            : [{ code: "zh", name: t("settings.chinese") }, { code: "en", name: t("settings.english") }];
+        const opts = [`<option value="auto">${escapeHtml(t("settings.auto"))}</option>`];
+        for (const l of langs) {
+            // zh / en 使用当前界面语言的名称，其它语言使用语言包 meta.name（或代码本身）
+            const display = l.code === "zh" ? t("settings.chinese")
+                : l.code === "en" ? t("settings.english")
+                : l.name;
+            opts.push(`<option value="${escapeHtml(l.code)}">${escapeHtml(display)}</option>`);
+        }
+        input.innerHTML = opts.join("");
+        input.value = value;
+    } else if (name === "replace_punct_from") {
+        // 标点替换规则：表格显示，每行两列（原字符 / 替换字符），可编辑、删除、添加
+        input = createPunctRulesTable();
+    } else if (typeof value === "boolean") {
+        input = document.createElement("input");
+        input.type = "checkbox";
+        input.id = "setting_" + name;
+        input.checked = value;
+    } else if (typeof value === "number") {
+        input = document.createElement("input");
+        input.type = "number";
+        input.id = "setting_" + name;
+        input.value = value;
+    } else {
+        input = document.createElement("input");
+        input.type = "text";
+        input.id = "setting_" + name;
+        input.value = value;
+    }
+    return input;
+}
+
+// 普通字段：label 在上，控件在下
+function renderSettingsField(name) {
+    const value = settings.current[name];
+    const field = document.createElement("div");
+    field.className = "field";
+    const label = document.createElement("label");
+    label.className = "field-label";
+    label.textContent = t(SETTINGS_DESCRIPTIONS[name]);
+    field.appendChild(label);
+    field.appendChild(createSettingsInput(name, value));
+    return field;
+}
+
+// 布尔设置行：复选框在前，label 在后
+function renderSettingsRow(name) {
+    const value = settings.current[name];
+    const row = document.createElement("div");
+    row.className = "settings-row";
+    const label = document.createElement("label");
+    label.className = "settings-row-label";
+    label.textContent = t(SETTINGS_DESCRIPTIONS[name]);
+    label.htmlFor = "setting_" + name;
+    const input = createSettingsInput(name, value);
+    row.append(input, label);
+    return row;
+}
+
+// 画廊与缩略图设置分组（分割线分隔，非卡片）：启动清缓存+清除按钮同行，下方为画廊分辨率设置
+function buildGallerySection(clearBox) {
+    const group = document.createElement("div");
+    group.className = "settings-group";
+    const title = document.createElement("div");
+    title.className = "settings-group-title";
+    title.textContent = t("settings.gallery_group");
+    group.appendChild(title);
+
+    const row = renderSettingsRow("cleanup_tmpdir");
+    if (clearBox) row.appendChild(clearBox);
+    group.appendChild(row);
+    group.appendChild(renderSettingsField("max_resolution"));
+    group.appendChild(renderSettingsField("gallery_image_width"));
+    return group;
+}
+
+// 标点替换分组：使用 details/summary 折叠（折叠三角与 common.settings、dataset.load_settings 一致），
+// 启用开关（复选框在前）作为折叠标题，默认折叠
+function buildPunctGroup() {
+    const details = document.createElement("details");
+    details.className = "accordion";
+
+    const summary = document.createElement("summary");
+    const row = renderSettingsRow("replace_punct_enabled");
+    summary.appendChild(row);
+    details.appendChild(summary);
+
+    // 点击启用开关（复选框/标签）时不触发折叠
+    row.querySelectorAll("input,label").forEach(el => {
+        el.addEventListener("click", (e) => e.stopPropagation());
+    });
+
+    const body = document.createElement("div");
+    body.className = "col";
+    body.appendChild(renderSettingsField("replace_punct_from"));
+    details.appendChild(body);
+    return details;
 }
 
 // 从设置表单读取
@@ -2806,8 +2944,16 @@ function readSettingsFromGrid() {
         const cur = settings.current[name];
         if (name === "language") {
             settings.current[name] = el.value;
-        } else if (name === "replace_punct_rules") {
-            settings.current[name] = parsePunctRulesText(el.value);
+        } else if (name === "replace_punct_from") {
+            // 从表格读取标点替换规则，写入两个等长数组
+            const from = [], to = [];
+            el.querySelectorAll(".punct-rule-row").forEach(row => {
+                const f = row.querySelector(".punct-from").value.trim();
+                const t = row.querySelector(".punct-to").value;
+                if (f) { from.push(f); to.push(t); }
+            });
+            settings.current.replace_punct_from = from;
+            settings.current.replace_punct_to = to;
         } else if (typeof cur === "boolean") {
             settings.current[name] = el.checked;
         } else if (typeof cur === "number") {

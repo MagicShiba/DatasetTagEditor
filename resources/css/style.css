@@ -362,8 +362,8 @@ textarea {
 /* 合并区域之间的分隔线 */
 .section-divider {
   border: none;
-  border-top: 1px solid var(--border);
-  margin: 10px 0;
+  border-top: 2px solid var(--border);
+  margin: 5px 0;
 }
 
 .field {
@@ -1045,6 +1045,35 @@ textarea {
   white-space: nowrap;
 }
 
+/* 编辑模式切换按钮：图标随当前模式变化，点击切换标签/文本编辑 */
+#btn_toggle_mode.mode-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  flex: none;
+  margin-left: 4px;
+  background: var(--bg-input);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+#btn_toggle_mode.mode-btn:hover {
+  background: #2a313a;
+  color: var(--text);
+}
+
+#btn_toggle_mode.mode-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 #tab_edit_caption > div:nth-child(3){
   padding:2px;
 }
@@ -1210,6 +1239,7 @@ textarea {
 .capsule-x:hover {
   color: var(--danger);
   background: rgba(220, 53, 69, 0.15);
+  font-weight: bold;
 }
 
 /* 插入点 "+" 按钮：常态透明，悬停在编辑区时浮现 */
@@ -1436,6 +1466,81 @@ textarea {
   margin-bottom: 0;
 }
 
+/* 设置界面分组（分割线分隔，无卡片背景） */
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-group-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+}
+
+/* 布尔设置行：label 与复选框同行 */
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 折叠标题（如标点替换）内的设置行改为行内布局，与折叠三角显示在同一行 */
+.accordion summary .settings-row {
+  display: inline-flex;
+  vertical-align: middle;
+}
+
+.settings-row-label {
+  color: var(--text);
+  font-size: 13px;
+}
+
+#clear-cache-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 标点替换规则表格 */
+.punct-rules-editor {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 200px;
+}
+
+.punct-rules-table {
+  display: flex;
+  flex-direction: column;
+}
+
+.punct-rule-row {
+  display: flex;
+  align-items: center;
+}
+
+.punct-rule-row input {
+  flex: 1;
+  padding: 2px 4px;
+}
+
+.punct-arrow {
+  flex: none;
+  color: var(--text-dim);
+  user-select: none;
+}
+
+.punct-del {
+  flex: none;
+  color: var(--text-dim);
+}
+
+.punct-del:hover {
+  color: var(--danger);
+}
+
 /* ============ 设置浮动窗口 ============ */
 
 .settings-modal {
@@ -1612,8 +1717,9 @@ textarea {
 
 .modal-wide .modal-body textarea {
   width: 100%;
-  resize: vertical;
-  min-height: 100px;
+  field-sizing: content;
+  min-height: 2em;
+  max-height: 150px;
   font-family: var(--font-mono);
 }
 

@@ -23,6 +23,9 @@ const ta = () => document.getElementById("dte_edit_caption");
 const box = () => document.getElementById("dte_capsule_editor");
 const cb = () => document.getElementById("cb_use_capsule_editor");
 const wrap = () => document.getElementById("dte_caption_textarea_wrap");
+const modeBtn = () => document.getElementById("btn_toggle_mode");
+const modeCapsuleIcon = () => document.getElementById("mode_icon_capsule");
+const modeTextIcon = () => document.getElementById("mode_icon_text");
 
 // 当前是否处于胶囊编辑模式
 export function isCapsuleActive() {
@@ -34,18 +37,36 @@ export function setOnChange(cb) {
     onChange = cb;
 }
 
-// 初始化：绑定启用复选框
+// 初始化：绑定图标切换按钮与隐藏的启用复选框
 export function init() {
+    const btn = modeBtn();
+    if (btn) btn.addEventListener("click", () => setEnabled(!isCapsuleActive()));
+    // 兼容旧逻辑：隐藏复选框状态变化同样生效（配置读取仍依赖它）
     cb().addEventListener("change", () => setEnabled(cb().checked));
     // 默认使用文本编辑形式（复选框默认未勾选）
     setEnabled(cb().checked);
 }
 
-// 启用/关闭胶囊编辑模式（同时同步复选框状态）
+// 启用/关闭胶囊编辑模式（同时同步复选框与图标切换按钮状态）
 export function setEnabled(enabled) {
     active = !!enabled;
     if (cb()) cb().checked = active;
+    syncModeButton();
     applyMode();
+}
+
+// 同步图标切换按钮：显示当前模式图标、高亮当前模式、更新提示文案
+function syncModeButton() {
+    const btn = modeBtn();
+    const capIcon = modeCapsuleIcon();
+    const txtIcon = modeTextIcon();
+    if (btn) {
+        btn.classList.toggle("active", active);
+        btn.title = t(active ? "edit_caption.capsule_mode" : "edit_caption.text_mode");
+        btn.dataset.i18nTitle = active ? "edit_caption.capsule_mode" : "edit_caption.text_mode";
+    }
+    if (capIcon) capIcon.classList.toggle("hidden", !active);
+    if (txtIcon) txtIcon.classList.toggle("hidden", active);
 }
 
 // 应用当前模式：显示/隐藏文本编辑框与胶囊编辑区

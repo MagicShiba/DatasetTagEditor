@@ -121,8 +121,8 @@ export function defaultLlmConfigs() {
 }
 
 export const SETTINGS_DEFAULT = {
-    temp_directory: "",
-    cleanup_tmpdir: true,
+    // 启动时清除缩略图缓存（true 每次启动清空 cache/thumbnails）
+    cleanup_tmpdir: false,
     max_resolution: 128,
     gallery_image_width: 128,
     filename_word_regex: "",
@@ -133,6 +133,12 @@ export const SETTINGS_DEFAULT = {
     tag_separators: ",",
     // 点击"将更改应用于选中图像"保存后，自动切换至下一个图像
     auto_switch_next: false,
+    // 是否在编辑标注操作区显示"替换标点"按钮
+    replace_punct_enabled: true,
+    // 标点替换规则（两个等长数组：原字符 -> 替换字符，按下标一一对应）
+    // 兜底基本规则：即使设置文件中未保存，加载时也会合并这些默认值
+    replace_punct_from: ["，", "。", "！", "？", "：", "；", "（", "）", "“", "”"],
+    replace_punct_to: [",", ".", "!", "?", ":", ";", "(", ")", '"', '"'],
     // 界面语言：auto 表示跟随系统语言（中文系统用中文，其它用英文）
     language: "auto",
     // 加载数据集时对无文本文件的图像使用 LLM 反推标注的提示词
@@ -166,7 +172,6 @@ export const SETTINGS_HIDDEN = new Set([
 ]);
 
 export const SETTINGS_DESCRIPTIONS = {
-    temp_directory: "settings.temp_directory",
     cleanup_tmpdir: "settings.cleanup_tmpdir",
     max_resolution: "settings.max_resolution",
     gallery_image_width: "settings.gallery_image_width",
@@ -175,6 +180,8 @@ export const SETTINGS_DESCRIPTIONS = {
     num_cpu_worker: "settings.num_cpu_worker",
     tag_separators: "settings.tag_separators",
     auto_switch_next: "settings.auto_switch_next",
+    replace_punct_enabled: "settings.replace_punct_enabled",
+    replace_punct_from: "settings.replace_punct_from",
     language: "settings.language",
 };
 
