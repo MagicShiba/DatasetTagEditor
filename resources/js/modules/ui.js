@@ -215,6 +215,8 @@ function resetPreviewZoom() {
         img.style.transform = "";
         img.style.cursor = "";
     }
+    const box = document.getElementById("image_preview");
+    if (box) box.classList.remove("dragging-image");
 }
 
 function initPreviewZoom() {
@@ -242,12 +244,16 @@ function initPreviewZoom() {
         updateBboxes();
     }, { passive: false });
 
-    // 左键拖动平移图像
-    img.addEventListener("mousedown", (e) => {
-        if (e.button !== 0) return;
+    // 左键或中键拖动平移图像（图像或边界框画布空白处按下均可；左键点击命中边界框时由画布交互接管）
+    box.addEventListener("mousedown", (e) => {
+        if (e.button !== 0 && e.button !== 1) return;
         previewDragging = true;
         previewDragStart = { x: e.clientX, y: e.clientY, panX: previewPan.x, panY: previewPan.y };
+        // 标记图像平移中：bbox 画布据此跳过自身的交互与光标更新
+        box.classList.add("dragging-image");
         img.style.cursor = "grabbing";
+        const canvas = box.querySelector(".bbox-canvas");
+        if (canvas) canvas.style.cursor = "grabbing";
         e.preventDefault();
     });
     window.addEventListener("mousemove", (e) => {
@@ -260,7 +266,10 @@ function initPreviewZoom() {
     window.addEventListener("mouseup", () => {
         if (!previewDragging) return;
         previewDragging = false;
+        box.classList.remove("dragging-image");
         img.style.cursor = "";
+        const canvas = box.querySelector(".bbox-canvas");
+        if (canvas) canvas.style.cursor = "";
     });
 }
 

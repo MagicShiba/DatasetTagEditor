@@ -372,6 +372,8 @@ export function initBbox() {
     // 鼠标交互
     canvas.addEventListener("mousedown", (e) => {
         e.preventDefault();
+        // 仅左键进行边界框编辑；中键等交给图像平移
+        if (e.button !== 0) return;
         if (boxes.length === 0) return;
         const { x, y } = localPos(e);
         const imgRect = img.getBoundingClientRect();
@@ -389,6 +391,8 @@ export function initBbox() {
         const ci = all.indexOf(selected);
         const target = ci >= 0 ? selected : all[all.length - 1];
         selected = target;
+        // 命中边界框：交给画布交互处理，阻止事件冒泡（避免触发图像平移）
+        e.stopPropagation();
         const hit = hitTestFor(target, x, y, w, h);
         if (!hit) { draw(); return; }
         const b = boxes[target];
@@ -421,6 +425,8 @@ export function initBbox() {
             }
             return;
         }
+        // 图像平移拖动中，跳过画布光标更新
+        if (preview.classList.contains("dragging-image")) return;
         if (boxes.length === 0) return;
         const all = hitTestAll(x, y, w, h);
         const top = all.length ? all[all.length - 1] : null;
