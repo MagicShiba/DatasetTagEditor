@@ -30,6 +30,8 @@ let selected = -1;
 let dragging = null;
 // 标签编辑输入框（选中框左上角文本编辑）
 let labelInput = null;
+// 上次点击（mousedown）的局部坐标，用于判断"鼠标不移动再次点击"以循环切换重叠框
+let lastClickPos = null;
 
 // 拖拽结束后写回文本框的回调（由 ui.js 注入，避免循环依赖）
 let onBboxChange = null;
@@ -231,9 +233,12 @@ function draw() {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // 先绘制未选中的框，最后绘制选中的框，保证选中框在最上层不被其它框遮挡
     for (let i = 0; i < boxes.length; i++) {
+        if (i === selected) continue;
         drawBox(i, w, h);
     }
+    if (selected >= 0) drawBox(selected, w, h);
 }
 
 // 绘制单个边界框（画布坐标按 CSS 像素计算）
@@ -302,6 +307,16 @@ function hitTestAll(px, py, w, h) {
         if (inside || nearEdge || nearCorner) list.push(i);
     }
     return list;
+}
+
+// 命中框按"鼠标点到框中心距离"升序排序，重叠时优先选离鼠标近的框
+function sortedByDist(all, px, py, w, h) {
+    return all.slice().sort((a, b) => {
+        const ba = boxes[a], bb = boxes[b];
+        const da = Math.hypot((ba.x1 + ba.x2) / 2 * w - px, (ba.y1 + ba.y2) / 2 * h - py);
+        const db = Math.hypot((bb.x1 + bb.x2) / 2 * w - px, (bb.y1 + bb.y2) / 2 * h - py);
+        return da - db;
+    });
 }
 
 // 对指定框判断具体交互：返回 { type:"move" } 或 { type:"resize", corner } 或 null
@@ -510,16 +525,29 @@ export function initBbox() {
         const w = imgRect.width;
         const h = imgRect.height;
         const all = hitTestAll(x, y, w, h);
+        // 同一位置再次点击：在命中框中循环切换；鼠标移动后：优先选离鼠标最近的框
+        const samePoint = lastClickPos && lastClickPos.x === x && lastClickPos.y === y;
+        lastClickPos = { x, y };
         if (all.length === 0) {
             selected = -1;
             dragging = null;
             draw();
             return;
         }
-        // 已选中的框也在该点：直接操作它（拖动/缩放），不做切换；
-        // 否则选中最上层
-        const ci = all.indexOf(selected);
-        const target = ci >= 0 ? selected : all[all.length - 1];
+        const sorted = sortedByDist(all, x, y, w, h);
+        let target;
+        const wasOnSelected = all.indexOf(selected) >= 0;
+        // 命中已选中框的边缘/手柄（resize）：保持选中，调整大小不切换成别的框
+        if (wasOnSelected && hitTestFor(selected, x, y, w, h)?.type === "resize") {
+            target = selected;
+        } else if (samePoint && wasOnSelected && sorted.length > 1) {
+            // 鼠标未移动：循环切换到命中框中下一个（按离鼠标近排序）
+            const ci = sorted.indexOf(selected);
+            target = sorted[(ci + 1) % sorted.length];
+        } else {
+            // 新位置点击（含已选中框内部、未选中状态）：优先选离鼠标近的框
+            target = sorted[0];
+        }
         selected = target;
         // 命中边界框：交给画布交互处理，阻止事件冒泡（避免触发图像平移）
         e.stopPropagation();
@@ -533,8 +561,6 @@ export function initBbox() {
             startX: x,
             startY: y,
             moved: false,
-            clickAll: all,
-            wasSelected: ci >= 0,
             orig: { x1: b.x1, y1: b.y1, x2: b.x2, y2: b.y2 },
         };
         document.body.style.userSelect = "none";
@@ -547,7 +573,7 @@ export function initBbox() {
         const h = imgRect.height;
         const { x, y } = localPos(e);
         if (dragging) {
-            // 超过阈值才视为拖动，纯点击用于循环切换重叠框
+            // 超过阈值才视为拖动（纯点击的选择/循环切换已在 mousedown 完成）
             if (Math.hypot(x - dragging.startX, y - dragging.startY) > 3) dragging.moved = true;
             if (dragging.moved) {
                 applyDrag(x, y, w, h);
@@ -559,11 +585,11 @@ export function initBbox() {
         if (preview.classList.contains("dragging-image")) return;
         if (boxes.length === 0) return;
         const all = hitTestAll(x, y, w, h);
-        // 与 mousedown 的目标选择保持一致：选中的框也在该点则按它判定，否则按最上层框判定。
+        // 与 mousedown 的目标选择保持一致：选中的框也在该点则按它判定，否则按离鼠标最近的框判定。
         // 否则重叠时下层框边缘/手柄会因上层框遮挡而错误显示移动光标
         if (all.length === 0) { canvas.style.cursor = "default"; return; }
         const ci = all.indexOf(selected);
-        const target = ci >= 0 ? selected : all[all.length - 1];
+        const target = ci >= 0 ? selected : sortedByDist(all, x, y, w, h)[0];
         canvas.style.cursor = cursorFor(hitTestFor(target, x, y, w, h));
     });
 
@@ -612,12 +638,6 @@ export function initBbox() {
                 return;
             }
         }
-        // 纯点击：若之前选中的框在该点且存在重叠，则循环切换到下一层
-        if (d.wasSelected && d.clickAll.length > 1) {
-            const ci = d.clickAll.indexOf(d.i);
-            selected = d.clickAll[(ci + 1) % d.clickAll.length];
-            draw();
-        }
-        // 否则保持当前选中的框（首次点击选中该点最上层框）
+        // 纯点击的选择/循环切换已在 mousedown 完成（新位置选最近的框、同点重复点击循环切换）
     });
 }
