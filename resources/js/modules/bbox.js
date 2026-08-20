@@ -32,6 +32,10 @@ let dragging = null;
 let labelInput = null;
 // 上次点击（mousedown）的局部坐标，用于判断"鼠标不移动再次点击"以循环切换重叠框
 let lastClickPos = null;
+// 最近一次鼠标位置（画布局部坐标），用于粘贴定位
+let lastMousePos = null;
+// 复制的边界框：{ label, w, h }（w/h 为归一化宽高）
+let clipboardBox = null;
 
 // 拖拽结束后写回文本框的回调（由 ui.js 注入，避免循环依赖）
 let onBboxChange = null;
@@ -461,6 +465,60 @@ function cancelLabelEdit() {
     labelInput.style.display = "none";
 }
 
+// 复制当前选中的边界框（标签 + 归一化尺寸）
+function copySelectedBox() {
+    if (selected < 0 || selected >= boxes.length) return;
+    const b = boxes[selected];
+    clipboardBox = {
+        label: b.label || "",
+        w: b.x2 - b.x1,
+        h: b.y2 - b.y1,
+    };
+}
+
+// 生成不与现有标签重复的标签：同名时追加数字后缀并递增
+// （label -> label_2 -> label_3 ...；若复制的是 label_5，则继续 label_6，避免 _2_2 叠加）
+function uniqueLabel(base) {
+    const names = new Set(boxes.map(b => b.label));
+    if (!names.has(base)) return base;
+    // 解析 base 末尾的数字后缀：label_5 -> 后缀 5，无后缀则从 2 开始
+    const m = String(base).match(/_(\d+)$/);
+    const prefix = m ? base.replace(/_(\d+)$/, "") : base;
+    let n = m ? parseInt(m[1], 10) + 1 : 2;
+    let candidate = prefix + "_" + n;
+    while (names.has(candidate)) {
+        n++;
+        candidate = prefix + "_" + n;
+    }
+    return candidate;
+}
+
+// 以鼠标位置为中心粘贴复制框（未移动过鼠标则用画布中心），自动去重标签
+function pasteClipboardBox() {
+    if (!clipboardBox) return;
+    const imgRect = img.getBoundingClientRect();
+    const w = imgRect.width;
+    const h = imgRect.height;
+    if (w <= 0 || h <= 0) return;
+    const cx = lastMousePos ? lastMousePos.x : w / 2;
+    const cy = lastMousePos ? lastMousePos.y : h / 2;
+    const bw = Math.min(clipboardBox.w, 1);
+    const bh = Math.min(clipboardBox.h, 1);
+    const nx = cx / w;
+    const ny = cy / h;
+    const box = {
+        label: uniqueLabel(clipboardBox.label),
+        x1: clamp01(nx - bw / 2),
+        y1: clamp01(ny - bh / 2),
+        x2: clamp01(nx + bw / 2),
+        y2: clamp01(ny + bh / 2),
+    };
+    boxes.push(box);
+    selected = boxes.length - 1;
+    draw();
+    writeBack();
+}
+
 // 初始化：绑定画布与交互事件
 export function initBbox() {
     canvas = document.getElementById("bbox_canvas");
@@ -475,6 +533,17 @@ export function initBbox() {
         if ((e.key === "Delete" || e.key === "Backspace") && selected >= 0) {
             e.preventDefault();
             deleteSelectedBox();
+            return;
+        }
+        // Ctrl/Cmd + C 复制选中框；Ctrl/Cmd + V 以鼠标位置为中心粘贴
+        if ((e.ctrlKey || e.metaKey) && e.key === "c" && selected >= 0) {
+            e.preventDefault();
+            copySelectedBox();
+            return;
+        }
+        if ((e.ctrlKey || e.metaKey) && e.key === "v" && clipboardBox) {
+            e.preventDefault();
+            pasteClipboardBox();
         }
     });
     // 标签编辑输入框：Enter 提交 / Esc 取消 / 失焦提交（DOM 移除触发的 blur 除外）
@@ -572,6 +641,7 @@ export function initBbox() {
         const w = imgRect.width;
         const h = imgRect.height;
         const { x, y } = localPos(e);
+        lastMousePos = { x, y };
         if (dragging) {
             // 超过阈值才视为拖动（纯点击的选择/循环切换已在 mousedown 完成）
             if (Math.hypot(x - dragging.startX, y - dragging.startY) > 3) dragging.moved = true;

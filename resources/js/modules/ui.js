@@ -70,7 +70,6 @@ function initTagFilters() {
 function refreshAll() {
     const imgs = app.dte.getFilteredImgpaths(app.getFilters());
     updateGallery(imgs);
-    updateGalleryStateDisplay(imgs);
     updateCommonTags();
     updateSrSelectedTags();
     updateEditCaptionPanel();
@@ -108,6 +107,8 @@ async function updateGallery(imgs) {
     });
     updateSelectionGallery();
     updatePreview(app.gallerySelectedPath);
+    // 排序与选中索引更新后再刷新状态区，保证"选中第几个"与排序一致
+    updateGalleryStateDisplay(sorted);
 }
 
 // 画廊排序控件（在 gallery-label 同一行）
@@ -435,6 +436,8 @@ async function onGallerySelect(idx, path, e) {
     app.gallerySelectedIndex = idx;
     app.gallerySelectedPath = path;
     app.registerGalleryState(t("gallery.selected_image"), path);
+    // 即时刷新"显示的图像"中的选中序号
+    updateGalleryStateDisplay(app.galleryPaths || []);
 
     // 异步显示选中图像分辨率、宽高比（两位小数）与最接近的 64 倍数分辨率
     api.getImageSize(path).then(size => {

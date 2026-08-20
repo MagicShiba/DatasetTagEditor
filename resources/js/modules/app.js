@@ -498,7 +498,11 @@ async function loadThumbInto(img, path, maxRes) {
 export function updateGalleryStateDisplay(imgs) {
     const total = app.dte.dataset.length;
     const displayed = imgs.length;
-    app.registerGalleryState(t("gallery.displayed_images"), `${displayed} / ${total} total`);
+    // 附加当前选中的图像序号（显示列表中的位置，1-based）
+    let state = `${displayed} / ${total} total`;
+    const selIdx = app.gallerySelectedIndex;
+    if (selIdx >= 0) state += t("gallery.selected_index").replace("{n}", String(selIdx + 1));
+    app.registerGalleryState(t("gallery.displayed_images"), state);
     app.registerGalleryState(t("gallery.current_tag_filter"), currentFilterText());
     app.registerGalleryState(t("gallery.current_selection_filter"), `${app.pathFilter.paths.size} images`);
 }
