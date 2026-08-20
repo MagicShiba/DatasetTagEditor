@@ -1178,6 +1178,281 @@ function hideLlmPreview() {
     if (img) img.classList.add("hidden");
 }
 
+// ================================================================
+// 额外工具：JSON 坐标合规检查（结果在独立浮窗中显示，默认固定）
+// ================================================================
+
+// 浮窗是否固定（固定后点击窗口外不关闭；默认固定）
+let jsonCheckPinned = true;
+
+// 从 start（指向 '{'）扫描到配对的 '}'，返回结束下标；找不到返回 -1
+function scanJsonObjectEnd(s, start) {
+    if (s[start] !== "{") return -1;
+    let depth = 0;
+    let inStr = false;
+    let esc = false;
+    for (let i = start; i < s.length; i++) {
+        const ch = s[i];
+        if (inStr) {
+            if (esc) esc = false;
+            else if (ch === "\\") esc = true;
+            else if (ch === '"') inStr = false;
+            continue;
+        }
+        if (ch === '"') { inStr = true; continue; }
+        if (ch === "{") depth++;
+        else if (ch === "}") {
+            depth--;
+            if (depth === 0) return i;
+        }
+    }
+    return -1;
+}
+
+// 从文本中提取 object/objects 格式的边界框坐标。
+// 返回 { boxes: [{label,x1,y1,x2,y2}], emptyIssues: [{kind,label?,key?}] }
+// emptyIssues.kind: container(容器为空) / empty_label(空标签) / empty_coords(坐标为[]或null) / invalid_coords(坐标无效) / invalid_item(数组元素无效)
+function extractJsonCoordinates(text) {
+    const boxes = [];
+    const emptyIssues = [];
+    const s = String(text || "");
+    const re = /\{\s*"(object|objects)"\s*:/g;
+    let m;
+    while ((m = re.exec(s))) {
+        const start = m.index;
+        const end = scanJsonObjectEnd(s, start);
+        if (end < 0) continue;
+        let json;
+        try { json = JSON.parse(s.slice(start, end + 1)); } catch (e) { continue; }
+        const key = m[1];
+        const raw = json[key];
+        const pushCoords = (label, coords) => {
+            if (!label) { emptyIssues.push({ kind: "empty_label" }); return; }
+            if (coords == null) { emptyIssues.push({ kind: "empty_coords", label: String(label) }); return; }
+            if (Array.isArray(coords)) {
+                if (coords.length === 0) { emptyIssues.push({ kind: "empty_coords", label: String(label) }); return; }
+                const nums = coords.slice(0, 4).map(Number);
+                if (nums.length < 4 || !nums.every(n => Number.isFinite(n))) {
+                    emptyIssues.push({ kind: "invalid_coords", label: String(label) });
+                    return;
+                }
+                boxes.push({ label: String(label), x1: nums[0], y1: nums[1], x2: nums[2], y2: nums[3] });
+            } else {
+                emptyIssues.push({ kind: "invalid_coords", label: String(label) });
+            }
+        };
+        if (Array.isArray(raw)) {
+            if (raw.length === 0) emptyIssues.push({ kind: "container", key });
+            for (const item of raw) {
+                if (item && typeof item === "object") {
+                    for (const [label, coords] of Object.entries(item)) pushCoords(label, coords);
+                } else {
+                    emptyIssues.push({ kind: "invalid_item" });
+                }
+            }
+        } else if (raw && typeof raw === "object") {
+            if (Object.keys(raw).length === 0) emptyIssues.push({ kind: "container", key });
+            for (const [label, coords] of Object.entries(raw)) pushCoords(label, coords);
+        } else {
+            emptyIssues.push({ kind: "container", key });
+        }
+        re.lastIndex = end + 1;
+    }
+    return { boxes, emptyIssues };
+}
+
+// 生成具体的不合规描述（含标签名与具体坐标值），返回字符串数组
+function boxIssueDetails(box) {
+    const { label, x1, y1, x2, y2 } = box;
+    const d = [];
+    // x1/y1 大于等于 1（含大于 1）
+    if (x1 >= 1) d.push(`${label}.x1=${x1} ${t("extra_tools.reason_x1y1_ge1")}`);
+    if (y1 >= 1) d.push(`${label}.y1=${y1} ${t("extra_tools.reason_x1y1_ge1")}`);
+    // 其它坐标大于 1（x2/y2）
+    if (x2 > 1) d.push(`${label}.x2=${x2} ${t("extra_tools.reason_over")}`);
+    if (y2 > 1) d.push(`${label}.y2=${y2} ${t("extra_tools.reason_over")}`);
+    // 顺序错误
+    if (x1 > x2) d.push(`${label}: x1(${x1})>x2(${x2}) ${t("extra_tools.reason_order")}`);
+    if (y1 > y2) d.push(`${label}: y1(${y1})>y2(${y2}) ${t("extra_tools.reason_order")}`);
+    return d;
+}
+
+// 将空值问题转为本地化文本（含具体的键/标签）
+function emptyIssueText(issue) {
+    switch (issue.kind) {
+        case "container":
+            return t("extra_tools.detail_empty_container").replace("{key}", issue.key);
+        case "empty_label":
+            return t("extra_tools.detail_empty_label");
+        case "empty_coords":
+            return t("extra_tools.detail_empty_coords").replace("{label}", issue.label);
+        case "invalid_coords":
+            return t("extra_tools.detail_invalid_coords").replace("{label}", issue.label);
+        case "invalid_item":
+            return t("extra_tools.detail_invalid_item");
+        default:
+            return t("extra_tools.reason_empty");
+    }
+}
+
+// 打开 / 关闭 JSON 检查结果浮窗
+function toggleJsonCheckPanel(force) {
+    const panel = document.getElementById("json_check_panel");
+    if (!panel) return;
+    const show = force !== undefined ? force : panel.classList.contains("hidden");
+    if (show) {
+        panel.classList.remove("hidden");
+        // 首次打开：设置初始尺寸与居中位置
+        if (!panel.style.width || !panel.style.left) {
+            const w = Math.min(480, window.innerWidth - 16);
+            const h = Math.min(360, Math.max(240, window.innerHeight - 16));
+            panel.style.width = w + "px";
+            panel.style.height = h + "px";
+            panel.style.left = Math.max(0, Math.round((window.innerWidth - w) / 2)) + "px";
+            panel.style.top = Math.max(0, Math.round((window.innerHeight - h) / 2)) + "px";
+        }
+        updateJsonCheckPinState();
+    } else {
+        panel.classList.add("hidden");
+    }
+}
+
+// 更新浮窗固定状态样式
+function updateJsonCheckPinState() {
+    const panel = document.getElementById("json_check_panel");
+    if (panel) panel.classList.toggle("pinned", jsonCheckPinned);
+}
+
+// 遍历数据集执行 JSON 检查，渲染统计与不合规列表到浮窗
+function runJsonCheck() {
+    const listEl = document.getElementById("extra_tools_json_list");
+    const summaryEl = document.getElementById("extra_tools_summary");
+    if (!listEl || !summaryEl) return;
+    let total = 0;
+    let withJson = 0;
+    const badPaths = [];
+    for (const [path, data] of app.dte.dataset.datas) {
+        total++;
+        let hasJson = false;
+        const details = [];
+        for (const tag of data.tags) {
+            const res = extractJsonCoordinates(tag);
+            if (res.boxes.length === 0 && res.emptyIssues.length === 0) continue;
+            hasJson = true;
+            for (const issue of res.emptyIssues) details.push(emptyIssueText(issue));
+            for (const box of res.boxes) details.push(...boxIssueDetails(box));
+        }
+        if (hasJson) withJson++;
+        if (details.length > 0) badPaths.push({ path, details });
+    }
+    // 统计
+    summaryEl.innerHTML =
+        t("extra_tools.summary_total").replace("{n}", String(total)) + "<br>" +
+        t("extra_tools.summary_with_json").replace("{n}", String(withJson)) + "<br>" +
+        t("extra_tools.summary_bad").replace("{n}", String(badPaths.length));
+    // 列表
+    listEl.innerHTML = "";
+    if (badPaths.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "extra-tools-empty";
+        empty.textContent = t("extra_tools.empty");
+        listEl.appendChild(empty);
+    } else {
+        for (const item of badPaths) {
+            const row = document.createElement("div");
+            row.className = "llm-progress-row extra-tools-row";
+            const name = document.createElement("span");
+            name.className = "llm-progress-name";
+            name.textContent = getBasename(item.path);
+            name.title = item.path;
+            const reason = document.createElement("span");
+            reason.className = "extra-tools-reason";
+            reason.textContent = item.details.join("; ");
+            reason.title = reason.textContent;
+            row.appendChild(name);
+            row.appendChild(reason);
+            // 点击跳转到画廊中对应的图像
+            row.addEventListener("click", () => {
+                const idx = app.galleryPaths.indexOf(item.path);
+                if (idx >= 0) onGallerySelect(idx, item.path);
+            });
+            listEl.appendChild(row);
+        }
+    }
+    toggleJsonCheckPanel(true);
+}
+
+// 初始化额外工具面板（按钮 + 结果浮窗交互）
+function initExtraTools() {
+    const btn = document.getElementById("btn_check_json");
+    if (btn) btn.addEventListener("click", runJsonCheck);
+
+    const panel = document.getElementById("json_check_panel");
+    if (!panel) return;
+    // 刷新：重新执行 JSON 检查并刷新列表
+    const refreshBtn = document.getElementById("json_check_refresh");
+    if (refreshBtn) refreshBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        runJsonCheck();
+    });
+    // 固定 / 取消固定
+    document.getElementById("json_check_pin").addEventListener("click", (e) => {
+        e.stopPropagation();
+        jsonCheckPinned = !jsonCheckPinned;
+        updateJsonCheckPinState();
+    });
+    // 关闭
+    document.getElementById("btn_json_check_close").addEventListener("click", () => {
+        toggleJsonCheckPanel(false);
+    });
+    // 点击窗口外部关闭（固定时除外）
+    document.addEventListener("click", (e) => {
+        if (panel.classList.contains("hidden")) return;
+        if (jsonCheckPinned) return;
+        if (panel.contains(e.target)) return;
+        const btnEl = document.getElementById("btn_check_json");
+        if (btnEl && btnEl.contains(e.target)) return;
+        toggleJsonCheckPanel(false);
+    });
+    // 按住标题栏拖动窗口
+    const header = panel.querySelector(".translate-popup-header");
+    let drag = null;
+    header.addEventListener("mousedown", (e) => {
+        if (e.target.closest("button, label, input, select, a")) return;
+        drag = { dx: e.clientX - panel.offsetLeft, dy: e.clientY - panel.offsetTop };
+        e.preventDefault();
+        document.body.style.userSelect = "none";
+    });
+    window.addEventListener("mousemove", (e) => {
+        if (!drag) return;
+        panel.style.left = Math.max(0, Math.min(e.clientX - drag.dx, window.innerWidth - panel.offsetWidth)) + "px";
+        panel.style.top = Math.max(0, Math.min(e.clientY - drag.dy, window.innerHeight - panel.offsetHeight)) + "px";
+    });
+    window.addEventListener("mouseup", () => {
+        drag = null;
+        document.body.style.userSelect = "";
+    });
+    // 右下角三角角标：拖动调整浮窗大小
+    const resize = document.getElementById("json_check_resize");
+    let rs = null;
+    resize.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        rs = { w: panel.offsetWidth, h: panel.offsetHeight, x: e.clientX, y: e.clientY };
+        document.body.style.userSelect = "none";
+    });
+    window.addEventListener("mousemove", (e) => {
+        if (!rs) return;
+        const MIN_W = 320, MIN_H = 240;
+        const MAX_W = Math.min(720, window.innerWidth - 8);
+        const MAX_H = window.innerHeight - 8;
+        const w = Math.max(MIN_W, Math.min(rs.w + (e.clientX - rs.x), MAX_W));
+        const h = Math.max(MIN_H, Math.min(rs.h + (e.clientY - rs.y), MAX_H));
+        panel.style.width = w + "px";
+        panel.style.height = h + "px";
+    });
+    window.addEventListener("mouseup", () => { rs = null; });
+}
+
 // 重建全部行（打开窗口时同步当前状态）
 function renderAllRows() {
     const listEl = document.getElementById("llm_progress_list");
@@ -3683,6 +3958,7 @@ export async function setupUI() {
     initPreviewReadme();
     initPreviewZoom();
     initGalleryContextMenu();
+    initExtraTools();
     // 边界框：初始化画布并注入写回回调（拖拽结束后更新编辑框文本）
     initBbox();
     setOnBboxChange((text) => {

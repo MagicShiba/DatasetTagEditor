@@ -147,6 +147,7 @@
                     <button class="tab-btn" data-tab="tab_batch_edit" data-i18n="tab.batch_edit">批量编辑</button>
                     <button class="tab-btn active" data-tab="tab_edit_caption" data-i18n="tab.edit_caption">编辑选中图像</button>
                     <button class="tab-btn" data-tab="tab_rename" data-i18n="tab.file_operations">文件操作</button>
+                    <button class="tab-btn" data-tab="tab_extra_tools" data-i18n="tab.extra_tools">额外工具</button>
                 </nav>
 
                 <!-- ========== 按标签筛选 ========== -->
@@ -339,6 +340,16 @@
                     </div>
                     <button id="btn_apply_rename" class="btn primary" data-i18n="common.apply">应用</button>
                 </section>
+
+                <!-- ========== 额外工具 ========== -->
+                <section class="tab-content" id="tab_extra_tools">
+                    <div class="markdown" data-i18n="extra_tools.json_help">检查标注中的 JSON 坐标是否合规（归一化百分比坐标，取值范围 0~1）。</div>
+                    <div class="panel">
+                        <div class="row">
+                            <button id="btn_check_json" class="btn primary" data-i18n="extra_tools.check_json">检查 JSON</button>
+                        </div>
+                    </div>
+                </section>
             </div>
         </main>
     </div>
@@ -435,6 +446,24 @@
 
     <!-- 反推列表悬停时的图像预览（body 级元素，避免受面板 transform 影响定位） -->
     <img id="llm_progress_preview" class="llm-preview hidden" alt="">
+
+    <!-- ======================= JSON 检查结果窗口（可拖动浮窗，默认固定） ======================= -->
+    <div id="json_check_panel" class="llm-progress-panel hidden">
+        <div class="translate-popup-header">
+            <span class="translate-popup-title" data-i18n="extra_tools.title">JSON 检查结果</span>
+            <button id="json_check_refresh" class="translate-refresh-btn" data-i18n-title="extra_tools.refresh" title="重新检测">↻</button>
+            <button id="json_check_pin" class="translate-pin-btn" data-i18n-title="llm_progress.pin">📌</button>
+            <button id="btn_json_check_close" class="translate-close-btn" data-i18n-title="llm_progress.close">✕</button>
+        </div>
+        <div class="llm-progress-body">
+            <div class="extra-tools-summary" id="extra_tools_summary"></div>
+            <div class="llm-progress-list" id="extra_tools_json_list"></div>
+        </div>
+        <!-- 右下角三角角标：拖动调整浮窗大小 -->
+        <div id="json_check_resize" class="translate-resize">
+            <svg viewBox="0 0 10 10" width="10" height="10"><path d="M3 9 L9 3 L9 9 Z" fill="currentColor"/></svg>
+        </div>
+    </div>
 
     <!-- ======================= 选中文本翻译（译按钮 + 可拖动固定浮窗） ======================= -->
     <div id="translate_trigger" class="translate-trigger hidden">译</div>
