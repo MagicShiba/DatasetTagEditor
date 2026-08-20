@@ -385,17 +385,23 @@ export function compressJsonInText(text) {
     return replaceJsonBlocks(text, (block) => JSON.stringify(JSON.parse(block)));
 }
 
-// 将标注文本规范化：分隔符之后恰好保留一个空格（无则补一个，多个则合并为一个）。
-// 分隔符本身（如 ",,"、"，"）原样保留；末尾文本沿用 splitCaptionWithSepts 的清理规则。
+// 将标注文本规范化：连续分隔符合并为一个（取首个分隔符字符），分隔符之后恰好保留一个空格。
+// 末尾文本沿用 splitCaptionWithSepts 的清理规则（多余逗号清除、句号保留）。
 export function normalizeSepSpaces(text) {
     if (!text) return "";
     const { tags, septs } = splitCaptionWithSepts(text);
     if (tags.length === 0) return text;
+    const seps = new Set(tagSeparators.split(""));
     const parts = [];
     for (let i = 0; i < tags.length; i++) {
         parts.push(tags[i]);
         if (i < tags.length - 1) {
-            parts.push((septs[i] || "").replace(/\s+$/, "") + " ");
+            // 连续分隔符合并为一个（取首个分隔符字符），其后保留一个空格
+            let sepChar = "";
+            for (const c of septs[i] || "") {
+                if (seps.has(c)) { sepChar = c; break; }
+            }
+            parts.push(sepChar + " ");
         } else {
             parts.push(septs[i] || "");
         }

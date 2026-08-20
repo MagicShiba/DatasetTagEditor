@@ -1647,6 +1647,19 @@ function initEditSelected() {
         updateBboxes();
     });
 
+    // 将 LLM 结果覆盖到标注编辑框
+    document.getElementById("btn_overwrite_result_to_caption").addEventListener("click", () => {
+        const body = document.getElementById("tool-result");
+        // 先移除首尾空白，再移除首尾的 ```json 与 ``` 代码块标记
+        let text = body.textContent.trim();
+        text = text.replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim();
+        if (!text) return;
+        const ta = document.getElementById("dte_edit_caption");
+        ta.value = text;
+        triggerEditInput();
+        updateBboxes();
+    });
+
     // 自动补全：主标注编辑框 + 其他标签输入处
     initAutocomplete(editTa);
     bindAutocomplete(document.getElementById("tb_edit_tags"));           // 批量编辑标签
@@ -1714,8 +1727,10 @@ function buildLlmFunctionButtons() {
 async function runLlmFunctionButton(fn) {
     const body = document.getElementById("tool-result");
     const appendBtn = document.getElementById("btn_append_result_to_caption");
+    const overwriteBtn = document.getElementById("btn_overwrite_result_to_caption");
     body.textContent = "";
     appendBtn.disabled = true;
+    if (overwriteBtn) overwriteBtn.disabled = true;
     try {
         // 需要图片时读取并压缩选中图像
         let imageDataUrl = null;
@@ -1739,6 +1754,7 @@ async function runLlmFunctionButton(fn) {
         await llm.runLlmFunction(fn, { imageDataUrl, captionText }, acc => {
             body.textContent = acc;
             appendBtn.disabled = !acc.trim();
+            if (overwriteBtn) overwriteBtn.disabled = !acc.trim();
         });
     } catch (e) {
         body.textContent = "异常: " + (e.message || e);
@@ -2634,6 +2650,8 @@ function initTopbar() {
         if (el) {
             el.textContent = `Saved: ${result.saved}/${result.total} captions`;
             document.getElementById("btn_append_result_to_caption").disabled = true;
+            const overwriteBtn = document.getElementById("btn_overwrite_result_to_caption");
+            if (overwriteBtn) overwriteBtn.disabled = true;
         }
         app.changeIsSaved = true;
         app.datasetDirty = false;
