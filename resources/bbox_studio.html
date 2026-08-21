@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>边界框画板</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="bbox-studio-standalone">
+    <div id="bbox_studio_panel" class="bbox-studio-standalone-panel">
+        <div id="bbox_studio_window" class="bbox-studio-window bbox-studio-window-standalone">
+        <div class="translate-popup-header bbox-studio-header">
+            <span class="translate-popup-title" data-i18n="extra_tools.bbox_studio_title">边界框画板</span>
+            <span class="bbox-studio-header-spacer"></span>
+            <button id="bbox_studio_close" class="translate-close-btn" title="关闭">✕</button>
+        </div>
+        <div class="bbox-studio-body">
+            <!-- 左侧：画布 -->
+            <div class="bbox-studio-left">
+                <div class="bbox-studio-toolbar">
+                    <span class="field-label" style="margin:0" data-i18n="extra_tools.canvas">画布</span>
+                    <button id="bbox_studio_clear_boxes" class="btn compact" data-i18n="common.clear">清空</button>
+                    <span class="bbox-studio-hint small-note" data-i18n="extra_tools.bbox_hint">左键拖动 / 右键新建 / 点击标签编辑 / Del删除 / Ctrl+C/V复制</span>
+                </div>
+                <div id="bbox_studio_preview" class="bbox-studio-preview">
+                    <img id="bbox_studio_img" alt="" draggable="false">
+                    <canvas id="bbox_studio_canvas" class="bbox-canvas"></canvas>
+                    <input id="bbox_studio_label_input" class="bbox-label-input" type="text" autocomplete="off">
+                </div>
+            </div>
+            <!-- 右侧：控制 -->
+            <div class="bbox-studio-right">
+                <div class="field">
+                    <label class="field-label" data-i18n="extra_tools.canvas_ratio">画布比例</label>
+                    <div class="row">
+                        <select id="bbox_studio_ratio_preset" style="flex:1">
+                            <option value="free" data-i18n="extra_tools.ratio_free">自由</option>
+                            <option value="1:1">1:1</option>
+                            <option value="4:3">4:3</option>
+                            <option value="3:4">3:4</option>
+                            <option value="16:9">16:9</option>
+                            <option value="9:16">9:16</option>
+                            <option value="3:2">3:2</option>
+                            <option value="2:3">2:3</option>
+                            <option value="custom" data-i18n="extra_tools.ratio_custom">自定义</option>
+                        </select>
+                        <button id="bbox_studio_apply_ratio" class="btn compact" data-i18n="common.apply">应用</button>
+                    </div>
+                    <div class="row" style="margin-top:4px">
+                        <input type="number" id="bbox_studio_w" placeholder="W" min="1" max="10000">
+                        <span>×</span>
+                        <input type="number" id="bbox_studio_h" placeholder="H" min="1" max="10000">
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="field-label" data-i18n="extra_tools.bg_image">背景图像</label>
+                    <div class="row">
+                        <button id="bbox_studio_pick_bg" class="btn compact" data-i18n="extra_tools.pick_bg">选择图像</button>
+                        <button id="bbox_studio_clear_bg" class="btn compact" data-i18n="extra_tools.clear_bg">清除</button>
+                        <input type="color" id="bbox_studio_bg_color" value="#000000" title="背景颜色">
+                    </div>
+                    <div id="bbox_studio_bg_path" class="small-note" style="word-break:break-all;min-height:1em"></div>
+                </div>
+                <div class="field bbox-studio-text-field">
+                    <label class="field-label" for="bbox_studio_text" data-i18n="edit_caption.edit_caption">标注文本</label>
+                    <div class="caption-textarea-wrap" id="bbox_studio_textarea_wrap">
+                        <div id="bbox_studio_overlay" aria-hidden="true"><div id="bbox_studio_overlay_inner"></div></div>
+                        <textarea id="bbox_studio_text" rows="12" placeholder='支持 JSON 块，例如 {"object":[{"label":[x1,y1,x2,y2]}]}'></textarea>
+                    </div>
+                    <div class="row" style="margin-top:6px">
+                        <button id="bbox_studio_copy" class="btn compact" data-i18n="extra_tools.copy_text">复制</button>
+                        <button id="bbox_studio_import" class="btn compact" data-i18n="extra_tools.import_from_selected">导入当前</button>
+                        <button id="bbox_studio_clear_text" class="btn compact" data-i18n="common.clear">清空文本</button>
+                    </div>
+                    <div class="small-note" data-i18n="extra_tools.text_help">文本与左侧画布联动，支持高亮与自动补全。</div>
+                </div>
+                <details class="accordion">
+                    <summary data-i18n="edit_caption.highlight_rules">高亮规则</summary>
+                    <div class="col">
+                        <textarea id="tb_highlight_rules" rows="3" placeholder="每行一条规则，用逗号分隔。示例: ori,girl,bg:#777700,fg:#ff0000,b:1,partial:0,cs:0"></textarea>
+                    </div>
+                </details>
+                <!-- 隐藏用于兼容主窗口导入逻辑的标识 -->
+                <input type="hidden" id="bbox_studio_import_source">
+            </div>
+        </div>
+        </div>
+    </div>
+    <script src="js/neutralino.js"></script>
+    <script type="module" src="js/bbox_studio_main.js"></script>
+</body>
+</html>

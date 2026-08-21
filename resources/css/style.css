@@ -2349,3 +2349,206 @@ textarea {
 .translate-resize:hover {
   color: var(--text);
 }
+
+/* ============ 边界框画板（应用级窗口） ============ */
+.bbox-studio-window {
+  width: 92vw;
+  max-width: 1280px;
+  height: 86vh;
+  max-height: 900px;
+  min-width: 720px;
+  min-height: 420px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 30px rgba(0,0,0,0.6);
+  overflow: hidden;
+}
+.bbox-studio-header {
+  flex: none;
+  border-bottom: 1px solid var(--border);
+}
+.bbox-studio-header-spacer { flex: 1; }
+.bbox-studio-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+.bbox-studio-left {
+  flex: 1;
+  min-width: 320px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--bg);
+  overflow: hidden;
+  padding: 6px;
+  gap: 6px;
+}
+.bbox-studio-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.bbox-studio-hint {
+  margin: 0;
+  flex: 1;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bbox-studio-preview {
+  position: relative;
+  flex: 1;
+  min-height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  /* 默认自由高度，比例由 JS 通过 aspect-ratio 控制 */
+}
+.bbox-studio-preview img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  user-select: none;
+  display: none;
+}
+.bbox-studio-preview img[src] {
+  display: block;
+}
+.bbox-studio-preview .bbox-canvas {
+  position: absolute;
+  z-index: 4;
+  display: none;
+  pointer-events: none;
+}
+.bbox-studio-preview.has-bbox .bbox-canvas {
+  display: block;
+  pointer-events: auto;
+}
+.bbox-studio-preview .bbox-canvas {
+  display: block !important;
+  pointer-events: auto !important;
+}
+.bbox-studio-preview .bbox-label-input {
+  z-index: 7;
+}
+.bbox-studio-right {
+  flex: none;
+  width: 380px;
+  min-width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px;
+  overflow-y: auto;
+  background: var(--bg-panel);
+}
+.bbox-studio-right .field { margin-bottom: 0; }
+.bbox-studio-text-field {
+  flex: 1;
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+}
+.bbox-studio-text-field .caption-textarea-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 140px;
+}
+/* 画板文本域复用 dte_edit_caption 的高亮样式 */
+#bbox_studio_text,
+#bbox_studio_overlay_inner {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 4px;
+  letter-spacing: normal;
+  word-spacing: normal;
+  tab-size: 8;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+#bbox_studio_text {
+  display: block;
+  margin: 0;
+  flex: 1;
+  min-height: 160px;
+  border: 1px solid var(--border);
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+  caret-color: var(--text) !important;
+  overflow-x: hidden;
+  resize: none;
+  background: var(--bg-input);
+  border-radius: var(--radius);
+}
+#bbox_studio_text::selection {
+  color: #000 !important;
+  -webkit-text-fill-color: #000 !important;
+  background: #7ab3ff !important;
+}
+#bbox_studio_overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  border: 1px solid transparent;
+  box-sizing: border-box;
+  pointer-events: none;
+  overflow: hidden;
+  background: transparent;
+  z-index: 1;
+  color: var(--text);
+}
+#bbox_studio_overlay_inner {
+  box-sizing: border-box;
+  min-height: 100%;
+  will-change: transform;
+}
+#bbox_studio_bg_color {
+  width: 32px;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  cursor: pointer;
+}
+.bbox-studio-right .row input[type="number"] {
+  flex: 1;
+  min-width: 60px;
+}
+/* 独立窗口模式（bbox_studio.html） */
+body.bbox-studio-standalone {
+  margin: 0;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg);
+}
+.bbox-studio-standalone-panel {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  background: var(--bg);
+  overflow: hidden;
+}
+.bbox-studio-window-standalone {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}

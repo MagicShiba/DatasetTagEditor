@@ -1386,6 +1386,33 @@ function runJsonCheck() {
 function initExtraTools() {
     const btn = document.getElementById("btn_check_json");
     if (btn) btn.addEventListener("click", runJsonCheck);
+    // 边界框画板：启动新的应用程序级窗口（独立 HTML）
+    const studioBtn = document.getElementById("btn_open_bbox_studio");
+    if (studioBtn) studioBtn.addEventListener("click", async () => {
+        // 尝试将当前选中图像的标注文本传递给新窗口（通过 storage 共享）
+        try {
+            const curText = document.getElementById("dte_edit_caption")?.value || "";
+            if (curText) {
+                try { await Neutralino.storage.setData("bbox_studio_init_text", curText); } catch (e) {}
+            }
+        } catch (e) {}
+        try {
+            await Neutralino.window.create("/bbox_studio.html", {
+                title: t("extra_tools.bbox_studio_title") || "边界框画板",
+                width: 1280,
+                height: 800,
+                minWidth: 900,
+                minHeight: 600,
+                enableInspector: false,
+                exitProcessOnClose: true,
+                processArgs: "--window=bbox_studio_" + Date.now()
+            });
+        } catch (e) {
+            console.warn("window.create failed, fallback to window.open", e);
+            // 浏览器模式回退：直接新标签页打开
+            window.open("bbox_studio.html", "_blank", "width=1280,height=800");
+        }
+    });
 
     const panel = document.getElementById("json_check_panel");
     if (!panel) return;
