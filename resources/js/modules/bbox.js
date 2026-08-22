@@ -14,7 +14,7 @@
 
 import { getSetting } from "./config.js";
 import { formatJsonPretty } from "./utils.js";
-import { bindAutocomplete } from "./autocomplete.js";
+import { bindAutocomplete, wasAcHiddenByEscape } from "./autocomplete.js";
 
 let canvas = null;
 let preview = null;
@@ -541,7 +541,10 @@ export function initBbox() {
                 commitLabelEdit();
             } else if (e.key === "Escape") {
                 e.preventDefault();
-                cancelLabelEdit();
+                // 第一次 Escape 只关闭补全框，第二次才退出编辑
+                if (!wasAcHiddenByEscape()) {
+                    cancelLabelEdit();
+                }
             }
         });
         labelInput.addEventListener("blur", () => { if (labelInput.isConnected) commitLabelEdit(); });

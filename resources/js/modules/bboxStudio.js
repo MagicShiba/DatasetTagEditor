@@ -5,7 +5,7 @@
 import { getSetting, config } from "./config.js";
 import { joinTagsWithSepts } from "./dataset.js";
 import { formatJsonPretty } from "./utils.js";
-import { bindAutocomplete } from "./autocomplete.js";
+import { bindAutocomplete, wasAcHiddenByEscape } from "./autocomplete.js";
 import { parseRules, applyHighlight } from "./highlight.js";
 import * as api from "./api.js";
 import {
@@ -613,7 +613,11 @@ export function initStudio(){
         labelInput.addEventListener("dblclick", e=>e.stopPropagation());
         labelInput.addEventListener("keydown", e=>{
             if(e.key==="Enter"){ e.preventDefault(); commitLabelEdit(); }
-            else if(e.key==="Escape"){ e.preventDefault(); cancelLabelEdit(); }
+            else if(e.key==="Escape"){
+                e.preventDefault();
+                // 第一次 Escape 只关闭补全框，第二次才退出编辑
+                if(!wasAcHiddenByEscape()){ cancelLabelEdit(); }
+            }
         });
         labelInput.addEventListener("blur", ()=>{ if(labelInput.isConnected) commitLabelEdit(); });
     }
@@ -794,17 +798,6 @@ export function initStudio(){
             document.addEventListener("mouseup", onUp);
         });
     }
-
-    document.addEventListener("keydown", e=>{
-        if(e.key==="Escape" && isStudioOpen()){
-            e.stopPropagation();
-            if(document.body.classList.contains("bbox-studio-standalone")){
-                try{ Neutralino.app.exit(); }catch(err){ window.close(); }
-            } else {
-                closeStudio();
-            }
-        }
-    });
 
     if(els.closeBtn) els.closeBtn.addEventListener("click", ()=>{
         if(document.body.classList.contains("bbox-studio-standalone")){

@@ -7,8 +7,20 @@ let acItems = [];
 let acSuggestions = [];
 let acIndex = -1;
 let acQuery = "";
+let acQueryStart = 0;       // 当前查询词在输入框文本中的起始位置
+let acHiddenByEscape = false; // 标记补全框是否因 Escape 而刚关闭（供外部检查）
 let acTextarea = null;
 let acBox = null;
+
+// 供外部模块（如 bbox 标签输入框）检查 Escape 是否刚关闭了补全框
+// 调用后自动重置标志（一次性消费）
+export function wasAcHiddenByEscape() {
+    if (acHiddenByEscape) {
+        acHiddenByEscape = false;
+        return true;
+    }
+    return false;
+}
 
 // 加载 autocomplete.txt 数据
 // 格式: tag,中文,次数 或 tag,次数
@@ -89,20 +101,27 @@ function acHide() {
     acQuery = "";
 }
 
+// 检查光标是否仍在当前查询词范围内，超出则关闭补全框
+function acCheckCursorRange(ta) {
+    if (!acBox || acBox.style.display === "none") return;
+    const pos = ta.selectionStart;
+    if (pos < acQueryStart || pos > acQueryStart + acQuery.length) {
+        acHide();
+    }
+}
+
 function acPick(idx) {
     if (idx < 0 || idx >= acSuggestions.length) return;
     const chosen = acSuggestions[idx];
     const ta = acTextarea;
     if (!ta) return;
-    const start = ta.selectionStart;
-    const before = ta.value.slice(0, start);
-    const after = ta.value.slice(start);
-    const qs = start - acQuery.length;
     // 逗号分隔的标签输入（编辑框/批量/查找替换）追加 ", "；
     // 单值输入（标签筛选词、重命名文件名等）直接替换当前词
     const tail = ta.__acAppendComma === false ? "" : ", ";
-    ta.value = before.slice(0, qs) + chosen.eng.replaceAll("_", " ") + tail + after;
-    const pos = qs + chosen.eng.length + tail.length;
+    const before = ta.value.slice(0, acQueryStart);
+    const after = ta.value.slice(acQueryStart + acQuery.length);
+    ta.value = before + chosen.eng.replaceAll("_", " ") + tail + after;
+    const pos = acQueryStart + chosen.eng.length + tail.length;
     ta.setSelectionRange(pos, pos);
     ta.dispatchEvent(new Event("input", { bubbles: true }));
     acHide();
@@ -205,12 +224,16 @@ function acBind(ta, opts = {}) {
             e.preventDefault();
             acIndex = Math.max(acIndex - 1, 0);
             acRender(acSuggestions);
+        } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+            // 光标移动后异步检查是否还在查询词范围内
+            setTimeout(() => acCheckCursorRange(ta), 0);
         } else if (e.key === "Enter" || e.key === "Tab") {
             if (acIndex >= 0) {
                 e.preventDefault();
                 acPick(acIndex);
             }
         } else if (e.key === "Escape") {
+            acHiddenByEscape = true;
             acHide();
         }
     });
@@ -218,6 +241,7 @@ function acBind(ta, opts = {}) {
         acTextarea = ta;
         const parts = ta.value.slice(0, ta.selectionStart).split(/[，,\.\s]+/);
         acQuery = parts[parts.length - 1] || "";
+        acQueryStart = ta.selectionStart - acQuery.length;
         if (acQuery.length < AC_CONFIG.minQueryLength) {
             acHide();
             return;
@@ -228,7 +252,7 @@ function acBind(ta, opts = {}) {
         acPosition();
     });
     ta.addEventListener("scroll", acPosition);
-    ta.addEventListener("click", acPosition);
+    ta.addEventListener("click", () => { acCheckCursorRange(ta); acPosition(); });
 }
 
 // 确保补全框样式与容器已创建（幂等）
