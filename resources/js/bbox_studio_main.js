@@ -94,6 +94,15 @@ async function start() {
         // 初始化画板（画布、比例、背景、文本等）
         initStudio();
 
+        // 加载完成后再显示，避免启动白闪（配合 hidden:true）
+        try {
+            await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+            if (typeof Neutralino !== "undefined" && Neutralino.window) {
+                try { await Neutralino.window.show(); } catch(e) {}
+                try { const v = await Neutralino.window.isVisible(); if (!v) await Neutralino.window.show(); } catch(e){}
+            }
+        } catch(e) {}
+
         // 窗口关闭按钮
         const closeBtn = document.getElementById("bbox_studio_close");
         if (closeBtn) closeBtn.addEventListener("click", async () => {

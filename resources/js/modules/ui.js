@@ -1500,6 +1500,7 @@ function initExtraTools() {
                 minHeight: 360,
                 enableInspector: true,
                 borderless: true,
+                hidden: true,
                 exitProcessOnClose: true,
                 processArgs: "--window=bbox_studio_" + Date.now()
             });

@@ -27,6 +27,16 @@ async function start() {
         await setupUI();
         // setupUI 会动态创建带 data-i18n 的元素，界面构建完成后统一应用翻译
         await applyI18n();
+        // 加载完成后再显示，避免启动白闪（配合 neutralino.config.json hidden:true）
+        try {
+            // 等待下一帧确保首帧已绘制
+            await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+            if (Neutralino.window) {
+                try { await Neutralino.window.show(); } catch(e) {}
+                // 兼容旧版本 hidden 未生效时，再次尝试
+                try { const v = await Neutralino.window.isVisible(); if (!v) await Neutralino.window.show(); } catch(e){}
+            }
+        } catch(e) {}
         console.log("Dataset Tag Editor ready");
     } catch (e) {
         console.error("startup error", e);

@@ -1,8 +1,4 @@
-/* ================================================================
-   Dataset Tag Editor - NeutralinoJS 版样式
-   深色主题，紧凑布局
-   ================================================================ */
-
+/* Dataset Tag Editor - NeutralinoJS 版 */
 :root {
   --bg: #111418;
   --bg-panel: #1c2127;
@@ -435,10 +431,9 @@ textarea {
   top: 50%;
   transform: translateY(-50%);
   border: none;
-  background: transparent;
-  color: var(--text-dim);
+  background: var(--bg);
+  color: var(--text);
   cursor: pointer;
-  font-size: 12px;
   padding: 2px;
   line-height: 1;
   filter: grayscale(1);
