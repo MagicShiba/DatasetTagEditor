@@ -2557,6 +2557,8 @@ body.bbox-studio-standalone {
   height: 100vh;
   overflow: hidden;
   background: var(--bg);
+  border: 1px solid var(--border);
+  outline: none;
 }
 .bbox-studio-standalone-panel {
   width: 100vw;
