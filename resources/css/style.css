@@ -1050,7 +1050,7 @@ textarea {
   margin-bottom: 2px;
   font-size: 13px;
   word-break: break-all;
-  max-height: 400px;
+  max-height: 300px;
   overflow-y: auto;
   color:#ccc;
   user-select: text;
@@ -2356,8 +2356,8 @@ textarea {
   max-width: 1280px;
   height: 86vh;
   max-height: 900px;
-  min-width: 720px;
-  min-height: 420px;
+  min-width: 560px;
+  min-height: 360px;
   display: flex;
   flex-direction: column;
   background: var(--bg-panel);
@@ -2369,6 +2369,11 @@ textarea {
 .bbox-studio-header {
   flex: none;
   border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag;
+}
+.bbox-studio-header .translate-close-btn,
+.bbox-studio-header .translate-popup-title {
+  -webkit-app-region: no-drag;
 }
 .bbox-studio-header-spacer { flex: 1; }
 .bbox-studio-body {
@@ -2378,8 +2383,8 @@ textarea {
   overflow: hidden;
 }
 .bbox-studio-left {
-  flex: 1;
-  min-width: 320px;
+  flex: 1 1 0;
+  min-width: 160px;
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--border);
@@ -2409,12 +2414,26 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #000;
+  background: #4a4a4a;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
   /* 默认自由高度，比例由 JS 通过 aspect-ratio 控制 */
 }
+.bbox-studio-preview.has-ratio {
+  flex: none !important;
+  margin: auto !important;
+  align-self: center !important;
+  justify-self: center;
+  max-width: 100% !important;
+  max-height: 100% !important;
+  overflow: hidden;
+}
+.bbox-studio-left.has-ratio .bbox-studio-toolbar {
+  align-self: stretch;
+  width: 100%;
+}
+
 .bbox-studio-preview img {
   max-width: 100%;
   max-height: 100%;
@@ -2425,8 +2444,16 @@ textarea {
 .bbox-studio-preview img[src] {
   display: block;
 }
+.bbox-studio-preview.has-import-dim img {
+  filter: brightness(0.45);
+}
 .bbox-studio-preview .bbox-canvas {
   position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  left: 0 !important;
+  top: 0 !important;
   z-index: 4;
   display: none;
   pointer-events: none;
@@ -2443,9 +2470,9 @@ textarea {
   z-index: 7;
 }
 .bbox-studio-right {
-  flex: none;
-  width: 380px;
-  min-width: 280px;
+  flex: 0 0 320px;
+  width: 320px;
+  min-width: 240px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -2552,3 +2579,31 @@ body.bbox-studio-standalone {
   border-radius: 0 !important;
   box-shadow: none !important;
 }
+.bbox-studio-standalone-panel {
+  position: relative;
+}
+.bbox-resize-handle {
+  position: absolute;
+  z-index: 10000;
+  touch-action: none;
+  user-select: none;
+}
+.bbox-resize-handle.e {
+  top: 0; right: 0; bottom: 16px; width: 8px;
+  cursor: ew-resize;
+}
+.bbox-resize-handle.s {
+  left: 0; right: 16px; bottom: 0; height: 8px;
+  cursor: ns-resize;
+}
+.bbox-resize-handle.se {
+  right: 0; bottom: 0; width: 16px; height: 16px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 50%, var(--border) 50%, var(--border) 65%, transparent 65%);
+  border-radius: 0 0 0 0;
+}
+.bbox-resize-handle:hover { background-color: rgba(13,110,253,0.15); }
+.bbox-resize-handle.se:hover { background: linear-gradient(135deg, transparent 50%, var(--accent) 50%, var(--accent) 65%, transparent 65%); }
+.bbox-studio-body { min-width: 0; min-height: 0; }
+.bbox-studio-left { min-width: 0; min-height: 0; }
+.bbox-studio-right { min-width: 0; }

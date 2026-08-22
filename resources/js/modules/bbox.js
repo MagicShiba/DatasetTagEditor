@@ -33,11 +33,11 @@ let onBboxChange = null;
 let rightCreate = null;
 
 export const COLOR_PALETTE = ["#00e5ff", "#ffd54f", "#7ef29a", "#ff8a80", "#ce93d8", "#ffab91"];
-const HANDLE = 8;        // 手柄命中半径（CSS 像素）：鼠标距角点/边缘该距离内即判定命中，应略大于手柄边长 hs
-const MIN_SIZE = 0.01;   // 最小边长（归一化）
-const MIN_LABEL_W = 40;  // 标签背景/命中区域最小宽度（CSS 像素），空标签时仍可点击编辑
-const MIN_EDIT_W = 120;  // 标签编辑输入框最小宽度（CSS 像素）
-const CLICK_TOL = 1;     // 同点点击判定容差（CSS 像素），距离小于该值视为鼠标未移动，用于反复点击循环切换
+export const HANDLE = 8;        // 手柄命中半径（CSS 像素）：鼠标距角点/边缘该距离内即判定命中，应略大于手柄边长 hs
+export const MIN_SIZE = 0.01;   // 最小边长（归一化）
+export const MIN_LABEL_W = 40;  // 标签背景/命中区域最小宽度（CSS 像素），空标签时仍可点击编辑
+export const MIN_EDIT_W = 120;  // 标签编辑输入框最小宽度（CSS 像素）
+export const CLICK_TOL = 1;     // 同点点击判定容差（CSS 像素），距离小于该值视为鼠标未移动，用于反复点击循环切换
 
 export function setOnBboxChange(cb) {
     onBboxChange = cb;
@@ -132,20 +132,22 @@ function getBboxPrecision() {
     return Number.isFinite(v) && v >= 0 ? Math.floor(v) : 3;
 }
 
-// 将边界框序列化为 JSON 块（小数位数由设置控制，展开为多行）
+// 将边界框序列化为 JSON 块（小数位数由设置控制，展开为多行，写入时自动交换保证 x1<=x2 y1<=y2）
 export function serializeBboxes(list, key = "object", isMap = false) {
     const precision = getBboxPrecision();
     let json;
     if (isMap) {
         const obj = {};
         for (const b of list) {
-            const coords = [b.x1, b.y1, b.x2, b.y2].map(n => +n.toFixed(precision));
+            const x1 = Math.min(b.x1, b.x2), x2 = Math.max(b.x1, b.x2), y1 = Math.min(b.y1, b.y2), y2 = Math.max(b.y1, b.y2);
+            const coords = [x1, y1, x2, y2].map(n => +n.toFixed(precision));
             obj[b.label] = coords;
         }
         json = JSON.stringify({ [key]: obj });
     } else {
         const inner = list.map(b => {
-            const coords = [b.x1, b.y1, b.x2, b.y2].map(n => +n.toFixed(precision));
+            const x1 = Math.min(b.x1, b.x2), x2 = Math.max(b.x1, b.x2), y1 = Math.min(b.y1, b.y2), y2 = Math.max(b.y1, b.y2);
+            const coords = [x1, y1, x2, y2].map(n => +n.toFixed(precision));
             return `{${JSON.stringify(b.label)}:[${coords.join(",")}]}`;
         }).join(",");
         json = `{"${key}":[${inner}]}`;
@@ -222,13 +224,13 @@ function draw() {
     if (selected >= 0) drawBox(selected, w, h);
 }
 
-// 绘制单个边界框
+// 绘制单个边界框（支持自由拖动时的坐标交换显示）
 function drawBox(i, w, h) {
     const b = boxes[i];
-    const L = b.x1 * w;
-    const R = b.x2 * w;
-    const T = b.y1 * h;
-    const B = b.y2 * h;
+    const L = Math.min(b.x1, b.x2) * w;
+    const R = Math.max(b.x1, b.x2) * w;
+    const T = Math.min(b.y1, b.y2) * h;
+    const B = Math.max(b.y1, b.y2) * h;
     const color = COLOR_PALETTE[i % COLOR_PALETTE.length];
     const isSel = i === selected;
 
@@ -249,26 +251,32 @@ function drawBox(i, w, h) {
     if (isSel) {
         const hs = 6;
         const pts = [
-            [L, T], [R, T], [L, B], [R, B],
-            [(L + R) / 2, T], [(L + R) / 2, B],
-            [L, (T + B) / 2], [R, (T + B) / 2],
+            {x:L, y:T, c:"tl"}, {x:R, y:T, c:"tr"}, {x:L, y:B, c:"bl"}, {x:R, y:B, c:"br"},
+            {x:(L + R) / 2, y:T}, {x:(L + R) / 2, y:B},
+            {x:L, y:(T + B) / 2}, {x:R, y:(T + B) / 2},
         ];
-        ctx.fillStyle = "#fff";
-        for (const [hx, hy] of pts) {
-            ctx.fillRect(hx - hs / 2, hy - hs / 2, hs, hs);
+        for (const p of pts) {
+            // 左上角与右下角颜色区分
+            if(p.c === "tl") ctx.fillStyle = "#ffffff";
+            else if(p.c === "br") ctx.fillStyle = "#ffe082";
+            else ctx.fillStyle = "#ffffff";
+            ctx.fillRect(p.x - hs / 2, p.y - hs / 2, hs, hs);
+            ctx.strokeStyle = "rgba(0,0,0,0.6)";
+            ctx.lineWidth = 1;
+            ctx.strokeRect(p.x - hs / 2, p.y - hs / 2, hs, hs);
         }
     }
 }
 
-// 命中检测：返回该点可交互的所有框索引
+// 命中检测：返回该点可交互的所有框索引（使用归一化后的显示坐标）
 function hitTestAll(px, py, w, h) {
     const list = [];
     for (let i = 0; i < boxes.length; i++) {
         const b = boxes[i];
-        const L = b.x1 * w;
-        const R = b.x2 * w;
-        const T = b.y1 * h;
-        const B = b.y2 * h;
+        const L = Math.min(b.x1, b.x2) * w;
+        const R = Math.max(b.x1, b.x2) * w;
+        const T = Math.min(b.y1, b.y2) * h;
+        const B = Math.max(b.y1, b.y2) * h;
         const nearCorner =
             (Math.abs(px - L) <= HANDLE && Math.abs(py - T) <= HANDLE) ||
             (Math.abs(px - R) <= HANDLE && Math.abs(py - T) <= HANDLE) ||
@@ -285,9 +293,9 @@ function hitTestAll(px, py, w, h) {
     return list;
 }
 
-// 计算边界框面积（用于最近判定：面积越小越近）
+// 计算边界框面积（用于最近判定：面积越小越近，支持自由拖动时的负向坐标）
 export function boxArea(b) {
-    return Math.max(0, b.x2 - b.x1) * Math.max(0, b.y2 - b.y1);
+    return Math.abs(b.x2 - b.x1) * Math.abs(b.y2 - b.y1);
 }
 
 // 命中框按面积小优先排序，面积相近时按中心距离二次排序
@@ -303,13 +311,13 @@ function sortedByNearest(all, px, py, w, h) {
     });
 }
 
-// 对指定框判断具体交互：返回 { type:"move" } 或 { type:"resize", corner } 或 null
+// 对指定框判断具体交互：返回 { type:"move" } 或 { type:"resize", corner } 或 null（归一化显示坐标）
 function hitTestFor(i, px, py, w, h) {
     const b = boxes[i];
-    const L = b.x1 * w;
-    const R = b.x2 * w;
-    const T = b.y1 * h;
-    const B = b.y2 * h;
+    const L = Math.min(b.x1, b.x2) * w;
+    const R = Math.max(b.x1, b.x2) * w;
+    const T = Math.min(b.y1, b.y2) * h;
+    const B = Math.max(b.y1, b.y2) * h;
     if (Math.abs(px - L) <= HANDLE && Math.abs(py - T) <= HANDLE) return { type: "resize", corner: "tl" };
     if (Math.abs(px - R) <= HANDLE && Math.abs(py - T) <= HANDLE) return { type: "resize", corner: "tr" };
     if (Math.abs(px - R) <= HANDLE && Math.abs(py - B) <= HANDLE) return { type: "resize", corner: "br" };
@@ -340,21 +348,24 @@ function localPos(e) {
     return { x: e.clientX - r.left, y: e.clientY - r.top };
 }
 
-// 执行移动/缩放
+// 执行移动/缩放（允许自由拖动，手柄可越过对侧，写入时再交换保证规范化）
 function applyDrag(curX, curY, w, h) {
     const d = dragging;
     const b = boxes[d.i];
     const dx = (curX - d.startX) / w;
     const dy = (curY - d.startY) / h;
     if (d.type === "move") {
-        const width = d.orig.x2 - d.orig.x1;
-        const height = d.orig.y2 - d.orig.y1;
-        const nx1 = Math.min(clamp01(d.orig.x1 + dx), 1 - width);
-        const ny1 = Math.min(clamp01(d.orig.y1 + dy), 1 - height);
+        const width = Math.abs(d.orig.x2 - d.orig.x1);
+        const height = Math.abs(d.orig.y2 - d.orig.y1);
+        let nx1 = clamp01(Math.min(d.orig.x1, d.orig.x2) + dx);
+        let ny1 = clamp01(Math.min(d.orig.y1, d.orig.y2) + dy);
+        nx1 = Math.min(nx1, 1 - width);
+        ny1 = Math.min(ny1, 1 - height);
         b.x1 = nx1;
         b.y1 = ny1;
         b.x2 = nx1 + width;
         b.y2 = ny1 + height;
+        // 保持原始方向？移动时保持规范化即可
     } else {
         const o = d.orig;
         let x1 = o.x1, y1 = o.y1, x2 = o.x2, y2 = o.y2;
@@ -363,19 +374,22 @@ function applyDrag(curX, curY, w, h) {
         if (c.includes("r")) x2 = clamp01(o.x2 + dx);
         if (c.includes("t")) y1 = clamp01(o.y1 + dy);
         if (c.includes("b")) y2 = clamp01(o.y2 + dy);
-        if (x2 - x1 < MIN_SIZE) { if (c.includes("l")) x1 = x2 - MIN_SIZE; else x2 = x1 + MIN_SIZE; }
-        if (y2 - y1 < MIN_SIZE) { if (c.includes("t")) y1 = y2 - MIN_SIZE; else y2 = y1 + MIN_SIZE; }
         b.x1 = x1; b.y1 = y1; b.x2 = x2; b.y2 = y2;
     }
 }
 
-// 拖拽结束：将新坐标写回文本框
+// 拖拽结束：将新坐标写回文本框（写入前交换保证规范化）
 function writeBack() {
     if (!onBboxChange) return;
     const ta = document.getElementById("dte_edit_caption");
     if (!ta) return;
+    for (const b of boxes) {
+        if (b.x1 > b.x2) [b.x1, b.x2] = [b.x2, b.x1];
+        if (b.y1 > b.y2) [b.y1, b.y2] = [b.y2, b.y1];
+    }
     const newText = writeBackText(ta.value);
     if (newText !== ta.value) onBboxChange(newText);
+    draw();
 }
 
 // 删除当前选中的边界框并写回
@@ -388,27 +402,27 @@ function deleteSelectedBox() {
     writeBack();
 }
 
-// 判断点是否命中选中框左上角的标签文本区域
+// 判断点是否命中选中框左上角的标签文本区域（归一化坐标）
 function hitLabel(px, py, w, h) {
     if (selected < 0 || selected >= boxes.length) return false;
     const b = boxes[selected];
-    const L = b.x1 * w;
-    const T = b.y1 * h;
+    const L = Math.min(b.x1, b.x2) * w;
+    const T = Math.min(b.y1, b.y2) * h;
     ctx.font = "13px sans-serif";
     const tw = ctx.measureText(b.label || "").width;
     const bw = Math.max(MIN_LABEL_W, tw + 6);
     return px >= L && px <= L + bw && py >= T && py <= T + 15;
 }
 
-// 打开选中框标签编辑（左上角）
+// 打开选中框标签编辑（左上角，归一化坐标）
 function openLabelEdit() {
     if (!labelInput || selected < 0 || selected >= boxes.length) return;
     const b = boxes[selected];
     const imgRect = img.getBoundingClientRect();
     const w = imgRect.width;
     const h = imgRect.height;
-    const L = b.x1 * w;
-    const T = b.y1 * h;
+    const L = Math.min(b.x1, b.x2) * w;
+    const T = Math.min(b.y1, b.y2) * h;
     const cs = getComputedStyle(canvas);
     const offX = parseFloat(cs.left) || 0;
     const offY = parseFloat(cs.top) || 0;
@@ -440,14 +454,14 @@ function cancelLabelEdit() {
     labelInput.style.display = "none";
 }
 
-// 复制当前选中的边界框
+// 复制当前选中的边界框（归一化宽度）
 function copySelectedBox() {
     if (selected < 0 || selected >= boxes.length) return;
     const b = boxes[selected];
     clipboardBox = {
         label: b.label || "",
-        w: b.x2 - b.x1,
-        h: b.y2 - b.y1,
+        w: Math.abs(b.x2 - b.x1),
+        h: Math.abs(b.y2 - b.y1),
     };
 }
 
@@ -782,7 +796,7 @@ export function hitTestAllBoxes(boxList, px, py, w, h) {
     const list = [];
     for (let i = 0; i < boxList.length; i++) {
         const b = boxList[i];
-        const L = b.x1 * w, R = b.x2 * w, T = b.y1 * h, B = b.y2 * h;
+        const L = Math.min(b.x1, b.x2) * w, R = Math.max(b.x1, b.x2) * w, T = Math.min(b.y1, b.y2) * h, B = Math.max(b.y1, b.y2) * h;
         const nearCorner =
             (Math.abs(px - L) <= HANDLE && Math.abs(py - T) <= HANDLE) ||
             (Math.abs(px - R) <= HANDLE && Math.abs(py - T) <= HANDLE) ||
@@ -800,7 +814,7 @@ export function hitTestAllBoxes(boxList, px, py, w, h) {
 }
 
 export function hitTestForBox(box, px, py, w, h) {
-    const L = box.x1 * w, R = box.x2 * w, T = box.y1 * h, B = box.y2 * h;
+    const L = Math.min(box.x1, box.x2) * w, R = Math.max(box.x1, box.x2) * w, T = Math.min(box.y1, box.y2) * h, B = Math.max(box.y1, box.y2) * h;
     if (Math.abs(px - L) <= HANDLE && Math.abs(py - T) <= HANDLE) return { type: "resize", corner: "tl" };
     if (Math.abs(px - R) <= HANDLE && Math.abs(py - T) <= HANDLE) return { type: "resize", corner: "tr" };
     if (Math.abs(px - R) <= HANDLE && Math.abs(py - B) <= HANDLE) return { type: "resize", corner: "br" };

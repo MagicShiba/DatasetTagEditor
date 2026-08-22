@@ -3,9 +3,7 @@
 import { initStudio, updateBboxesFromText } from "./modules/bboxStudio.js";
 import { initApp } from "./modules/app.js";
 import { applyI18n } from "./modules/i18n.js";
-import { config } from "./modules/config.js";
 import { loadAutocompleteData } from "./modules/autocomplete.js";
-import { parseRules, applyHighlight } from "./modules/highlight.js";
 
 async function start() {
     try {
@@ -16,38 +14,85 @@ async function start() {
         try { await initApp(); } catch (e) { console.warn("initApp failed", e); }
         try { await applyI18n(); } catch (e) {}
 
-        // 加载高亮规则到独立窗口的 textarea（与主窗口保持一致）
-        try {
-            const hl = config.read("edit_selected")?.highlight_rules || "";
-            const ta = document.getElementById("tb_highlight_rules");
-            if (ta) ta.value = hl;
-            // 监听变更写回配置（可选，不强制保存）
-            if (ta) ta.addEventListener("input", () => {
-                const cur = config.read("edit_selected") || {};
-                cur.highlight_rules = ta.value;
-                config.write(cur, "edit_selected");
-            });
-        } catch (e) {}
-
         // 加载自动补全数据
         try { await loadAutocompleteData("/data/autocomplete.txt"); } catch (e) {}
 
+        // 允许 F12 打开开发者工具（需窗口 enableInspector:true）
+        document.addEventListener("keydown", (e) => {
+            if (e.key === "F12" || (e.ctrlKey && e.shiftKey && e.code === "KeyI")) return;
+        }, true);
+
+        // 无边框窗口：让顶栏可系统层拖动
+        const isNeutralino = typeof Neutralino !== "undefined" && Neutralino.window;
+        if (isNeutralino) {
+            try {
+                const region = await Neutralino.window.setDraggableRegion("bbox-studio-header");
+                try { region.exclusions.add(["bbox_studio_close"]); } catch (e) {}
+                try { region.exclusions.add(["bbox_studio_close"]); } catch (e) {}
+            } catch (e) {}
+            try {
+                const header = document.getElementById("bbox-studio-header");
+                if (header) {
+                    header.addEventListener("dblclick", async () => {
+                        try {
+                            if (await Neutralino.window.isMaximized()) await Neutralino.window.unmaximize();
+                            else await Neutralino.window.maximize();
+                        } catch (e) {}
+                    });
+                }
+            } catch (e) {}
+            // 调整大小：右/下/右下角（同时监听 document/window，避免松开后黏连）
+            try {
+                const setupResize = (el, dir) => {
+                    if (!el) return;
+                    let state = null;
+                    let onMove = null, onUp = null;
+                    const cleanup = () => {
+                        if (onMove) {
+                            document.removeEventListener("mousemove", onMove);
+                            window.removeEventListener("mousemove", onMove);
+                        }
+                        if (onUp) {
+                            document.removeEventListener("mouseup", onUp);
+                            window.removeEventListener("mouseup", onUp);
+                            document.removeEventListener("mouseleave", onUp);
+                        }
+                        state = null; onMove = null; onUp = null;
+                        document.body.style.userSelect = "";
+                    };
+                    el.addEventListener("mousedown", async (e) => {
+                        if (e.button !== 0) return;
+                        e.preventDefault(); e.stopPropagation();
+                        try {
+                            const sz = await Neutralino.window.getSize();
+                            state = { sx: e.screenX, sy: e.screenY, w: sz.width, h: sz.height };
+                            document.body.style.userSelect = "none";
+                            onMove = (ev) => {
+                                if (!state) return;
+                                const dx = ev.screenX - state.sx;
+                                const dy = ev.screenY - state.sy;
+                                let nw = state.w, nh = state.h;
+                                if (dir.includes("e")) nw = Math.max(560, state.w + dx);
+                                if (dir.includes("s")) nh = Math.max(360, state.h + dy);
+                                Neutralino.window.setSize({ width: Math.round(nw), height: Math.round(nh) }).catch(()=>{});
+                            };
+                            onUp = () => cleanup();
+                            document.addEventListener("mousemove", onMove);
+                            window.addEventListener("mousemove", onMove);
+                            document.addEventListener("mouseup", onUp);
+                            window.addEventListener("mouseup", onUp);
+                            document.addEventListener("mouseleave", onUp);
+                        } catch (err) {}
+                    });
+                };
+                setupResize(document.getElementById("bbox-studio-resize-e"), "e");
+                setupResize(document.getElementById("bbox-studio-resize-s"), "s");
+                setupResize(document.getElementById("bbox-studio-resize-se"), "se");
+            } catch (e) {}
+        }
+
         // 初始化画板（画布、比例、背景、文本等）
         initStudio();
-
-        // 同步高亮：独立窗口内文本与高亮规则联动
-        const textEl = document.getElementById("bbox_studio_text");
-        const ruleEl = document.getElementById("tb_highlight_rules");
-        if (ruleEl && textEl) {
-            ruleEl.addEventListener("input", () => {
-                // bboxStudio 内部已监听 tb_highlight_rules，此次仅为触发重绘
-                const overlay = document.getElementById("bbox_studio_overlay_inner");
-                if (overlay && textEl) {
-                    const rules = parseRules(ruleEl.value);
-                    overlay.innerHTML = applyHighlight(textEl.value, rules) + (textEl.value.endsWith("\n") ? "<br>" : "");
-                }
-            });
-        }
 
         // 窗口关闭按钮
         const closeBtn = document.getElementById("bbox_studio_close");

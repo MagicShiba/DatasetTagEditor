@@ -20,6 +20,7 @@
     "filesystem.*",
     "storage.*",
     "server.*",
+    "window.*",
     "net.*",
     "clipboard.*",
     "debug.log"

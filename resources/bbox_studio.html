@@ -9,7 +9,7 @@
 <body class="bbox-studio-standalone">
     <div id="bbox_studio_panel" class="bbox-studio-standalone-panel">
         <div id="bbox_studio_window" class="bbox-studio-window bbox-studio-window-standalone">
-        <div class="translate-popup-header bbox-studio-header">
+        <div id="bbox-studio-header" class="translate-popup-header bbox-studio-header">
             <span class="translate-popup-title" data-i18n="extra_tools.bbox_studio_title">边界框画板</span>
             <span class="bbox-studio-header-spacer"></span>
             <button id="bbox_studio_close" class="translate-close-btn" title="关闭">✕</button>
@@ -28,6 +28,7 @@
                     <input id="bbox_studio_label_input" class="bbox-label-input" type="text" autocomplete="off">
                 </div>
             </div>
+            <div id="bbox_studio_splitter" class="splitter" title="拖动调整"></div>
             <!-- 右侧：控制 -->
             <div class="bbox-studio-right">
                 <div class="field">
@@ -44,12 +45,9 @@
                             <option value="2:3">2:3</option>
                             <option value="custom" data-i18n="extra_tools.ratio_custom">自定义</option>
                         </select>
-                        <button id="bbox_studio_apply_ratio" class="btn compact" data-i18n="common.apply">应用</button>
-                    </div>
-                    <div class="row" style="margin-top:4px">
-                        <input type="number" id="bbox_studio_w" placeholder="W" min="1" max="10000">
+                        <input type="number" id="bbox_studio_w" placeholder="W" min="1" max="10000" style="width:80px;flex:none">
                         <span>×</span>
-                        <input type="number" id="bbox_studio_h" placeholder="H" min="1" max="10000">
+                        <input type="number" id="bbox_studio_h" placeholder="H" min="1" max="10000" style="width:80px;flex:none">
                     </div>
                 </div>
                 <div class="field">
@@ -57,9 +55,8 @@
                     <div class="row">
                         <button id="bbox_studio_pick_bg" class="btn compact" data-i18n="extra_tools.pick_bg">选择图像</button>
                         <button id="bbox_studio_clear_bg" class="btn compact" data-i18n="extra_tools.clear_bg">清除</button>
-                        <input type="color" id="bbox_studio_bg_color" value="#000000" title="背景颜色">
+                        <input type="color" id="bbox_studio_bg_color" value="#4a4a4a" title="背景颜色">
                     </div>
-                    <div id="bbox_studio_bg_path" class="small-note" style="word-break:break-all;min-height:1em"></div>
                 </div>
                 <div class="field bbox-studio-text-field">
                     <label class="field-label" for="bbox_studio_text" data-i18n="edit_caption.edit_caption">标注文本</label>
@@ -72,20 +69,17 @@
                         <button id="bbox_studio_import" class="btn compact" data-i18n="extra_tools.import_from_selected">导入当前</button>
                         <button id="bbox_studio_clear_text" class="btn compact" data-i18n="common.clear">清空文本</button>
                     </div>
-                    <div class="small-note" data-i18n="extra_tools.text_help">文本与左侧画布联动，支持高亮与自动补全。</div>
+                    <div id="bbox_studio_bg_path" class="small-note" style="word-break:break-all;min-height:1em"></div>
                 </div>
-                <details class="accordion">
-                    <summary data-i18n="edit_caption.highlight_rules">高亮规则</summary>
-                    <div class="col">
-                        <textarea id="tb_highlight_rules" rows="3" placeholder="每行一条规则，用逗号分隔。示例: ori,girl,bg:#777700,fg:#ff0000,b:1,partial:0,cs:0"></textarea>
-                    </div>
-                </details>
                 <!-- 隐藏用于兼容主窗口导入逻辑的标识 -->
                 <input type="hidden" id="bbox_studio_import_source">
             </div>
         </div>
         </div>
     </div>
+    <div id="bbox-studio-resize-e" class="bbox-resize-handle e" title="拖动调整宽度"></div>
+    <div id="bbox-studio-resize-s" class="bbox-resize-handle s" title="拖动调整高度"></div>
+    <div id="bbox-studio-resize-se" class="bbox-resize-handle se" title="拖动调整大小"></div>
     <script src="js/neutralino.js"></script>
     <script type="module" src="js/bbox_studio_main.js"></script>
 </body>

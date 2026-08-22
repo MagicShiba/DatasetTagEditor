@@ -343,14 +343,25 @@
 
                 <!-- ========== 额外工具 ========== -->
                 <section class="tab-content" id="tab_extra_tools">
-                    <div class="markdown" data-i18n="extra_tools.json_help">检查标注中的 JSON 坐标是否合规（归一化百分比坐标，取值范围 0~1）。</div>
+					<div class="panel">
+                        <div class="markdown" data-i18n="extra_tools.newline_help">检查标注中是否包含换行符。</div>
+                        <div class="row" style="margin-top:8px">
+                            <button id="btn_check_newline" class="btn" data-i18n="extra_tools.check_newline">检查换行</button>
+                        </div>
+                    </div>
                     <div class="panel">
-                        <div class="row">
-                            <button id="btn_check_json" class="btn primary" data-i18n="extra_tools.check_json">检查 JSON</button>
+                        <div class="markdown" data-i18n="extra_tools.json_help">检查标注中的 JSON 坐标是否合规（归一化百分比坐标，取值范围 0~1）。</div>
+                        <div class="row" style="margin-top:8px">
+                            <button id="btn_check_json" class="btn" data-i18n="extra_tools.check_json">检查 JSON</button>
+                        </div>
+                    </div>
+
+                    <div class="panel">
+                        <div class="markdown" data-i18n="extra_tools.bbox_studio_help">在独立画板中可视化编辑边界框，支持画布比例、背景与标注联动。</div>
+                        <div class="row" style="margin-top:8px">
                             <button id="btn_open_bbox_studio" class="btn" data-i18n="extra_tools.open_bbox_studio">边界框画板</button>
                         </div>
                     </div>
-                    <div class="markdown small-note" data-i18n="extra_tools.bbox_studio_help">在独立画板中可视化编辑边界框，支持画布比例、背景与标注联动。</div>
                 </section>
             </div>
         </main>
@@ -463,6 +474,24 @@
         </div>
         <!-- 右下角三角角标：拖动调整浮窗大小 -->
         <div id="json_check_resize" class="translate-resize">
+            <svg viewBox="0 0 10 10" width="10" height="10"><path d="M3 9 L9 3 L9 9 Z" fill="currentColor"/></svg>
+        </div>
+    </div>
+
+    <!-- ======================= 换行检查结果窗口（可拖动浮窗，默认固定） ======================= -->
+    <div id="newline_check_panel" class="llm-progress-panel hidden">
+        <div class="translate-popup-header">
+            <span class="translate-popup-title" data-i18n="extra_tools.newline_title">换行检查结果</span>
+            <button id="newline_check_refresh" class="translate-refresh-btn" data-i18n-title="extra_tools.refresh" title="重新检测">↻</button>
+            <button id="newline_check_pin" class="translate-pin-btn" data-i18n-title="llm_progress.pin">📌</button>
+            <button id="btn_newline_check_close" class="translate-close-btn" data-i18n-title="llm_progress.close">✕</button>
+        </div>
+        <div class="llm-progress-body">
+            <div class="extra-tools-summary" id="newline_tools_summary"></div>
+            <div class="llm-progress-list" id="newline_tools_list"></div>
+        </div>
+        <!-- 右下角三角角标：拖动调整浮窗大小 -->
+        <div id="newline_check_resize" class="translate-resize">
             <svg viewBox="0 0 10 10" width="10" height="10"><path d="M3 9 L9 3 L9 9 Z" fill="currentColor"/></svg>
         </div>
     </div>

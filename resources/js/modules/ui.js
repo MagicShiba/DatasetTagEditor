@@ -436,6 +436,9 @@ async function onGallerySelect(idx, path, e) {
     app.gallerySelectedIndex = idx;
     app.gallerySelectedPath = path;
     app.registerGalleryState(t("gallery.selected_image"), path);
+    // 同步到画板共享存储，供 bbox_studio_import 读取
+    try { Neutralino.storage.setData("bbox_studio_init_image", path).catch(()=>{}); } catch(e){}
+    try { localStorage.setItem("bbox_studio_init_image", path); } catch(e){}
     // 即时刷新"显示的图像"中的选中序号
     updateGalleryStateDisplay(app.galleryPaths || []);
 
@@ -454,6 +457,15 @@ async function onGallerySelect(idx, path, e) {
     // 更新编辑选中图像面板与预览
     updateEditCaptionPanel();
     updatePreview(path);
+    // 同步选中图像的标注文本到共享存储，供画板导入
+    try {
+        const data = app.dte.dataset.getData(path);
+        if (data) {
+            const txt = joinTagsWithSepts(data.tags, data.septs);
+            try { Neutralino.storage.setData("bbox_studio_init_text", txt).catch(()=>{}); } catch(e){}
+            try { localStorage.setItem("bbox_studio_init_text", txt); } catch(e){}
+        }
+    } catch(e){}
 }
 
 // 同步画廊选中高亮：单选当前路径 + Ctrl 多选集合
@@ -1382,6 +1394,85 @@ function runJsonCheck() {
     toggleJsonCheckPanel(true);
 }
 
+let newlineCheckPinned = true;
+
+function toggleNewlineCheckPanel(force) {
+    const panel = document.getElementById("newline_check_panel");
+    if (!panel) return;
+    const show = force !== undefined ? force : panel.classList.contains("hidden");
+    if (show) {
+        panel.classList.remove("hidden");
+        if (!panel.style.width || !panel.style.left) {
+            const w = Math.min(480, window.innerWidth - 16);
+            const h = Math.min(360, Math.max(240, window.innerHeight - 16));
+            panel.style.width = w + "px";
+            panel.style.height = h + "px";
+            panel.style.left = Math.max(0, Math.round((window.innerWidth - w) / 2)) + "px";
+            panel.style.top = Math.max(0, Math.round((window.innerHeight - h) / 2)) + "px";
+        }
+        updateNewlineCheckPinState();
+    } else {
+        panel.classList.add("hidden");
+    }
+}
+
+function updateNewlineCheckPinState() {
+    const panel = document.getElementById("newline_check_panel");
+    if (panel) panel.classList.toggle("pinned", newlineCheckPinned);
+}
+
+function runNewlineCheck() {
+    const listEl = document.getElementById("newline_tools_list");
+    const summaryEl = document.getElementById("newline_tools_summary");
+    if (!listEl || !summaryEl) return;
+    let total = 0;
+    const badPaths = [];
+    for (const [path, data] of app.dte.dataset.datas) {
+        total++;
+        let caption = "";
+        try { caption = joinTagsWithSepts(data.tags, data.septs); } catch(e) { caption = (data.tags||[]).join(", "); }
+        let hasNewline = caption.includes("\n") || caption.includes("\r");
+        if (!hasNewline) {
+            for (const t of data.tags) if (t.includes("\n") || t.includes("\r")) { hasNewline = true; break; }
+        }
+        if (!hasNewline && data.septs) {
+            for (const s of data.septs) if (s && (s.includes("\n") || s.includes("\r"))) { hasNewline = true; break; }
+        }
+        if (hasNewline) badPaths.push({ path, details: t("extra_tools.newline_reason") });
+    }
+    summaryEl.innerHTML =
+        t("extra_tools.summary_total").replace("{n}", String(total)) + "<br>" +
+        t("extra_tools.summary_newline_bad").replace("{n}", String(badPaths.length));
+    listEl.innerHTML = "";
+    if (badPaths.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "extra-tools-empty";
+        empty.textContent = t("extra_tools.newline_empty");
+        listEl.appendChild(empty);
+    } else {
+        for (const item of badPaths) {
+            const row = document.createElement("div");
+            row.className = "llm-progress-row extra-tools-row";
+            const name = document.createElement("span");
+            name.className = "llm-progress-name";
+            name.textContent = getBasename(item.path);
+            name.title = item.path;
+            const reason = document.createElement("span");
+            reason.className = "extra-tools-reason";
+            reason.textContent = item.details;
+            reason.title = reason.textContent;
+            row.appendChild(name);
+            row.appendChild(reason);
+            row.addEventListener("click", () => {
+                const idx = app.galleryPaths.indexOf(item.path);
+                if (idx >= 0) onGallerySelect(idx, item.path);
+            });
+            listEl.appendChild(row);
+        }
+    }
+    toggleNewlineCheckPanel(true);
+}
+
 // 初始化额外工具面板（按钮 + 结果浮窗交互）
 function initExtraTools() {
     const btn = document.getElementById("btn_check_json");
@@ -1389,11 +1480,15 @@ function initExtraTools() {
     // 边界框画板：启动新的应用程序级窗口（独立 HTML）
     const studioBtn = document.getElementById("btn_open_bbox_studio");
     if (studioBtn) studioBtn.addEventListener("click", async () => {
-        // 尝试将当前选中图像的标注文本传递给新窗口（通过 storage 共享）
+        // 尝试将当前选中图像的标注文本与图像路径传递给新窗口（通过 storage 共享）
         try {
             const curText = document.getElementById("dte_edit_caption")?.value || "";
-            if (curText) {
-                try { await Neutralino.storage.setData("bbox_studio_init_text", curText); } catch (e) {}
+            try { await Neutralino.storage.setData("bbox_studio_init_text", curText); } catch (e) {}
+            try { localStorage.setItem("bbox_studio_init_text", curText); } catch (e) {}
+            const curImg = app.gallerySelectedPath || "";
+            if (curImg) {
+                try { await Neutralino.storage.setData("bbox_studio_init_image", curImg); } catch (e) {}
+                try { localStorage.setItem("bbox_studio_init_image", curImg); } catch (e) {}
             }
         } catch (e) {}
         try {
@@ -1401,9 +1496,10 @@ function initExtraTools() {
                 title: t("extra_tools.bbox_studio_title") || "边界框画板",
                 width: 1280,
                 height: 800,
-                minWidth: 900,
-                minHeight: 600,
-                enableInspector: false,
+                minWidth: 560,
+                minHeight: 360,
+                enableInspector: true,
+                borderless: true,
                 exitProcessOnClose: true,
                 processArgs: "--window=bbox_studio_" + Date.now()
             });
@@ -1413,71 +1509,137 @@ function initExtraTools() {
             window.open("bbox_studio.html", "_blank", "width=1280,height=800");
         }
     });
+    // 同步编辑框文本到共享存储，供画板导入最新文本
+    try {
+        const syncTa = document.getElementById("dte_edit_caption");
+        if (syncTa) {
+            syncTa.addEventListener("input", () => {
+                try { Neutralino.storage.setData("bbox_studio_init_text", syncTa.value).catch(()=>{}); } catch(e){}
+                try { localStorage.setItem("bbox_studio_init_text", syncTa.value); } catch(e){}
+            });
+        }
+    } catch(e){}
 
     const panel = document.getElementById("json_check_panel");
-    if (!panel) return;
-    // 刷新：重新执行 JSON 检查并刷新列表
-    const refreshBtn = document.getElementById("json_check_refresh");
-    if (refreshBtn) refreshBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        runJsonCheck();
-    });
-    // 固定 / 取消固定
-    document.getElementById("json_check_pin").addEventListener("click", (e) => {
-        e.stopPropagation();
-        jsonCheckPinned = !jsonCheckPinned;
-        updateJsonCheckPinState();
-    });
-    // 关闭
-    document.getElementById("btn_json_check_close").addEventListener("click", () => {
-        toggleJsonCheckPanel(false);
-    });
-    // 点击窗口外部关闭（固定时除外）
-    document.addEventListener("click", (e) => {
-        if (panel.classList.contains("hidden")) return;
-        if (jsonCheckPinned) return;
-        if (panel.contains(e.target)) return;
-        const btnEl = document.getElementById("btn_check_json");
-        if (btnEl && btnEl.contains(e.target)) return;
-        toggleJsonCheckPanel(false);
-    });
-    // 按住标题栏拖动窗口
-    const header = panel.querySelector(".translate-popup-header");
-    let drag = null;
-    header.addEventListener("mousedown", (e) => {
-        if (e.target.closest("button, label, input, select, a")) return;
-        drag = { dx: e.clientX - panel.offsetLeft, dy: e.clientY - panel.offsetTop };
-        e.preventDefault();
-        document.body.style.userSelect = "none";
-    });
-    window.addEventListener("mousemove", (e) => {
-        if (!drag) return;
-        panel.style.left = Math.max(0, Math.min(e.clientX - drag.dx, window.innerWidth - panel.offsetWidth)) + "px";
-        panel.style.top = Math.max(0, Math.min(e.clientY - drag.dy, window.innerHeight - panel.offsetHeight)) + "px";
-    });
-    window.addEventListener("mouseup", () => {
-        drag = null;
-        document.body.style.userSelect = "";
-    });
-    // 右下角三角角标：拖动调整浮窗大小
-    const resize = document.getElementById("json_check_resize");
-    let rs = null;
-    resize.addEventListener("mousedown", (e) => {
-        e.preventDefault();
-        rs = { w: panel.offsetWidth, h: panel.offsetHeight, x: e.clientX, y: e.clientY };
-        document.body.style.userSelect = "none";
-    });
-    window.addEventListener("mousemove", (e) => {
-        if (!rs) return;
-        const MIN_W = 320, MIN_H = 240;
-        const MAX_W = Math.min(720, window.innerWidth - 8);
-        const MAX_H = window.innerHeight - 8;
-        const w = Math.max(MIN_W, Math.min(rs.w + (e.clientX - rs.x), MAX_W));
-        const h = Math.max(MIN_H, Math.min(rs.h + (e.clientY - rs.y), MAX_H));
-        panel.style.width = w + "px";
-        panel.style.height = h + "px";
-    });
-    window.addEventListener("mouseup", () => { rs = null; });
+    if (panel) {
+        // 刷新：重新执行 JSON 检查并刷新列表
+        const refreshBtn = document.getElementById("json_check_refresh");
+        if (refreshBtn) refreshBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            runJsonCheck();
+        });
+        // 固定 / 取消固定
+        document.getElementById("json_check_pin").addEventListener("click", (e) => {
+            e.stopPropagation();
+            jsonCheckPinned = !jsonCheckPinned;
+            updateJsonCheckPinState();
+        });
+        // 关闭
+        document.getElementById("btn_json_check_close").addEventListener("click", () => {
+            toggleJsonCheckPanel(false);
+        });
+        // 点击窗口外部关闭（固定时除外）
+        document.addEventListener("click", (e) => {
+            if (panel.classList.contains("hidden")) return;
+            if (jsonCheckPinned) return;
+            if (panel.contains(e.target)) return;
+            const btnEl = document.getElementById("btn_check_json");
+            if (btnEl && btnEl.contains(e.target)) return;
+            toggleJsonCheckPanel(false);
+        });
+        // 按住标题栏拖动窗口
+        const header = panel.querySelector(".translate-popup-header");
+        let drag = null;
+        header.addEventListener("mousedown", (e) => {
+            if (e.target.closest("button, label, input, select, a")) return;
+            drag = { dx: e.clientX - panel.offsetLeft, dy: e.clientY - panel.offsetTop };
+            e.preventDefault();
+            document.body.style.userSelect = "none";
+        });
+        window.addEventListener("mousemove", (e) => {
+            if (!drag) return;
+            panel.style.left = Math.max(0, Math.min(e.clientX - drag.dx, window.innerWidth - panel.offsetWidth)) + "px";
+            panel.style.top = Math.max(0, Math.min(e.clientY - drag.dy, window.innerHeight - panel.offsetHeight)) + "px";
+        });
+        window.addEventListener("mouseup", () => {
+            drag = null;
+            document.body.style.userSelect = "";
+        });
+        // 右下角三角角标：拖动调整浮窗大小
+        const resize = document.getElementById("json_check_resize");
+        let rs = null;
+        resize.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            rs = { w: panel.offsetWidth, h: panel.offsetHeight, x: e.clientX, y: e.clientY };
+            document.body.style.userSelect = "none";
+        });
+        window.addEventListener("mousemove", (e) => {
+            if (!rs) return;
+            const MIN_W = 320, MIN_H = 240;
+            const MAX_W = Math.min(720, window.innerWidth - 8);
+            const MAX_H = window.innerHeight - 8;
+            const w = Math.max(MIN_W, Math.min(rs.w + (e.clientX - rs.x), MAX_W));
+            const h = Math.max(MIN_H, Math.min(rs.h + (e.clientY - rs.y), MAX_H));
+            panel.style.width = w + "px";
+            panel.style.height = h + "px";
+        });
+        window.addEventListener("mouseup", () => { rs = null; });
+    }
+
+    // 换行检查按钮及浮窗（复用 JSON 检查样式，默认固定）
+    const nlBtn = document.getElementById("btn_check_newline");
+    if (nlBtn) nlBtn.addEventListener("click", runNewlineCheck);
+    const nlPanel = document.getElementById("newline_check_panel");
+    if (nlPanel) {
+        const nlRefresh = document.getElementById("newline_check_refresh");
+        if (nlRefresh) nlRefresh.addEventListener("click", (e) => { e.stopPropagation(); runNewlineCheck(); });
+        document.getElementById("newline_check_pin").addEventListener("click", (e) => {
+            e.stopPropagation();
+            newlineCheckPinned = !newlineCheckPinned;
+            updateNewlineCheckPinState();
+        });
+        document.getElementById("btn_newline_check_close").addEventListener("click", () => { toggleNewlineCheckPanel(false); });
+        document.addEventListener("click", (e) => {
+            if (nlPanel.classList.contains("hidden")) return;
+            if (newlineCheckPinned) return;
+            if (nlPanel.contains(e.target)) return;
+            const btnEl2 = document.getElementById("btn_check_newline");
+            if (btnEl2 && btnEl2.contains(e.target)) return;
+            toggleNewlineCheckPanel(false);
+        });
+        const nlHeader = nlPanel.querySelector(".translate-popup-header");
+        let nlDrag = null;
+        nlHeader.addEventListener("mousedown", (e) => {
+            if (e.target.closest("button, label, input, select, a")) return;
+            nlDrag = { dx: e.clientX - nlPanel.offsetLeft, dy: e.clientY - nlPanel.offsetTop };
+            e.preventDefault();
+            document.body.style.userSelect = "none";
+        });
+        window.addEventListener("mousemove", (e) => {
+            if (!nlDrag) return;
+            nlPanel.style.left = Math.max(0, Math.min(e.clientX - nlDrag.dx, window.innerWidth - nlPanel.offsetWidth)) + "px";
+            nlPanel.style.top = Math.max(0, Math.min(e.clientY - nlDrag.dy, window.innerHeight - nlPanel.offsetHeight)) + "px";
+        });
+        window.addEventListener("mouseup", () => { nlDrag = null; document.body.style.userSelect = ""; });
+        const nlResize = document.getElementById("newline_check_resize");
+        let nlRs = null;
+        nlResize.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            nlRs = { w: nlPanel.offsetWidth, h: nlPanel.offsetHeight, x: e.clientX, y: e.clientY };
+            document.body.style.userSelect = "none";
+        });
+        window.addEventListener("mousemove", (e) => {
+            if (!nlRs) return;
+            const MIN_W = 320, MIN_H = 240;
+            const MAX_W = Math.min(720, window.innerWidth - 8);
+            const MAX_H = window.innerHeight - 8;
+            const w2 = Math.max(MIN_W, Math.min(nlRs.w + (e.clientX - nlRs.x), MAX_W));
+            const h2 = Math.max(MIN_H, Math.min(nlRs.h + (e.clientY - nlRs.y), MAX_H));
+            nlPanel.style.width = w2 + "px";
+            nlPanel.style.height = h2 + "px";
+        });
+        window.addEventListener("mouseup", () => { nlRs = null; });
+    }
 }
 
 // 重建全部行（打开窗口时同步当前状态）
