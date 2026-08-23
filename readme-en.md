@@ -47,6 +47,9 @@ Tag editing mode & JSON auto expand (some current models support rough percentag
 
 ![alt text](other/sc-jn.png)
 
+Image bucketing cropping preview  
+![alt text](other/sc-cj.png)
+
 Progress management & highlight rule editing window
 
 ![alt text](other/sc-hl.png)
