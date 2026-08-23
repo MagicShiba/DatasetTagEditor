@@ -432,12 +432,16 @@ function setPreviewImage(src, dim = false){
         els.preview.classList.remove("has-import-dim");
     }
     els.img.onload = () => {
-        // 比例为自由时，自动使用图像比例
+        // 比例为自由时，自动使用图像比例；其它比例时拉伸图像
         if(els.ratioPreset && els.ratioPreset.value === "free" && els.img.naturalWidth && els.img.naturalHeight){
             els.ratioW.value = els.img.naturalWidth;
             els.ratioH.value = els.img.naturalHeight;
+            els.preview.classList.remove("stretch");
             applyRatio();
         } else {
+            if(els.ratioPreset && els.ratioPreset.value !== "free"){
+                els.preview.classList.add("stretch");
+            }
             draw();
         }
     };
@@ -468,6 +472,43 @@ function clearBackgroundImage(){
         if(els.ratioW) els.ratioW.value = "";
         if(els.ratioH) els.ratioH.value = "";
         applyRatio();
+    }
+    els.preview.classList.remove("stretch");
+}
+
+// 通过文件路径加载背景图像（供初始化和导入使用）
+export async function loadImageByPath(imgPath){
+    if(!imgPath) return;
+    // 若仍无路径但同页有预览图，尝试复用其 src（浏览器模式）
+    const inPagePreview = document.getElementById("preview_img");
+    if(!imgPath && inPagePreview && inPagePreview.src && inPagePreview.getAttribute("src")){
+        const s = inPagePreview.getAttribute("src");
+        if(s.startsWith("blob:") || s.startsWith("http") || s.startsWith("data:")){
+            if(bgObjectUrl) { try{ URL.revokeObjectURL(bgObjectUrl); }catch(e){} bgObjectUrl=""; }
+            setPreviewImage(s, true);
+            if(els.bgPathLabel) els.bgPathLabel.textContent = "(当前预览)";
+            return;
+        } else {
+            imgPath = s;
+        }
+    }
+    if(imgPath){
+        try {
+            const buf = await api.readBinaryFile(imgPath);
+            if(buf && buf.byteLength){
+                if(bgObjectUrl) { try{ URL.revokeObjectURL(bgObjectUrl); }catch(e){} }
+                const blob = new Blob([buf]);
+                bgObjectUrl = URL.createObjectURL(blob);
+                setPreviewImage(bgObjectUrl, true);
+                if(els.bgPathLabel) els.bgPathLabel.textContent = imgPath + " (导入)";
+            } else {
+                setPreviewImage(imgPath, true);
+                if(els.bgPathLabel) els.bgPathLabel.textContent = imgPath + " (导入)";
+            }
+        } catch(err){
+            setPreviewImage(imgPath, true);
+            if(els.bgPathLabel) els.bgPathLabel.textContent = imgPath + " (导入)";
+        }
     }
 }
 
@@ -632,9 +673,13 @@ export function initStudio(){
             } else {
                 els.ratioW.value=""; els.ratioH.value="";
             }
+            els.preview.classList.remove("stretch");
         }
         else if(v==="custom"){ }
-        else { const [a,b]=v.split(":"); els.ratioW.value=a; els.ratioH.value=b; }
+        else {
+            const [a,b]=v.split(":"); els.ratioW.value=a; els.ratioH.value=b;
+            if(els.img && els.img.src) els.preview.classList.add("stretch");
+        }
         applyRatio();
     });
     const autoRatio = () => { applyRatio(); };
@@ -652,6 +697,7 @@ export function initStudio(){
     if(els.importBtn) els.importBtn.addEventListener("click", async ()=>{
         // 1. 导入文本（应导入当前图像的标注并覆盖已有文本）
         let importedText = null;
+        let importedImgPath = null;
         // 优先尝试编辑框（包含未保存的编辑）
         const src = document.getElementById("dte_edit_caption");
         if(src && src.value !== undefined) importedText = src.value;
@@ -659,80 +705,37 @@ export function initStudio(){
             try { const op = window.opener.document.getElementById("dte_edit_caption"); if(op) importedText = op.value; } catch(e){}
         }
         // 其次从主窗口数据集获取（保证选中图像准确，原分隔符）
-        if(importedText === null){
+        if(importedText === null || !importedImgPath){
             try {
                 const mainApp = window.__app || (window.opener && window.opener.__app);
                 if(mainApp && mainApp.gallerySelectedPath){
-                    const d = mainApp.dte?.dataset?.getData(mainApp.gallerySelectedPath);
-                    if(d) importedText = joinTagsWithSepts(d.tags, d.septs);
+                    if(!importedImgPath) importedImgPath = mainApp.gallerySelectedPath;
+                    if(importedText === null){
+                        const d = mainApp.dte?.dataset?.getData(mainApp.gallerySelectedPath);
+                        if(d) importedText = joinTagsWithSepts(d.tags, d.septs);
+                    }
+                }
+            } catch(e){}
+        }
+        // 最后从 storage 读取（打开画板时写入的快照）
+        if(importedText === null || !importedImgPath){
+            try {
+                const rawData = await Neutralino.storage.getData("bbox_studio_init_data");
+                if(rawData){
+                    let t = "", img = "";
+                    try { const p = JSON.parse(rawData); t = p.text || ""; img = p.image || ""; } catch(e){ t = rawData; }
+                    if(!importedText && t) importedText = t;
+                    if(!importedImgPath && img) importedImgPath = img;
                 }
             } catch(e){}
         }
         if(importedText !== null){
             els.textarea.value = importedText;
             els.textarea.dispatchEvent(new Event("input",{bubbles:true}));
-        } else {
-            let got = false;
-            try {
-                const t = await Neutralino.storage.getData("bbox_studio_init_text");
-                if(t !== null && t !== undefined && els.textarea){ els.textarea.value = t; els.textarea.dispatchEvent(new Event("input",{bubbles:true})); got = true; }
-            } catch(e){}
-            try {
-                const lt = localStorage.getItem("bbox_studio_init_text");
-                if(!got && lt !== null && lt !== undefined && els.textarea) { els.textarea.value = lt; els.textarea.dispatchEvent(new Event("input",{bubbles:true})); got = true; }
-            } catch(e){}
-            if(!got && window.opener){
-                try { const ot = window.opener.localStorage.getItem("bbox_studio_init_text"); if(ot !== null && ot !== undefined){ els.textarea.value = ot; els.textarea.dispatchEvent(new Event("input",{bubbles:true})); } } catch(e){}
-            }
         }
         // 2. 导入图像显示（压暗），自由比例时自动使用图像比例由 setPreviewImage.onload 处理
         try {
-            let imgPath = "";
-            // 同窗口直接尝试获取主预览图
-            const inPagePreview = document.getElementById("preview_img");
-            // 若在同一文档内（非独立窗口），尝试直接获取选中路径
-            if(window.__app && window.__app.gallerySelectedPath) imgPath = window.__app.gallerySelectedPath;
-            if(!imgPath && window.opener && window.opener.__app && window.opener.__app.gallerySelectedPath) imgPath = window.opener.__app.gallerySelectedPath;
-            if(!imgPath) {
-                try { imgPath = await Neutralino.storage.getData("bbox_studio_init_image"); } catch(e){}
-            }
-            if(!imgPath) {
-                try { imgPath = localStorage.getItem("bbox_studio_init_image") || ""; } catch(e){}
-            }
-            // 若仍无路径但同页有预览图，尝试复用其 src（浏览器模式）
-            if(!imgPath && inPagePreview && inPagePreview.src && inPagePreview.getAttribute("src")){
-                const s = inPagePreview.getAttribute("src");
-                // 若是 blob/http 直接复用并压暗
-                if(s.startsWith("blob:") || s.startsWith("http") || s.startsWith("data:")){
-                    if(bgObjectUrl) { try{ URL.revokeObjectURL(bgObjectUrl); }catch(e){} bgObjectUrl=""; }
-                    setPreviewImage(s, true);
-                    if(els.bgPathLabel) els.bgPathLabel.textContent = "(当前预览)";
-                    return;
-                } else {
-                    imgPath = s;
-                }
-            }
-            if(imgPath){
-                // 通过 api 读取本地文件为 blob
-                try {
-                    const buf = await api.readBinaryFile(imgPath);
-                    if(buf && buf.byteLength){
-                        if(bgObjectUrl) { try{ URL.revokeObjectURL(bgObjectUrl); }catch(e){} }
-                        const blob = new Blob([buf]);
-                        bgObjectUrl = URL.createObjectURL(blob);
-                        setPreviewImage(bgObjectUrl, true);
-                        if(els.bgPathLabel) els.bgPathLabel.textContent = imgPath + " (导入)";
-                    } else {
-                        // 读取失败则尝试直接设路径
-                        setPreviewImage(imgPath, true);
-                        if(els.bgPathLabel) els.bgPathLabel.textContent = imgPath + " (导入)";
-                    }
-                } catch(err){
-                    // 浏览器环境下可能无 Neutralino，直接尝试用路径
-                    setPreviewImage(imgPath, true);
-                    if(els.bgPathLabel) els.bgPathLabel.textContent = imgPath + " (导入)";
-                }
-            }
+            if(importedImgPath) await loadImageByPath(importedImgPath);
         } catch(e){ console.warn("import image failed", e); }
     });
     if(els.clearBtn) els.clearBtn.addEventListener("click", ()=>{

@@ -2436,6 +2436,11 @@ textarea {
   user-select: none;
   display: none;
 }
+.bbox-studio-preview.stretch img {
+  object-fit: fill;
+  width: 100%;
+  height: 100%;
+}
 .bbox-studio-preview img[src] {
   display: block;
 }

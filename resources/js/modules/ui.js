@@ -436,9 +436,6 @@ async function onGallerySelect(idx, path, e) {
     app.gallerySelectedIndex = idx;
     app.gallerySelectedPath = path;
     app.registerGalleryState(t("gallery.selected_image"), path);
-    // 同步到画板共享存储，供 bbox_studio_import 读取
-    try { Neutralino.storage.setData("bbox_studio_init_image", path).catch(()=>{}); } catch(e){}
-    try { localStorage.setItem("bbox_studio_init_image", path); } catch(e){}
     // 即时刷新"显示的图像"中的选中序号
     updateGalleryStateDisplay(app.galleryPaths || []);
 
@@ -457,15 +454,6 @@ async function onGallerySelect(idx, path, e) {
     // 更新编辑选中图像面板与预览
     updateEditCaptionPanel();
     updatePreview(path);
-    // 同步选中图像的标注文本到共享存储，供画板导入
-    try {
-        const data = app.dte.dataset.getData(path);
-        if (data) {
-            const txt = joinTagsWithSepts(data.tags, data.septs);
-            try { Neutralino.storage.setData("bbox_studio_init_text", txt).catch(()=>{}); } catch(e){}
-            try { localStorage.setItem("bbox_studio_init_text", txt); } catch(e){}
-        }
-    } catch(e){}
 }
 
 // 同步画廊选中高亮：单选当前路径 + Ctrl 多选集合
@@ -1480,16 +1468,12 @@ function initExtraTools() {
     // 边界框画板：启动新的应用程序级窗口（独立 HTML）
     const studioBtn = document.getElementById("btn_open_bbox_studio");
     if (studioBtn) studioBtn.addEventListener("click", async () => {
-        // 尝试将当前选中图像的标注文本与图像路径传递给新窗口（通过 storage 共享）
+        // 将当前图像路径与标注文本写入 storage（仅打开画板时写1次）
         try {
             const curText = document.getElementById("dte_edit_caption")?.value || "";
-            try { await Neutralino.storage.setData("bbox_studio_init_text", curText); } catch (e) {}
-            try { localStorage.setItem("bbox_studio_init_text", curText); } catch (e) {}
             const curImg = app.gallerySelectedPath || "";
-            if (curImg) {
-                try { await Neutralino.storage.setData("bbox_studio_init_image", curImg); } catch (e) {}
-                try { localStorage.setItem("bbox_studio_init_image", curImg); } catch (e) {}
-            }
+            const payload = JSON.stringify({ image: curImg, text: curText });
+            try { await Neutralino.storage.setData("bbox_studio_init_data", payload); } catch (e) {}
         } catch (e) {}
         try {
             await Neutralino.window.create("/bbox_studio.html", {
@@ -1508,20 +1492,9 @@ function initExtraTools() {
             });
         } catch (e) {
             console.warn("window.create failed, fallback to window.open", e);
-            // 浏览器模式回退：直接新标签页打开
             window.open("bbox_studio.html", "_blank", "width=1280,height=800");
         }
     });
-    // 同步编辑框文本到共享存储，供画板导入最新文本
-    try {
-        const syncTa = document.getElementById("dte_edit_caption");
-        if (syncTa) {
-            syncTa.addEventListener("input", () => {
-                try { Neutralino.storage.setData("bbox_studio_init_text", syncTa.value).catch(()=>{}); } catch(e){}
-                try { localStorage.setItem("bbox_studio_init_text", syncTa.value); } catch(e){}
-            });
-        }
-    } catch(e){}
 
     const panel = document.getElementById("json_check_panel");
     if (panel) {

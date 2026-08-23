@@ -1,6 +1,6 @@
 // bbox_studio_main.js - 独立窗口入口（新应用程序级窗口）
 
-import { initStudio, updateBboxesFromText } from "./modules/bboxStudio.js";
+import { initStudio, updateBboxesFromText, loadImageByPath } from "./modules/bboxStudio.js";
 import { initApp } from "./modules/app.js";
 import { applyI18n } from "./modules/i18n.js";
 import { loadAutocompleteData } from "./modules/autocomplete.js";
@@ -114,15 +114,29 @@ async function start() {
             }
         });
 
-        // 可选：接收主窗口传递的初始文本（通过 storage 共享）
+        // 接收主窗口传递的初始数据（通过 storage 共享，仅打开画板时写1次）
         try {
             if (typeof Neutralino !== "undefined" && Neutralino.storage) {
-                const initText = await Neutralino.storage.getData("bbox_studio_init_text");
-                if (initText) {
-                    const ta = document.getElementById("bbox_studio_text");
-                    if (ta) {
-                        ta.value = initText;
-                        ta.dispatchEvent(new Event("input", { bubbles: true }));
+                const rawData = await Neutralino.storage.getData("bbox_studio_init_data");
+                if (rawData) {
+                    let initText = "";
+                    let initImage = "";
+                    try {
+                        const parsed = JSON.parse(rawData);
+                        initText = parsed.text || "";
+                        initImage = parsed.image || "";
+                    } catch (e) {
+                        initText = rawData;
+                    }
+                    if (initText) {
+                        const ta = document.getElementById("bbox_studio_text");
+                        if (ta) {
+                            ta.value = initText;
+                            ta.dispatchEvent(new Event("input", { bubbles: true }));
+                        }
+                    }
+                    if (initImage) {
+                        await loadImageByPath(initImage);
                     }
                 }
             }
