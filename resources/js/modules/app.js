@@ -184,7 +184,7 @@ async function getFileMtime(path) {
     if (mtimeCache.has(path)) return mtimeCache.get(path);
     try {
         const st = await api.getStats(path);
-        const m = st && st.mtime ? Number(st.mtime) : 0;
+        const m = st && st.modifiedAt ? Number(st.modifiedAt) : 0;
         mtimeCache.set(path, m);
         return m;
     } catch {
@@ -476,7 +476,7 @@ async function loadThumbInto(img, path, maxRes) {
         }
         let mtime = 0;
         const st = await api.getStats(path);
-        if (st && st.mtime) mtime = st.mtime;
+        if (st && st.modifiedAt) mtime = st.modifiedAt;
         let url;
         if (maxRes > 0) {
             const key = thumbs.md5Key(path, maxRes, mtime);

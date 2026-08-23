@@ -981,7 +981,7 @@ async function doLoadDataset() {
             const mtimes = {};
             for (const p of result.paths) {
                 const st = await api.getStats(p);
-                mtimes[p] = st ? st.mtime : 0;
+                mtimes[p] = st ? st.modifiedAt : 0;
             }
             thumbs.generateThumbnailsBatch(result.paths, getSetting("max_resolution"), mtimes, 4, (done, total) => {
                 const prog = document.getElementById("gallery_progress");
@@ -2891,7 +2891,7 @@ async function loadRenameThumb(img, path) {
     try {
         let mtime = 0;
         const st = await api.getStats(path);
-        if (st && st.mtime) mtime = st.mtime;
+        if (st && st.modifiedAt) mtime = st.modifiedAt;
         const key = thumbs.md5Key(path, maxRes, mtime);
         if (await thumbs.thumbCacheExists(key)) {
             img.src = thumbs.getThumbCacheUrl(key);
