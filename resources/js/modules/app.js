@@ -7,7 +7,7 @@ import * as api from "./api.js";
 import * as thumbs from "./thumbnails.js";
 import { config, settings, getSetting } from "./config.js";
 import { t } from "./i18n.js";
-import { normalizePath, getStem, getExtension, getBasename, setTagSeparators } from "./utils.js";
+import { normalizePath, getStem, getExtension, getBasename, withSuffix, setTagSeparators } from "./utils.js";
 
 class App {
     constructor() {
@@ -193,13 +193,32 @@ async function getFileMtime(path) {
     }
 }
 
+// 对应文本文件大小缓存（用于按文本大小排序）
+const textSizeCache = new Map();
+
+async function getTextFileSize(path) {
+    if (textSizeCache.has(path)) return textSizeCache.get(path);
+    const captionExt = config.read("caption_ext") || ".txt";
+    const txtPath = withSuffix(path, captionExt);
+    try {
+        const st = await api.getStats(txtPath);
+        const s = st && st.size != null ? Number(st.size) : 0;
+        textSizeCache.set(path, s);
+        return s;
+    } catch {
+        textSizeCache.set(path, 0);
+        return 0;
+    }
+}
+
 // 按当前排序方式对画廊路径排序
-// name 为同步排序；resolution / mtime / aspect 需要读取文件信息，为异步
+// name 为同步排序；resolution / mtime / aspect / textsize 需要读取文件信息，为异步
 export async function sortGalleryPaths(paths) {
     const { key, dir } = app.gallerySort;
-    if (key === "resolution" || key === "mtime" || key === "aspect") {
+    if (key === "resolution" || key === "mtime" || key === "aspect" || key === "textsize") {
         const keyFn = key === "resolution" ? getImageArea
             : key === "mtime" ? getFileMtime
+            : key === "textsize" ? getTextFileSize
             : getAspectDeviation;
         const items = await Promise.all(paths.map(async p => ({ p, v: await keyFn(p) })));
         items.sort((a, b) => (a.v - b.v) * dir || a.p.localeCompare(b.p));

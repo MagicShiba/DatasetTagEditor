@@ -56,6 +56,14 @@
       "model": "ANY",
       "extra_params": "reasoning:off\nenable_thinking:false\nreasoning_effort:none",
       "max_image_resolution": 1280
+    },
+    {
+      "name": "deepseek-v4-flash-vision",
+      "api_url": "https://api.deepseek.com/chat/completions",
+      "api_key": "sk-Fable5CrazyThursdayVMe50-114514",
+      "model": "deepseek-v4-flash-vision-exp",
+      "extra_params": "reasoning_effort:high\ndetail:original",
+      "max_image_resolution": 1280
     }
   ],
   "llm_active_config": "本地模型",
