@@ -124,11 +124,18 @@
                 <div class="preview-header">
                     <div class="preview-label" data-i18n="gallery.original_preview">原图预览</div>
                     <span class="preview-header-spacer"></span>
+                    <!-- 分桶裁剪预览：按 OneTrainer 等面积分桶策略演示目标分辨率下的中心裁剪 -->
+                    <input type="number" id="crop_preview_res" class="crop-res-input" value="1024" min="64" step="64" data-i18n-title="gallery.crop_preview_res_title">
+                    <label class="checkbox crop-preview-toggle">
+                        <input type="checkbox" id="cb_crop_preview">
+                        <span data-i18n="gallery.crop_preview_enable">分桶裁剪预览</span>
+                    </label>
                     <button id="btn_dataset_readme" class="preview-bg-btn" hidden data-i18n-title="gallery.dataset_readme" title="数据集说明">ⓘ</button>
                     <button id="btn_toggle_preview_bg" class="preview-bg-btn" data-i18n-title="gallery.toggle_preview_bg" title="切换预览背景">⇆</button>
                 </div>
                 <div id="image_preview" class="image-preview">
                     <img id="preview_img" alt="" draggable="false">
+                    <canvas id="crop_canvas" class="crop-canvas"></canvas>
                     <canvas id="bbox_canvas" class="bbox-canvas"></canvas>
                     <input id="bbox_label_input" class="bbox-label-input" type="text" autocomplete="off">
                     <button id="btn_prev_image" class="preview-nav-btn preview-nav-prev" data-i18n-title="gallery.previous">&#8249;</button>

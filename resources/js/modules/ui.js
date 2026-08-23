@@ -12,6 +12,7 @@ import { parseRules, applyHighlight, escapeHtml } from "./highlight.js";
 import { initAutocomplete, loadAutocompleteData, bindAutocomplete } from "./autocomplete.js";
 import * as llm from "./llm.js";
 import { initBbox, updateBboxes, setOnBboxChange } from "./bbox.js";
+import { initCropPreview, updateCropPreview, setOnCropPreviewChange, getBucketForSize } from "./cropPreview.js";
 import { init as initCapsule, setOnChange as setCapsuleOnChange, refresh as capsuleRefresh, setEnabled as setCapsuleEnabled } from "./capsule.js";
 
 // ================================================================
@@ -175,12 +176,14 @@ function updatePreview(path) {
     if (path) {
         const url = thumbs.getOriginalImageUrl(path);
         img.src = url || "";
-        img.onerror = () => { img.removeAttribute("src"); updateBboxes(); };
+        img.onerror = () => { img.removeAttribute("src"); updateBboxes(); updateCropPreview(); };
     } else {
         img.removeAttribute("src");
     }
     // 依据编辑框文本同步边界框（图像加载完成后会自动重绘）
     updateBboxes();
+    // 同步分桶裁剪预览（图像加载完成后也会自动重绘）
+    updateCropPreview();
 }
 
 // 预览背景色：黑、深灰、浅灰、透明，点击按钮轮流切换
@@ -381,6 +384,7 @@ function initPreviewZoom() {
         applyPreviewTransform();
         // 缩放后重绘边界框画布，使其与图像实际显示区域对齐
         updateBboxes();
+        updateCropPreview();
     }, { passive: false });
 
     // 左键或中键拖动平移图像（图像或边界框画布空白处按下均可；左键点击命中边界框时由画布交互接管）
@@ -401,6 +405,7 @@ function initPreviewZoom() {
         previewPan.y = previewDragStart.panY + (e.clientY - previewDragStart.y);
         applyPreviewTransform();
         updateBboxes();
+        updateCropPreview();
     });
     window.addEventListener("mouseup", () => {
         if (!previewDragging) return;
@@ -439,14 +444,8 @@ async function onGallerySelect(idx, path, e) {
     // 即时刷新"显示的图像"中的选中序号
     updateGalleryStateDisplay(app.galleryPaths || []);
 
-    // 异步显示选中图像分辨率、宽高比（两位小数）与最接近的 64 倍数分辨率
-    api.getImageSize(path).then(size => {
-        if (app.gallerySelectedPath !== path) return; // 期间已切换图像
-        const text = size
-            ? `${size.w}×${size.h} (${formatAspectRatio(size.w, size.h)}) [${floorToMultiple(size.w)}×${floorToMultiple(size.h)}]`
-            : t("gallery.unknown");
-        app.registerGalleryState(t("gallery.resolution"), text);
-    });
+    // 异步显示选中图像分辨率、宽高比与 64 倍数分辨率（启用分桶预览时显示分桶比例/尺寸）
+    refreshSelectedImageResolution();
 
     // 高亮选中
     syncGallerySelectionHighlight();
@@ -462,6 +461,26 @@ function syncGallerySelectionHighlight() {
         const path = item.dataset.path;
         item.classList.toggle("selected", path === app.gallerySelectedPath || app.galleryMultiSelected.has(path));
     });
+}
+
+// 异步刷新状态栏"分辨率"行：原图尺寸、宽高比与 [] 中的 64 倍数分辨率；
+// 启用分桶裁剪预览时，比例与 [] 中改用命中的分桶（随开关/分辨率输入变化）
+function refreshSelectedImageResolution() {
+    const path = app.gallerySelectedPath;
+    if (!path) return;
+    api.getImageSize(path).then(size => {
+        if (app.gallerySelectedPath !== path) return; // 期间已切换图像
+        let bw = 0, bh = 0;
+        if (size) {
+            const bucket = getBucketForSize(size.w, size.h);
+            bw = bucket ? bucket.w : floorToMultiple(size.w);
+            bh = bucket ? bucket.h : floorToMultiple(size.h);
+        }
+        const text = size
+            ? `${size.w}×${size.h} (${formatAspectRatio(bw, bh)}) [${bw}×${bh}]`
+            : t("gallery.unknown");
+        app.registerGalleryState(t("gallery.resolution"), text);
+    }).catch(() => {});
 }
 
 // 将当前编辑框内容应用到当前选中图像（内存中）
@@ -3109,6 +3128,7 @@ function initTopbar() {
         config.write(readFilterConfig(), "filter");
         config.write(readBatchEditConfig(), "batch_edit");
         config.write(readEditSelectedConfig(), "edit_selected");
+        config.write(readCropPreviewConfig(), "crop_preview");
         await config.save();
         showToast(t("settings.saved_to_config"), "success");
     });
@@ -3162,6 +3182,19 @@ export function applyConfigToUI() {
         document.getElementById("tb_highlight_rules").value = editSelected.highlight_rules || "";
         setCapsuleEnabled(!!editSelected.use_capsule);
     }
+    // 应用分桶裁剪预览（开关 + 目标分辨率）
+    const cropPreview = config.read("crop_preview");
+    if (cropPreview) {
+        const cbCrop = document.getElementById("cb_crop_preview");
+        const resInput = document.getElementById("crop_preview_res");
+        if (cbCrop && typeof cropPreview.enabled === "boolean") cbCrop.checked = cropPreview.enabled;
+        const res = Number(cropPreview.target_resolution);
+        if (resInput && Number.isFinite(res) && res >= 64) resInput.value = Math.round(res);
+        // 立即同步：裁剪画布重绘、bbox 重新对齐、状态栏比例/分辨率刷新
+        updateCropPreview();
+        updateBboxes();
+        refreshSelectedImageResolution();
+    }
     refreshAll();
 }
 
@@ -3175,6 +3208,14 @@ function readGeneralConfig() {
         load_caption_from_filename: document.getElementById("cb_load_caption_from_filename").checked,
         load_caption_llm_reverse: document.getElementById("cb_load_caption_llm_reverse").checked,
         replace_new_line: document.getElementById("cb_replace_new_line_with_comma").checked,
+    };
+}
+
+// 读取分桶裁剪预览设置（开关 + 目标分辨率）
+function readCropPreviewConfig() {
+    return {
+        enabled: document.getElementById("cb_crop_preview").checked,
+        target_resolution: parseInt(document.getElementById("crop_preview_res").value, 10) || 1024,
     };
 }
 
@@ -4126,6 +4167,13 @@ export async function setupUI() {
     initExtraTools();
     // 边界框：初始化画布并注入写回回调（拖拽结束后更新编辑框文本）
     initBbox();
+    // 分桶裁剪预览：初始化画布与控件（OneTrainer 等面积分桶策略演示）
+    initCropPreview();
+    // 裁剪预览开关/分辨率变化时，bbox 画布重新对齐到裁剪区域，并刷新状态栏比例/分辨率
+    setOnCropPreviewChange(() => {
+        updateBboxes();
+        refreshSelectedImageResolution();
+    });
     setOnBboxChange((text) => {
         const ta = document.getElementById("dte_edit_caption");
         ta.value = text;

@@ -15,6 +15,7 @@
 import { getSetting } from "./config.js";
 import { formatJsonPretty } from "./utils.js";
 import { bindAutocomplete, wasAcHiddenByEscape } from "./autocomplete.js";
+import { getActiveCropRect } from "./cropPreview.js";
 
 let canvas = null;
 let preview = null;
@@ -191,23 +192,26 @@ function clearCanvas() {
     canvas.style.display = "none";
 }
 
-// 将 canvas 对齐到图像实际显示区域并重绘
+// 将 canvas 对齐到有效绘制区域（整图或裁剪框）并重绘
 function draw() {
     if (!img || !img.src || !img.naturalWidth) { clearCanvas(); return; }
     const imgRect = img.getBoundingClientRect();
     const prevRect = preview.getBoundingClientRect();
     if (imgRect.width <= 0 || imgRect.height <= 0) { clearCanvas(); return; }
+    const area = getDrawArea();
+    const w = area.w;
+    const h = area.h;
+    if (w <= 0 || h <= 0) { clearCanvas(); return; }
     const cs = getComputedStyle(preview);
     const borderLeft = parseFloat(cs.borderLeftWidth) || 0;
     const borderTop = parseFloat(cs.borderTopWidth) || 0;
     const padLeft = parseFloat(cs.paddingLeft) || 0;
     const padTop = parseFloat(cs.paddingTop) || 0;
     const dpr = window.devicePixelRatio || 1;
-    const w = imgRect.width;
-    const h = imgRect.height;
     canvas.style.display = "block";
-    canvas.style.left = (imgRect.left - prevRect.left - borderLeft - padLeft) + "px";
-    canvas.style.top = (imgRect.top - prevRect.top - borderTop - padTop) + "px";
+    // 定位偏移 = 图像显示区偏移 + 有效绘制区域偏移（裁剪预览启用时为裁剪框位置）
+    canvas.style.left = (imgRect.left - prevRect.left - borderLeft - padLeft + area.x) + "px";
+    canvas.style.top = (imgRect.top - prevRect.top - borderTop - padTop + area.y) + "px";
     canvas.style.width = w + "px";
     canvas.style.height = h + "px";
     const bw = Math.max(1, Math.round(w * dpr));
@@ -348,6 +352,18 @@ function localPos(e) {
     return { x: e.clientX - r.left, y: e.clientY - r.top };
 }
 
+// 当前有效绘制区域（CSS 像素，坐标相对图像显示区左上角）：
+// 启用分桶裁剪预览时为裁剪框区域（画布与裁剪画布大小一致），否则为整张图像显示区域。
+// 归一化坐标直接以该区域宽高换算，无需调整数值。
+function getDrawArea() {
+    const crop = getActiveCropRect();
+    if (crop && crop.width > 0 && crop.height > 0) {
+        return { x: crop.left, y: crop.top, w: crop.width, h: crop.height };
+    }
+    const r = img.getBoundingClientRect();
+    return { x: 0, y: 0, w: r.width, h: r.height };
+}
+
 // 执行移动/缩放（允许自由拖动，手柄可越过对侧，写入时再交换保证规范化）
 function applyDrag(curX, curY, w, h) {
     const d = dragging;
@@ -418,9 +434,9 @@ function hitLabel(px, py, w, h) {
 function openLabelEdit() {
     if (!labelInput || selected < 0 || selected >= boxes.length) return;
     const b = boxes[selected];
-    const imgRect = img.getBoundingClientRect();
-    const w = imgRect.width;
-    const h = imgRect.height;
+    const a = getDrawArea();
+    const w = a.w;
+    const h = a.h;
     const L = Math.min(b.x1, b.x2) * w;
     const T = Math.min(b.y1, b.y2) * h;
     const cs = getComputedStyle(canvas);
@@ -483,9 +499,9 @@ function uniqueLabel(base) {
 // 以鼠标位置为中心粘贴复制框
 function pasteClipboardBox() {
     if (!clipboardBox) return;
-    const imgRect = img.getBoundingClientRect();
-    const w = imgRect.width;
-    const h = imgRect.height;
+    const a = getDrawArea();
+    const w = a.w;
+    const h = a.h;
     if (w <= 0 || h <= 0) return;
     const cx = lastMousePos ? lastMousePos.x : w / 2;
     const cy = lastMousePos ? lastMousePos.y : h / 2;
@@ -573,8 +589,8 @@ export function initBbox() {
         if (e.target === canvas || e.target === labelInput) return;
         if (selected < 0) return;
         const { x, y } = localPos(e);
-        const imgRect = img.getBoundingClientRect();
-        const w = imgRect.width, h = imgRect.height;
+        const a = getDrawArea();
+        const w = a.w, h = a.h;
         if (w <= 0 || h <= 0) { selected = -1; dragging = null; draw(); return; }
         const all = hitTestAll(x, y, w, h);
         if (all.length === 0) {
@@ -590,8 +606,8 @@ export function initBbox() {
             e.stopPropagation();
             if (boxes.length === 0) return;
             const { x, y } = localPos(e);
-            const imgRect = img.getBoundingClientRect();
-            const w = imgRect.width, h = imgRect.height;
+            const a0 = getDrawArea();
+            const w = a0.w, h = a0.h;
             if (w <= 0 || h <= 0) return;
             rightCreate = { startX: x, startY: y, w, h, idx: -1, moved: false };
             document.body.style.userSelect = "none";
@@ -602,9 +618,9 @@ export function initBbox() {
         if (e.button !== 0) return;
         if (boxes.length === 0) return;
         const { x, y } = localPos(e);
-        const imgRect = img.getBoundingClientRect();
-        const w = imgRect.width;
-        const h = imgRect.height;
+        const a1 = getDrawArea();
+        const w = a1.w;
+        const h = a1.h;
         const all = hitTestAll(x, y, w, h);
         const isSamePoint = !!(lastClickPos && Math.hypot(x - lastClickPos.x, y - lastClickPos.y) < CLICK_TOL);
         lastClickPos = { x, y };
@@ -654,9 +670,9 @@ export function initBbox() {
     });
 
     canvas.addEventListener("mousemove", (e) => {
-        const imgRect = img.getBoundingClientRect();
-        const w = imgRect.width;
-        const h = imgRect.height;
+        const a2 = getDrawArea();
+        const w = a2.w;
+        const h = a2.h;
         const { x, y } = localPos(e);
         lastMousePos = { x, y };
         if (dragging) {
@@ -778,15 +794,15 @@ export function initBbox() {
             selected = d.pending;
             draw();
             // 切换后若点击在标签上则进入编辑
-            const imgRect = img.getBoundingClientRect();
-            if (hitLabel(d.startX, d.startY, imgRect.width, imgRect.height)) {
+            const a3 = getDrawArea();
+            if (hitLabel(d.startX, d.startY, a3.w, a3.h)) {
                 openLabelEdit();
             }
             return;
         }
         if (d.i === selected) {
-            const imgRect = img.getBoundingClientRect();
-            if (hitLabel(d.startX, d.startY, imgRect.width, imgRect.height)) {
+            const a4 = getDrawArea();
+            if (hitLabel(d.startX, d.startY, a4.w, a4.h)) {
                 openLabelEdit();
                 return;
             }

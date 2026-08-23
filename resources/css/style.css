@@ -113,6 +113,28 @@ html, body {
   color: var(--accent);
 }
 
+/* 分桶裁剪预览：目标分辨率输入框（提高选择器优先级以覆盖全局 width:100%，且不被 flex 压缩） */
+input[type="number"].crop-res-input {
+  width: 54px;
+  padding: 1px 4px;
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+
+.crop-preview-toggle {
+  font-size: 12px;
+  white-space: nowrap;
+  margin-right: 10px;
+}
+
+/* 裁剪预览画布：覆盖在图像显示区域上，仅展示虚线裁剪框，不拦截任何交互 */
+.crop-canvas {
+  position: absolute;
+  z-index: 3;
+  display: none;
+  pointer-events: none;
+}
+
 .image-preview {
   position: relative;
   flex: 1;
@@ -373,7 +395,6 @@ textarea {
 .checkbox {
   display: flex;
   align-items: flex-start;
-  gap: 6px;
   cursor: pointer;
   color: var(--text);
   font-size: 13px;
