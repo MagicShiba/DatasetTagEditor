@@ -387,8 +387,8 @@
             </div>
             <nav class="sub-tabs settings-tabs">
                 <button class="sub-tab-btn active" data-subtab="st_settings_general" data-i18n="settings.general">通用</button>
-                <button class="sub-tab-btn" data-subtab="st_settings_llmcfg">LLM 配置</button>
-                <button class="sub-tab-btn" data-subtab="st_settings_llmfn">LLM 功能</button>
+                <button class="sub-tab-btn" data-subtab="st_settings_llmcfg" data-i18n="settings.tab_llm_configs">LLM 配置</button>
+                <button class="sub-tab-btn" data-subtab="st_settings_llmfn" data-i18n="settings.tab_llm_functions">LLM 功能</button>
             </nav>
             <div class="modal-body settings-modal-body">
                 <div class="sub-tab-content active" id="st_settings_general">
@@ -401,31 +401,31 @@
                 <div class="sub-tab-content" id="st_settings_llmcfg">
                     <div class="field">
                         <label class="field-label" data-i18n="settings.llm_reverse_prompt">反推标注提示词</label>
-                        <textarea id="tb_llm_reverse_prompt" rows="4" placeholder="该提示词用于加载数据集时，对不存在文本文件的图像进行 LLM 反推标注"></textarea>
+                        <textarea id="tb_llm_reverse_prompt" rows="4" data-i18n-placeholder="settings.llm_reverse_prompt_hint" placeholder="该提示词用于加载数据集时，对不存在文本文件的图像进行 LLM 反推标注"></textarea>
                     </div>
                     <div class="field">
-                        <label class="field-label">反推标注使用的配置</label>
+                        <label class="field-label" data-i18n="settings.llm_reverse_config">反推标注使用的配置</label>
                         <select id="tb_llm_reverse_config"></select>
                     </div>
                     <div class="field">
                         <label class="field-label" data-i18n="settings.llm_translate_prompt">翻译提示词</label>
-                        <textarea id="tb_llm_translate_prompt" rows="4" placeholder="该提示词用于编辑框选中文本的 LLM 翻译（译按钮）"></textarea>
+                        <textarea id="tb_llm_translate_prompt" rows="4" data-i18n-placeholder="settings.llm_translate_prompt_hint" placeholder="该提示词用于编辑框选中文本的 LLM 翻译（译按钮）"></textarea>
                     </div>
                     <div class="field">
-                        <label class="field-label">翻译使用的配置</label>
+                        <label class="field-label" data-i18n="settings.llm_translate_config">翻译使用的配置</label>
                         <select id="tb_llm_translate_config"></select>
                     </div>
-                    <div class="settings-note">可配置多个模型（本地 / 云端），每个配置独立设置 API 地址、Key、模型名与自定义参数。</div>
+                    <div class="settings-note" data-i18n="settings.llm_configs_note">可配置多个模型（本地 / 云端），每个配置独立设置 API 地址、Key、模型名与自定义参数。</div>
                     <div id="llm-configs-box"></div>
                     <div class="row">
-                        <button id="btn_add_llm_config" class="btn">+ 添加配置</button>
+                        <button id="btn_add_llm_config" class="btn" data-i18n="settings.add_config">+ 添加配置</button>
                     </div>
                 </div>
                 <div class="sub-tab-content" id="st_settings_llmfn">
-                    <div class="settings-note">自定义基于 LLM 的功能按钮（如翻译、反推提示）。可添加任意数量，在编辑选中图像时会话中动态显示。</div>
+                    <div class="settings-note" data-i18n="settings.llm_functions_note">自定义基于 LLM 的功能按钮（如翻译、反推提示）。可添加任意数量，在编辑选中图像时会话中动态显示。</div>
                     <div id="llm-functions-box"></div>
                     <div class="row">
-                        <button id="btn_add_llm_function" class="btn">+ 添加功能</button>
+                        <button id="btn_add_llm_function" class="btn" data-i18n="settings.add_function">+ 添加功能</button>
                     </div>
                 </div>
             </div>
@@ -508,10 +508,10 @@
     <div id="translate_trigger" class="translate-trigger hidden">译</div>
     <div id="translate_popup" class="translate-popup hidden">
 <div class="translate-popup-header">
-            <span class="translate-popup-title">翻译</span>
-            <button id="translate_refresh" class="translate-refresh-btn" title="重新翻译（忽略重复检查）">↻</button>
-            <button id="translate_pin" class="translate-pin-btn" title="固定（点击外部时保持显示）">📌</button>
-            <button id="translate_close" class="translate-close-btn">✕</button>
+            <span class="translate-popup-title" data-i18n="translate.title">翻译</span>
+            <button id="translate_refresh" class="translate-refresh-btn" data-i18n-title="translate.refresh" title="重新翻译（忽略重复检查）">↻</button>
+            <button id="translate_pin" class="translate-pin-btn" data-i18n-title="translate.pin" title="固定（点击外部时保持显示）">📌</button>
+            <button id="translate_close" class="translate-close-btn" data-i18n-title="common.close">✕</button>
         </div>
         <div class="translate-popup-body">
             <textarea id="translate_source" class="translate-source" rows="2" placeholder="原文（回车翻译）"></textarea>
@@ -527,7 +527,7 @@
     <div id="info_popup" class="translate-popup hidden">
         <div class="translate-popup-header">
             <span id="info_popup_title" class="translate-popup-title">信息</span>
-            <button id="info_popup_close" class="translate-close-btn">✕</button>
+            <button id="info_popup_close" class="translate-close-btn" data-i18n-title="common.close">✕</button>
         </div>
         <div class="translate-popup-body">
             <div id="info_popup_content" class="highlight-help-content"></div>

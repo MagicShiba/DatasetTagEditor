@@ -59,17 +59,22 @@ class App {
         return filters;
     }
 
-    // 注册画廊状态值
+    // 注册画廊状态值（key 为语言包键名如 "gallery.resolution"，渲染时按当前语言翻译，
+    // 避免切换语言后因键名变化导致新旧文本同时显示）
     registerGalleryState(key, value) {
         this.galleryState[key] = value;
+        this.rerenderGalleryState();
+    }
+
+    // 按当前语言重绘画廊状态区域（切换语言后调用）
+    rerenderGalleryState() {
         const el = document.getElementById("gallery_state_txt");
-        if (el) {
-            let html = "";
-            for (const [k, v] of Object.entries(this.galleryState)) {
-                html += `${k} : ${v}<br>`;
-            }
-            el.innerHTML = html;
+        if (!el) return;
+        let html = "";
+        for (const [k, v] of Object.entries(this.galleryState)) {
+            html += `${t(k)} : ${v}<br>`;
         }
+        el.innerHTML = html;
     }
 
     clearGalleryState() {
@@ -521,9 +526,9 @@ export function updateGalleryStateDisplay(imgs) {
     let state = `${displayed} / ${total} total`;
     const selIdx = app.gallerySelectedIndex;
     if (selIdx >= 0) state += t("gallery.selected_index").replace("{n}", String(selIdx + 1));
-    app.registerGalleryState(t("gallery.displayed_images"), state);
-    app.registerGalleryState(t("gallery.current_tag_filter"), currentFilterText());
-    app.registerGalleryState(t("gallery.current_selection_filter"), `${app.pathFilter.paths.size} images`);
+    app.registerGalleryState("gallery.displayed_images", state);
+    app.registerGalleryState("gallery.current_tag_filter", currentFilterText());
+    app.registerGalleryState("gallery.current_selection_filter", `${app.pathFilter.paths.size} images`);
 }
 
 function currentFilterText() {

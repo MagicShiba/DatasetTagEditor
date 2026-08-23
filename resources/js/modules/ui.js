@@ -440,7 +440,7 @@ async function onGallerySelect(idx, path, e) {
 
     app.gallerySelectedIndex = idx;
     app.gallerySelectedPath = path;
-    app.registerGalleryState(t("gallery.selected_image"), path);
+    app.registerGalleryState("gallery.selected_image", path);
     // 即时刷新"显示的图像"中的选中序号
     updateGalleryStateDisplay(app.galleryPaths || []);
 
@@ -479,7 +479,7 @@ function refreshSelectedImageResolution() {
         const text = size
             ? `${size.w}×${size.h} (${formatAspectRatio(bw, bh)}) [${bw}×${bh}]`
             : t("gallery.unknown");
-        app.registerGalleryState(t("gallery.resolution"), text);
+        app.registerGalleryState("gallery.resolution", text);
     }).catch(() => {});
 }
 
@@ -2195,11 +2195,11 @@ async function runLlmFunctionButton(fn) {
         let imageDataUrl = null;
         if (fn.send_image) {
             const selPath = app.gallerySelectedPath;
-            if (!selPath) { body.textContent = "请选择图像"; return; }
+            if (!selPath) { body.textContent = t("llm_progress.select_image"); return; }
             const cfg = llm.resolveLlmConfig(fn.config);
             const maxRes = cfg ? (cfg.max_image_resolution || 0) : 0;
             imageDataUrl = await llm.prepareImage(selPath, maxRes);
-            if (!imageDataUrl) { body.textContent = "图片加载失败"; return; }
+            if (!imageDataUrl) { body.textContent = t("llm_progress.image_load_failed"); return; }
         }
         // 需要文本时读取编辑框内容
         let captionText = "";
@@ -2207,7 +2207,7 @@ async function runLlmFunctionButton(fn) {
             captionText = document.getElementById("dte_edit_caption").value;
         }
         if (!imageDataUrl && !captionText.trim()) {
-            body.textContent = "请选择图像或输入文本";
+            body.textContent = t("llm_progress.select_image_or_text");
             return;
         }
         await llm.runLlmFunction(fn, { imageDataUrl, captionText }, acc => {
@@ -2216,7 +2216,7 @@ async function runLlmFunctionButton(fn) {
             if (overwriteBtn) overwriteBtn.disabled = !acc.trim();
         });
     } catch (e) {
-        body.textContent = "异常: " + (e.message || e);
+        body.textContent = t("translate.error_prefix") + (e.message || e);
     }
 }
 
@@ -2245,7 +2245,7 @@ function normalizeTranslateText(text) {
 
 // 鼠标松开：若在支持翻译的文本区域选中了文本，则在松开处显示 "译" 按钮。
 // 支持范围：主标注编辑框、bbox 标签输入框、胶囊输入框（均可读 selectionStart/End），
-// 以及胶囊标签、缩略图标题、HTML 标注显示（普通元素，读取 window.getSelection()）。
+// 以及胶囊标签、缩略图标题、HTML 标注显示、LLM 工具结果（普通元素，读取 window.getSelection()）。
 function onSelectionMouseUp(e) {
     const btn = document.getElementById("translate_trigger");
     if (!btn) return;
@@ -2266,18 +2266,19 @@ function onSelectionMouseUp(e) {
         }
         source = { input: true, el: target, start: target.selectionStart, end: target.selectionEnd };
     } else if (target.closest) {
-        // 普通元素：胶囊标签 / 缩略图标题 / HTML 标注显示
+        // 普通元素：胶囊标签 / 缩略图标题 / HTML 标注显示 / LLM 工具结果
         const inCapsule = target.closest(".capsule-tag");
         const inThumb = target.closest(".thumb-caption");
         const inDisplay = target.closest("#html_caption_display");
-        if (inCapsule || inThumb || inDisplay) {
+        const inResult = target.closest("#tool-result");
+        if (inCapsule || inThumb || inDisplay || inResult) {
             const selText = window.getSelection() ? String(window.getSelection()) : "";
             if (!selText.trim()) {
                 translateSel = null;
                 hideTranslateTrigger();
                 return;
             }
-            source = { input: false, el: inCapsule || inThumb || inDisplay, text: selText };
+            source = { input: false, el: inCapsule || inThumb || inDisplay || inResult, text: selText };
         }
     }
     if (!source) {
@@ -2328,14 +2329,14 @@ async function runTranslate(text, force = false) {
         out.textContent = lastTranslate.result;
         return;
     }
-    out.textContent = "翻译中...";
+    out.textContent = t("translate.translating");
     try {
         const result = await llm.translateText(norm, acc => {
             out.textContent = acc;
         });
         lastTranslate = { text: norm, result };
     } catch (e) {
-        out.textContent = "异常: " + (e.message || e);
+        out.textContent = t("translate.error_prefix") + (e.message || e);
     }
 }
 
@@ -3397,6 +3398,8 @@ function initSettings() {
             buildLlmFunctionButtons();
             setLang(getSetting("language"));
             await applyI18n();
+            // 状态栏标签按新语言重绘（键名不变，仅翻译变化）
+            app.rerenderGalleryState();
             showToast(t("settings.saved"), "success");
         });
     });
@@ -3417,6 +3420,8 @@ function initSettings() {
         const lang = getSetting("language");
         setLang(lang);
         await applyI18n();
+        // 状态栏标签按新语言重绘（键名不变，仅翻译变化）
+        app.rerenderGalleryState();
         applyColumns();
         buildSettingsGrid();
         buildLlmConfigs();
@@ -3438,13 +3443,15 @@ function initSettings() {
         const count = await thumbs.clearThumbCache();
         const el = document.getElementById("lbl_cache_status");
         el.hidden = false;
-        el.textContent = count > 0 ? `Cleared ${count} thumbnail cache files` : "Thumbnail cache is already empty";
+        el.textContent = count > 0
+            ? t("settings.cache_cleared").replace("{n}", String(count))
+            : t("settings.cache_empty");
     });
 
     // 添加 / 删除 LLM 配置
     document.getElementById("btn_add_llm_config").addEventListener("click", () => {
         const configs = getSetting("llm_configs") || [];
-        configs.push({ ...LLM_CONFIG_DEFAULT, name: `配置${configs.length + 1}` });
+        configs.push({ ...LLM_CONFIG_DEFAULT, name: `${t("settings.config")}${configs.length + 1}` });
         setSetting("llm_configs", configs);
         buildLlmConfigs();
     });
@@ -3452,7 +3459,7 @@ function initSettings() {
     // 添加 / 删除 LLM 功能
     document.getElementById("btn_add_llm_function").addEventListener("click", () => {
         const fns = getSetting("llm_functions") || [];
-        fns.push({ ...LLM_FN_DEFAULT, name: `功能${fns.length + 1}` });
+        fns.push({ ...LLM_FN_DEFAULT, name: `${t("settings.fn")}${fns.length + 1}` });
         setSetting("llm_functions", fns);
         buildLlmFunctions();
     });
@@ -3710,7 +3717,7 @@ function fillConfigSelect(sel, value) {
     sel.innerHTML = "";
     const opt0 = document.createElement("option");
     opt0.value = "";
-    opt0.textContent = "默认（激活配置）";
+    opt0.textContent = t("settings.default_active_config");
     sel.appendChild(opt0);
     const configs = getSetting("llm_configs") || [];
     for (const c of configs) {
@@ -3749,7 +3756,7 @@ function buildLlmConfigs() {
         header.className = "llm-card-header";
         const nameLabel = document.createElement("label");
         nameLabel.className = "field-label llm-name-label";
-        nameLabel.textContent = "配置名称";
+        nameLabel.textContent = t("settings.config_name");
         const nameInput = document.createElement("input");
         nameInput.type = "text";
         nameInput.className = "lc-name";
@@ -3766,7 +3773,7 @@ function buildLlmConfigs() {
         activeRadio.checked = cfg.name === active;
         activeRadio.dataset.idx = idx;
         const activeSpan = document.createElement("span");
-        activeSpan.textContent = "使用";
+        activeSpan.textContent = t("settings.use_this");
         activeLabel.appendChild(activeRadio);
         activeLabel.appendChild(activeSpan);
         header.appendChild(activeLabel);
@@ -3775,10 +3782,10 @@ function buildLlmConfigs() {
         const copyBtn = document.createElement("button");
         copyBtn.type = "button";
         copyBtn.className = "btn llm-copy-btn";
-        copyBtn.textContent = "复制";
+        copyBtn.textContent = t("settings.copy");
         copyBtn.addEventListener("click", () => {
             const cur = getSetting("llm_configs") || [];
-            const copy = { ...cur[idx], name: (cfg.name || "未命名") + " 副本" };
+            const copy = { ...cur[idx], name: (cfg.name || t("settings.unnamed")) + " " + t("settings.copy_suffix") };
             cur.splice(idx + 1, 0, copy);
             setSetting("llm_configs", cur);
             buildLlmConfigs();
@@ -3788,10 +3795,10 @@ function buildLlmConfigs() {
         const delBtn = document.createElement("button");
         delBtn.type = "button";
         delBtn.className = "btn btn-danger llm-del-btn";
-        delBtn.textContent = "删除";
+        delBtn.textContent = t("common.delete");
         delBtn.addEventListener("click", () => {
             const cur = getSetting("llm_configs") || [];
-            if (cur.length <= 1) { showToast("至少保留一个 LLM 配置", "error"); return; }
+            if (cur.length <= 1) { showToast(t("settings.min_one_config"), "error"); return; }
             cur.splice(idx, 1);
             if (getSetting("llm_active_config") === cfg.name) {
                 setSetting("llm_active_config", cur[0].name);
@@ -3805,15 +3812,15 @@ function buildLlmConfigs() {
         // 连接信息
         const row1 = document.createElement("div");
         row1.className = "llm-card-row";
-        row1.appendChild(makeField("API 地址", "text", "lc-api-url", cfg.api_url, idx));
-        row1.appendChild(makeField("API Key", "password", "lc-api-key", cfg.api_key, idx));
+        row1.appendChild(makeField(t("settings.api_url"), "text", "lc-api-url", cfg.api_url, idx));
+        row1.appendChild(makeField(t("settings.api_key"), "password", "lc-api-key", cfg.api_key, idx));
         card.appendChild(row1);
 
         // 模型与图像参数
         const row2 = document.createElement("div");
         row2.className = "llm-card-row";
-        row2.appendChild(makeField("模型名", "text", "lc-model", cfg.model, idx));
-        row2.appendChild(makeNumField("最大图像分辨率", "lc-max-res", cfg.max_image_resolution, idx, 1));
+        row2.appendChild(makeField(t("settings.model_name"), "text", "lc-model", cfg.model, idx));
+        row2.appendChild(makeNumField(t("settings.max_image_resolution"), "lc-max-res", cfg.max_image_resolution, idx, 1));
         card.appendChild(row2);
 
         // 自定义请求参数（文本框，每行一个 key: value）
@@ -3821,7 +3828,7 @@ function buildLlmConfigs() {
         paramsField.className = "field";
         const paramsLabel = document.createElement("label");
         paramsLabel.className = "field-label";
-        paramsLabel.textContent = "自定义请求参数（每行一个 key: value）";
+        paramsLabel.textContent = t("settings.extra_params");
         const paramsArea = document.createElement("textarea");
         paramsArea.className = "lc-extra-params";
         paramsArea.rows = 3;
@@ -3888,7 +3895,7 @@ function buildLlmFunctions() {
         header.className = "llm-card-header";
         const nameLabel = document.createElement("label");
         nameLabel.className = "field-label llm-name-label";
-        nameLabel.textContent = "功能名称";
+        nameLabel.textContent = t("settings.fn_name");
         const nameInput = document.createElement("input");
         nameInput.type = "text";
         nameInput.className = "lf-name";
@@ -3899,7 +3906,7 @@ function buildLlmFunctions() {
         // 使用的配置下拉框
         const cfgLabel = document.createElement("label");
         cfgLabel.className = "field-label llm-name-label";
-        cfgLabel.textContent = "使用的配置";
+        cfgLabel.textContent = t("settings.used_config");
         const cfgSelect = document.createElement("select");
         cfgSelect.className = "llm-fn-config";
         cfgSelect.dataset.idx = idx;
@@ -3909,7 +3916,7 @@ function buildLlmFunctions() {
         const delBtn = document.createElement("button");
         delBtn.type = "button";
         delBtn.className = "btn btn-danger llm-del-btn";
-        delBtn.textContent = "删除";
+        delBtn.textContent = t("common.delete");
         delBtn.addEventListener("click", () => {
             const cur = getSetting("llm_functions") || [];
             cur.splice(idx, 1);
@@ -3924,7 +3931,7 @@ function buildLlmFunctions() {
         sysField.className = "field";
         const sysLabel = document.createElement("label");
         sysLabel.className = "field-label";
-        sysLabel.textContent = "系统提示";
+        sysLabel.textContent = t("settings.system_prompt");
         const sysArea = document.createElement("textarea");
         sysArea.className = "lf-system-prompt";
         sysArea.rows = 3;
@@ -3939,7 +3946,7 @@ function buildLlmFunctions() {
         usrField.className = "field";
         const usrLabel = document.createElement("label");
         usrLabel.className = "field-label";
-        usrLabel.textContent = "用户提示";
+        usrLabel.textContent = t("settings.user_prompt");
         const usrArea = document.createElement("textarea");
         usrArea.className = "lf-user-prompt";
         usrArea.rows = 3;
@@ -3952,8 +3959,8 @@ function buildLlmFunctions() {
         // 复选框：发送图像 / 发送编辑框内容
         const checks = document.createElement("div");
         checks.className = "row";
-        checks.appendChild(makeCheckbox("向 LLM 发送图像", "lf-send-image", fn.send_image, idx));
-        checks.appendChild(makeCheckbox("向 LLM 发送编辑框内容", "lf-send-caption", fn.send_caption, idx));
+        checks.appendChild(makeCheckbox(t("settings.send_image"), "lf-send-image", fn.send_image, idx));
+        checks.appendChild(makeCheckbox(t("settings.send_caption"), "lf-send-caption", fn.send_caption, idx));
         card.appendChild(checks);
 
         box.appendChild(card);
