@@ -211,6 +211,9 @@ function clearCanvas() {
 // 将 canvas 对齐到有效绘制区域（整图或裁剪框）并重绘
 function draw() {
     if (!img || !img.src || !img.naturalWidth) { clearCanvas(); return; }
+    // 图像尚未加载完成时（切换图像的加载窗口）不绘制：
+    // 此时 imgRect 仍是上一张图像的尺寸，按它绘制会导致框与图像内容错位
+    if (!img.complete) { clearCanvas(); return; }
     const imgRect = img.getBoundingClientRect();
     const prevRect = preview.getBoundingClientRect();
     if (imgRect.width <= 0 || imgRect.height <= 0) { clearCanvas(); return; }
@@ -224,6 +227,9 @@ function draw() {
     const padLeft = parseFloat(cs.paddingLeft) || 0;
     const padTop = parseFloat(cs.paddingTop) || 0;
     const dpr = window.devicePixelRatio || 1;
+    // 防止 preview 容器滚动导致画布与图像错位（中键拖拽后可能产生 scrollTop）
+    preview.scrollTop = 0;
+    preview.scrollLeft = 0;
     canvas.style.display = "block";
     // 定位偏移 = 图像显示区偏移 + 有效绘制区域偏移（裁剪预览启用时为裁剪框位置）
     canvas.style.left = (imgRect.left - prevRect.left - borderLeft - padLeft + area.x) + "px";
@@ -369,7 +375,7 @@ function localPos(e) {
 }
 
 // 当前有效绘制区域（CSS 像素，坐标相对图像显示区左上角）：
-// 启用分桶裁剪预览时为裁剪框区域（画布与裁剪画布大小一致），否则为整张图像显示区域。
+// 启用分桶裁剪预览时为裁剪框区域（画布限制在裁剪区域内），否则为整张图像显示区域。
 // 归一化坐标直接以该区域宽高换算，无需调整数值。
 function getDrawArea() {
     const crop = getActiveCropRect();
@@ -476,6 +482,8 @@ function openLabelEdit() {
     autoSizeLabelInput();
     labelInput.focus();
     labelInput.select();
+    // 防止 focus 导致 preview 容器滚动（overflow:hidden 时浏览器仍可能设置 scrollTop）
+    if (preview) { preview.scrollTop = 0; preview.scrollLeft = 0; }
 }
 
 // 提交标签编辑
@@ -643,6 +651,8 @@ export function initBbox() {
         }
         e.preventDefault();
         canvas.focus();
+        // 防止 focus 导致 preview 容器滚动（canvas 超出可视区域时浏览器会自动滚动），重置滚动
+        if (preview) { preview.scrollTop = 0; preview.scrollLeft = 0; }
         if (e.button !== 0) return;
         if (boxes.length === 0) return;
         const { x, y } = localPos(e);

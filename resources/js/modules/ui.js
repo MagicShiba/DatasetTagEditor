@@ -346,6 +346,9 @@ let previewDragStart = { x: 0, y: 0, panX: 0, panY: 0 };
 function applyPreviewTransform() {
     const img = document.getElementById("preview_img");
     if (img) img.style.transform = `translate(${previewPan.x}px, ${previewPan.y}px) scale(${previewZoom})`;
+    // 防止中键拖拽后 preview 容器产生滚动偏移（overflow:hidden 时 scrollTop 仍可被浏览器自动设置），导致画布与图像错位
+    const box = document.getElementById("image_preview");
+    if (box) { box.scrollTop = 0; box.scrollLeft = 0; }
 }
 
 function resetPreviewZoom() {
@@ -358,7 +361,11 @@ function resetPreviewZoom() {
         img.style.cursor = "";
     }
     const box = document.getElementById("image_preview");
-    if (box) box.classList.remove("dragging-image");
+    if (box) {
+        box.classList.remove("dragging-image");
+        box.scrollTop = 0;
+        box.scrollLeft = 0;
+    }
 }
 
 function initPreviewZoom() {

@@ -116,6 +116,9 @@ function draw() {
     const imgRect = img.getBoundingClientRect();
     const prevRect = previewBox.getBoundingClientRect();
     if (imgRect.width <= 0 || imgRect.height <= 0) { clearCanvas(); return; }
+    // 图像尚未加载完成时（切换图像的加载窗口）不绘制：
+    // 此时 imgRect 仍是上一张图像的尺寸，裁剪框位置会与图像内容错位
+    if (!img.complete) { clearCanvas(); return; }
     const cs = getComputedStyle(previewBox);
     const borderLeft = parseFloat(cs.borderLeftWidth) || 0;
     const borderTop = parseFloat(cs.borderTopWidth) || 0;
@@ -125,6 +128,9 @@ function draw() {
     const w = imgRect.width;
     const h = imgRect.height;
 
+    // 防止 preview 容器滚动导致画布与图像错位
+    previewBox.scrollTop = 0;
+    previewBox.scrollLeft = 0;
     canvas.style.display = "block";
     canvas.style.left = (imgRect.left - prevRect.left - borderLeft - padLeft) + "px";
     canvas.style.top = (imgRect.top - prevRect.top - borderTop - padTop) + "px";
@@ -170,7 +176,7 @@ function getTargetResolution() {
 }
 
 // 返回当前启用的裁剪区域相对【图像显示区左上角】的 CSS 像素矩形 {left, top, width, height}；
-// 未启用裁剪预览或无图像时返回 null（供 bbox 画布等外部模块对齐使用）
+// 未启用裁剪预览或无图像时返回 null（供 bbox 画布对齐裁剪区域使用）
 export function getActiveCropRect() {
     if (!isEnabled() || !img || !img.src || !img.naturalWidth) return null;
     const imgRect = img.getBoundingClientRect();
