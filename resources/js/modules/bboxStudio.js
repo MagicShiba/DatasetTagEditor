@@ -73,6 +73,65 @@ function writeBackText(text) {
     return text.slice(0, block.start) + serializeBboxes(boxes, block.key, block.isMap) + text.slice(block.end + 1);
 }
 
+// 左右翻转：所有边界框水平镜像（x' = 1 - x），左边物体到右边、右边到左边，y 不变
+function flipBoxesHorizontally() {
+    if (boxes.length === 0) return;
+    for (const b of boxes) {
+        const nx1 = 1 - b.x1, nx2 = 1 - b.x2;
+        b.x1 = Math.min(nx1, nx2);
+        b.x2 = Math.max(nx1, nx2);
+    }
+    draw();
+    writeBack();
+}
+
+// 坐标转换：把文本中的边界框 JSON 块在 0~1 与 0~1000 两种格式间切换。
+// 自动识别当前格式（存在大于 1 的坐标即为 0~1000），换算为另一种格式后写回文本。
+// 直接读取原始数值（不经 parseCoords 的设置换算与 clamp），保证双向转换无损。
+function convertCoordinateRange() {
+    const ta = els.textarea;
+    if (!ta) return;
+    const s = String(ta.value || "");
+    const re = /\{\s*"(object|objects)"\s*:/g;
+    const m = re.exec(s);
+    if (!m) return;
+    const start = m.index;
+    const bal = findBalancedObject(s, start);
+    if (!bal) return;
+    const end = bal.end;
+    let json;
+    try { json = JSON.parse(s.slice(start, end + 1)); } catch (e) { return; }
+    const key = m[1];
+    const raw = json[key];
+    const items = [];
+    let isMap = false;
+    const collect = (label, coords) => {
+        if (!Array.isArray(coords) || coords.length !== 4) return;
+        const nums = coords.map(Number);
+        if (!nums.every(n => Number.isFinite(n))) return;
+        items.push({ label: String(label), x1: nums[0], y1: nums[1], x2: nums[2], y2: nums[3] });
+    };
+    if (Array.isArray(raw)) {
+        for (const item of raw) {
+            if (!item || typeof item !== "object" || Object.entries(item).length !== 1) continue;
+            const [label, coords] = Object.entries(item)[0];
+            collect(label, coords);
+        }
+    } else if (raw && typeof raw === "object") {
+        isMap = true;
+        for (const [label, coords] of Object.entries(raw)) collect(label, coords);
+    }
+    if (items.length === 0) return;
+    // 识别当前格式并翻转到另一种
+    const maxV = Math.max(...items.flatMap(b => [Math.abs(b.x1), Math.abs(b.y1), Math.abs(b.x2), Math.abs(b.y2)]));
+    const target = maxV > 1 ? "0~1" : "0~1000";
+    const k = maxV > 1 ? 1000 : 1;
+    const internal = items.map(b => ({ label: b.label, x1: b.x1 / k, y1: b.y1 / k, x2: b.x2 / k, y2: b.y2 / k }));
+    // 显式传 target，避免受坐标范围设置影响
+    ta.value = s.slice(0, start) + serializeBboxesCore(internal, key, isMap, target) + s.slice(end + 1);
+    ta.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
 // 高亮同步（复用主编辑框的高亮规则）
 function syncOverlayLayout() {
     const ta = els.textarea, inner = els.overlayInner;
@@ -168,7 +227,31 @@ function draw() {
     if (selected >= 0) drawBox(selected, w, h);
 }
 
-// 绘制单个边界框（支持自由拖动，使用归一化显示）
+// 将标签文本按最大宽度换行（逐字符累加测量，兼容中英文），返回行数组。
+// 超过 maxLines 行时截断，最后一行以省略号结尾。
+function wrapLabelLines(label, maxW, maxLines = 5) {
+    const text = String(label);
+    const lines = [];
+    let cur = "";
+    for (const ch of text) {
+        if (cur && ctx.measureText(cur + ch).width > maxW) {
+            lines.push(cur);
+            cur = ch;
+        } else {
+            cur += ch;
+        }
+    }
+    if (cur) lines.push(cur);
+    if (lines.length > maxLines) {
+        lines.length = maxLines;
+        let last = lines[maxLines - 1];
+        while (last && ctx.measureText(last + "…").width > maxW) last = last.slice(0, -1);
+        lines[maxLines - 1] = last + "…";
+    }
+    return lines;
+}
+
+// 绘制单个边界框（支持自由拖动，使用归一化显示）；标签支持多行显示
 function drawBox(i, w, h) {
     const b = boxes[i];
     const L = Math.min(b.x1, b.x2) * w, R = Math.max(b.x1, b.x2) * w, T = Math.min(b.y1, b.y2) * h, B = Math.max(b.y1, b.y2) * h;
@@ -180,12 +263,16 @@ function drawBox(i, w, h) {
     ctx.strokeRect(L + lw / 2, T + lw / 2, Math.max(0, R - L - lw), Math.max(0, B - T - lw));
     const label = b.label || "";
     ctx.font = "13px sans-serif";
-    const tw = ctx.measureText(label).width;
+    // 标签换行：最大宽度取框宽（过窄时用 120px 下限），上限 240px，最多 5 行
+    const maxLabelW = Math.min(Math.max(R - L, 120), 240);
+    const lines = wrapLabelLines(label, maxLabelW);
+    const lineH = 15;
+    const tw = Math.max(...lines.map(ln => ctx.measureText(ln).width));
     const bw2 = Math.max(MIN_LABEL_W, tw + 6);
     ctx.fillStyle = "rgba(0,0,0,0.6)";
-    ctx.fillRect(L, T, bw2, 15);
+    ctx.fillRect(L, T, bw2, lines.length * lineH);
     ctx.fillStyle = color;
-    ctx.fillText(label, L + 3, T + 11);
+    lines.forEach((ln, idx) => ctx.fillText(ln, L + 3, T + 11 + idx * lineH));
     if (isSel) {
         const hs = 6;
         const pts = [
@@ -351,6 +438,13 @@ function hitLabel(px, py, w, h){
     return px>=L&&px<=L+bw2&&py>=T&&py<=T+15;
 }
 
+// 标签编辑框（textarea）按内容自适应高度（长文本自动换行）
+function autoSizeLabelInput() {
+    if (!labelInput || labelInput.style.display === "none") return;
+    labelInput.style.height = "auto";
+    labelInput.style.height = labelInput.scrollHeight + "px";
+}
+
 // 打开选中框标签编辑（归一化左上角）
 function openLabelEdit(){
     if(!labelInput||selected<0||selected>=boxes.length) return;
@@ -362,14 +456,17 @@ function openLabelEdit(){
     labelInput.style.top=T+"px";
     ctx.font="13px sans-serif";
     const tw=ctx.measureText(labelInput.value||"").width;
-    labelInput.style.width=(Math.max(MIN_EDIT_W, tw)+24)+"px";
+    // 宽度钳制在 [MIN_EDIT_W, 240]，超长文本由 textarea 自动换行显示
+    labelInput.style.width=(Math.max(MIN_EDIT_W, Math.min(tw, 240))+24)+"px";
     labelInput.style.display="block";
+    autoSizeLabelInput();
     labelInput.focus(); labelInput.select();
 }
 
 function commitLabelEdit(){
     if(!labelInput||labelInput.style.display==="none") return;
-    const val=labelInput.value.trim();
+    // 清理粘贴带入的换行符（标签为单值，换行显示由 textarea 自动折行承担）
+    const val=labelInput.value.replace(/[\r\n]+/g," ").trim();
     labelInput.style.display="none";
     if(selected>=0&&selected<boxes.length&&val){
         boxes[selected].label=val; draw(); writeBack();
@@ -635,6 +732,8 @@ export function initStudio(){
         copyBtn: document.getElementById("bbox_studio_copy"),
         clearBtn: document.getElementById("bbox_studio_clear_boxes"),
         clearTextBtn: document.getElementById("bbox_studio_clear_text"),
+        flipBtn: document.getElementById("bbox_studio_flip_h"),
+        convertBtn: document.getElementById("bbox_studio_convert_range"),
         splitter: document.getElementById("bbox_studio_splitter"),
     };
     if(!els.canvas || !els.preview) return;
@@ -652,6 +751,8 @@ export function initStudio(){
         bindAutocomplete(labelInput,{appendComma:false});
         labelInput.addEventListener("mousedown", e=>e.stopPropagation());
         labelInput.addEventListener("dblclick", e=>e.stopPropagation());
+        // 输入时高度自适应（长文本自动换行）
+        labelInput.addEventListener("input", autoSizeLabelInput);
         labelInput.addEventListener("keydown", e=>{
             if(e.key==="Enter"){ e.preventDefault(); commitLabelEdit(); }
             else if(e.key==="Escape"){
@@ -744,6 +845,10 @@ export function initStudio(){
     if(els.clearTextBtn) els.clearTextBtn.addEventListener("click", ()=>{
         if(els.textarea){ els.textarea.value=""; els.textarea.dispatchEvent(new Event("input",{bubbles:true})); }
     });
+    // 左右翻转：所有边界框水平镜像（x' = 1 - x），与原图像左右对称
+    if(els.flipBtn) els.flipBtn.addEventListener("click", flipBoxesHorizontally);
+    // 坐标转换：文本中的 JSON 块在 0~1 与 0~1000 两种格式间切换（自动识别当前格式后翻转）
+    if(els.convertBtn) els.convertBtn.addEventListener("click", convertCoordinateRange);
 
     // 分割线拖动：调整左右比例，缩放时优先保证右侧可见
     const splitter = document.getElementById("bbox_studio_splitter");

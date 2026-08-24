@@ -69,7 +69,7 @@
     }
   },
   "cli": {
-    "binaryName": "dte",
+    "binaryName": "dataset-tag-editor",
     "resourcesPath": "/resources/",
     "extensionsPath": "/extensions/",
     "clientLibrary": "/resources/js/neutralino.js",

@@ -230,6 +230,15 @@ input[type="number"].crop-res-input {
   outline: none;
 }
 
+/* 画板标签编辑框（textarea 形态）：长文本自动换行，高度随内容自适应 */
+textarea.bbox-label-input {
+  resize: none;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.2;
+}
+
 .image-preview.has-bbox .preview-nav-btn {
   top: auto;
   bottom: 6px;

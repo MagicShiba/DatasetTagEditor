@@ -137,7 +137,7 @@
                     <img id="preview_img" alt="" draggable="false">
                     <canvas id="crop_canvas" class="crop-canvas"></canvas>
                     <canvas id="bbox_canvas" class="bbox-canvas"></canvas>
-                    <input id="bbox_label_input" class="bbox-label-input" type="text" autocomplete="off">
+                    <textarea id="bbox_label_input" class="bbox-label-input" rows="1" autocomplete="off"></textarea>
                     <button id="btn_prev_image" class="preview-nav-btn preview-nav-prev" data-i18n-title="gallery.previous">&#8249;</button>
                     <button id="btn_next_image" class="preview-nav-btn preview-nav-next" data-i18n-title="gallery.next">&#8250;</button>
                 </div>
@@ -358,9 +358,13 @@
                         </div>
                     </div>
                     <div class="panel">
-                        <div class="markdown" data-i18n="extra_tools.json_help">检查标注中的 JSON 坐标是否合规（归一化百分比坐标，取值范围 0~1）。</div>
+                        <div class="markdown" data-i18n="extra_tools.json_help">检查标注中的 JSON 坐标是否合规（0~1 / 0~1000 格式）。</div>
                         <div class="row" style="margin-top:8px">
                             <button id="btn_check_json" class="btn" data-i18n="extra_tools.check_json">检查 JSON</button>
+                        </div>
+						<div class="markdown" data-i18n="extra_tools.convert_bbox_help">将所有标注中的边界框坐标批量转换为当前设置的范围格式（0~1 / 0~1000）</div>
+                        <div class="row" style="margin-top:8px">
+                            <button id="btn_convert_bbox_range" class="btn" data-i18n="extra_tools.convert_bbox">批量转换边界框坐标</button>
                         </div>
                     </div>
 

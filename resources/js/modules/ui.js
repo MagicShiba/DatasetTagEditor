@@ -11,7 +11,7 @@ import { normalizePath, getStem, getExtension, withSuffix, getBasename, getDirna
 import { parseRules, applyHighlight, escapeHtml } from "./highlight.js";
 import { initAutocomplete, loadAutocompleteData, bindAutocomplete } from "./autocomplete.js";
 import * as llm from "./llm.js";
-import { initBbox, updateBboxes, setOnBboxChange } from "./bbox.js";
+import { initBbox, updateBboxes, setOnBboxChange, getCoordRange, serializeBboxes, findBalancedObject } from "./bbox.js";
 import { initCropPreview, updateCropPreview, setOnCropPreviewChange, getBucketForSize } from "./cropPreview.js";
 import { init as initCapsule, setOnChange as setCapsuleOnChange, refresh as capsuleRefresh, setEnabled as setCapsuleEnabled } from "./capsule.js";
 
@@ -1280,16 +1280,18 @@ function extractJsonCoordinates(text) {
     return { boxes, emptyIssues };
 }
 
-// 生成具体的不合规描述（含标签名与具体坐标值），返回字符串数组
+// 生成具体的不合规描述（含标签名与具体坐标值），返回字符串数组。
+// 合法范围由坐标范围设置决定：0~1 或 0~1000。
 function boxIssueDetails(box) {
     const { label, x1, y1, x2, y2 } = box;
+    const max = getCoordRange();
     const d = [];
-    // x1/y1 大于等于 1（含大于 1）
-    if (x1 >= 1) d.push(`${label}.x1=${x1} ${t("extra_tools.reason_x1y1_ge1")}`);
-    if (y1 >= 1) d.push(`${label}.y1=${y1} ${t("extra_tools.reason_x1y1_ge1")}`);
-    // 其它坐标大于 1（x2/y2）
-    if (x2 > 1) d.push(`${label}.x2=${x2} ${t("extra_tools.reason_over")}`);
-    if (y2 > 1) d.push(`${label}.y2=${y2} ${t("extra_tools.reason_over")}`);
+    // x1/y1 大于等于上限（含大于上限）
+    if (x1 >= max) d.push(`${label}.x1=${x1} ${t("extra_tools.reason_x1y1_ge1").replace("{max}", String(max))}`);
+    if (y1 >= max) d.push(`${label}.y1=${y1} ${t("extra_tools.reason_x1y1_ge1").replace("{max}", String(max))}`);
+    // 其它坐标大于上限（x2/y2）
+    if (x2 > max) d.push(`${label}.x2=${x2} ${t("extra_tools.reason_over").replace("{max}", String(max))}`);
+    if (y2 > max) d.push(`${label}.y2=${y2} ${t("extra_tools.reason_over").replace("{max}", String(max))}`);
     // 顺序错误
     if (x1 > x2) d.push(`${label}: x1(${x1})>x2(${x2}) ${t("extra_tools.reason_order")}`);
     if (y1 > y2) d.push(`${label}: y1(${y1})>y2(${y2}) ${t("extra_tools.reason_order")}`);
@@ -1480,10 +1482,113 @@ function runNewlineCheck() {
     toggleNewlineCheckPanel(true);
 }
 
+// 将文本中的边界框 JSON 块坐标批量转换为目标范围格式（"0~1"/"0~1000"）。
+// 每块自动识别现有格式：存在绝对值大于 1 的坐标视为 0~1000，否则视为 0~1；
+// 已是目标格式的块保持原样。返回 { text, converted }（converted 为实际转换的块数）。
+function convertBboxRangeInText(text, target) {
+    const s = String(text || "");
+    const re = /\{\s*"(object|objects)"\s*:/g;
+    let m;
+    let out = "";
+    let last = 0;
+    let converted = 0;
+    while ((m = re.exec(s))) {
+        const start = m.index;
+        const bal = findBalancedObject(s, start);
+        if (!bal) continue;
+        const end = bal.end;
+        let json;
+        try { json = JSON.parse(s.slice(start, end + 1)); } catch (e) { continue; }
+        const key = m[1];
+        const raw = json[key];
+        // 收集原始坐标数值（不 clamp，保留真实范围用于格式识别与换算）
+        const items = [];
+        let isMap = false;
+        let ok = true;
+        const collect = (label, coords) => {
+            if (!Array.isArray(coords) || coords.length !== 4) { ok = false; return; }
+            const nums = coords.map(Number);
+            if (!nums.every(n => Number.isFinite(n))) { ok = false; return; }
+            items.push({ label: String(label), x1: nums[0], y1: nums[1], x2: nums[2], y2: nums[3] });
+        };
+        if (Array.isArray(raw)) {
+            if (raw.length === 0) ok = false;
+            for (const item of raw) {
+                if (!item || typeof item !== "object" || Object.entries(item).length !== 1) { ok = false; continue; }
+                const [label, coords] = Object.entries(item)[0];
+                collect(label, coords);
+            }
+        } else if (raw && typeof raw === "object") {
+            isMap = true;
+            if (Object.keys(raw).length === 0) ok = false;
+            for (const [label, coords] of Object.entries(raw)) collect(label, coords);
+        } else {
+            ok = false;
+        }
+        re.lastIndex = end + 1;
+        // 结构不合规的块不处理
+        if (!ok || items.length === 0) continue;
+        // 识别源格式并跳过已符合目标的块
+        const maxV = Math.max(...items.flatMap(b => [Math.abs(b.x1), Math.abs(b.y1), Math.abs(b.x2), Math.abs(b.y2)]));
+        const src = maxV > 1 ? "0~1000" : "0~1";
+        if (src === target) continue;
+        // 换算为内部 0~1 后按目标范围序列化（复用统一的格式化逻辑）
+        const k = src === "0~1000" ? 1000 : 1;
+        const internal = items.map(b => ({ label: b.label, x1: b.x1 / k, y1: b.y1 / k, x2: b.x2 / k, y2: b.y2 / k }));
+        out += s.slice(last, start) + serializeBboxes(internal, key, isMap, target);
+        last = end + 1;
+        converted++;
+    }
+    if (converted === 0) return { text: s, converted };
+    return { text: out + s.slice(last), converted };
+}
+
+// 批量转换边界框坐标：目标格式取自设置 bbox_coordinate_range，
+// 修改仅作用于内存中的标注，需点击"保存所有更改"写入文件
+async function runConvertBboxRange() {
+    if (!app.dte || !app.dte.dataset || app.dte.dataset.length === 0) {
+        showToast(t("extra_tools.convert_none"), "info");
+        return;
+    }
+    const target = getCoordRange() === 1000 ? "0~1000" : "0~1";
+    const ok = await showConfirmDialog(
+        t("extra_tools.convert_bbox_title"),
+        t("extra_tools.convert_bbox_confirm").replace("{target}", target),
+        [
+            { key: "ok", label: t("common.apply"), cls: "primary" },
+            { key: "cancel", label: t("common.cancel") },
+        ]
+    );
+    if (ok !== "ok") return;
+    let blocks = 0;
+    let images = 0;
+    // 启用自动压缩 json 时，转换后的 json 块同样压缩为单行（与"将更改应用于选中图像"行为一致）
+    const compress = getSetting("auto_compress_json");
+    for (const [, data] of app.dte.dataset.datas) {
+        let imgChanged = 0;
+        data.tags = data.tags.map(tag => {
+            const r = convertBboxRangeInText(tag, target);
+            if (r.converted > 0) { imgChanged += r.converted; return compress ? compressJsonInText(r.text) : r.text; }
+            return tag;
+        });
+        if (imgChanged > 0) { blocks += imgChanged; images++; }
+    }
+    if (blocks === 0) {
+        showToast(t("extra_tools.convert_none"), "info");
+        return;
+    }
+    app.datasetDirty = true;
+    refreshAll();
+    showToast(t("extra_tools.convert_done").replace("{img}", String(images)).replace("{n}", String(blocks)), "success");
+}
+
 // 初始化额外工具面板（按钮 + 结果浮窗交互）
 function initExtraTools() {
     const btn = document.getElementById("btn_check_json");
     if (btn) btn.addEventListener("click", runJsonCheck);
+    // 批量转换边界框坐标范围（0~1 <-> 0~1000）
+    const convertBtn = document.getElementById("btn_convert_bbox_range");
+    if (convertBtn) convertBtn.addEventListener("click", runConvertBboxRange);
     // 边界框画板：启动新的应用程序级窗口（独立 HTML）
     const studioBtn = document.getElementById("btn_open_bbox_studio");
     if (studioBtn) studioBtn.addEventListener("click", async () => {
@@ -3547,10 +3652,21 @@ function buildSettingsGrid() {
         grid.appendChild(renderSettingsControl(name));
     }
 
-    // 标点替换分组（默认折叠，折叠时只显示启用开关）
+    // 标点替换分组（默认折叠，折叠时只显示启用开关），置于边界框设置之前
     for (const n of ["replace_punct_enabled", "replace_punct_from"]) markSeen(n);
-    divider();
     grid.appendChild(buildPunctGroup());
+
+    // 边界框设置（坐标范围在前，0~1000 时小数位数禁用）
+    divider();
+    for (const name of ["bbox_coordinate_range", "bbox_json_decimal_places"]) {
+        if (seen.has(name)) continue;
+        markSeen(name);
+        if (SETTINGS_HIDDEN.has(name)) continue;
+        grid.appendChild(renderSettingsControl(name));
+    }
+    // 初始联动：0~1000 格式使用整数，禁用小数位数设置
+    const precInput = document.getElementById("setting_bbox_json_decimal_places");
+    if (precInput) precInput.disabled = settings.current.bbox_coordinate_range === "0~1000";
 
     // 兜底：SETTINGS_DEFAULT 中其余未显式分组的键
     for (const name of Object.keys(SETTINGS_DEFAULT)) {
@@ -3592,6 +3708,30 @@ function createSettingsInput(name, value) {
         }
         input.innerHTML = opts.join("");
         input.value = value;
+    } else if (name === "bbox_coordinate_range") {
+        // 边界框坐标范围：单选框（0~1 归一化小数 / 0~1000 整数）
+        input = document.createElement("div");
+        input.id = "setting_" + name;
+        input.className = "radio-row";
+        const mkRadio = (val, labelKey) => {
+            const label = document.createElement("label");
+            label.className = "checkbox";
+            const r = document.createElement("input");
+            r.type = "radio";
+            r.name = "setting_bbox_coordinate_range";
+            r.value = val;
+            r.checked = value === val;
+            const span = document.createElement("span");
+            span.textContent = t(labelKey);
+            label.append(r, span);
+            return label;
+        };
+        input.append(mkRadio("0~1", "settings.coord_range_01"), mkRadio("0~1000", "settings.coord_range_1000"));
+        // 选中 0~1000 时使用整数，联动禁用小数位数设置
+        input.addEventListener("change", () => {
+            const prec = document.getElementById("setting_bbox_json_decimal_places");
+            if (prec) prec.disabled = input.querySelector("input:checked").value === "0~1000";
+        });
     } else if (name === "replace_punct_from") {
         // 标点替换规则：表格显示，每行两列（原字符 / 替换字符），可编辑、删除、添加
         input = createPunctRulesTable();
@@ -3690,6 +3830,10 @@ function readSettingsFromGrid() {
         const cur = settings.current[name];
         if (name === "language") {
             settings.current[name] = el.value;
+        } else if (name === "bbox_coordinate_range") {
+            // 边界框坐标范围：从单选框读取选中值
+            const checked = el.querySelector("input:checked");
+            if (checked) settings.current[name] = checked.value;
         } else if (name === "replace_punct_from") {
             // 从表格读取标点替换规则，写入两个等长数组
             const from = [], to = [];

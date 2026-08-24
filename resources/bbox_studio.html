@@ -20,12 +20,14 @@
                 <div class="bbox-studio-toolbar">
                     <span class="field-label" style="margin:0" data-i18n="extra_tools.canvas">画布</span>
                     <button id="bbox_studio_clear_boxes" class="btn compact" data-i18n="common.clear">清空</button>
+                    <button id="bbox_studio_flip_h" class="btn compact" data-i18n="extra_tools.flip_h" data-i18n-title="extra_tools.flip_h_title" title="水平镜像所有边界框">左右翻转</button>
+                    <button id="bbox_studio_convert_range" class="btn compact" data-i18n="extra_tools.convert_range" data-i18n-title="extra_tools.convert_range_title" title="在 0~1 与 0~1000 坐标格式间切换">坐标转换</button>
                     <span class="bbox-studio-hint small-note" data-i18n="extra_tools.bbox_hint">左键拖动 / 右键新建 / 点击标签编辑 / Del删除 / Ctrl+C/V复制</span>
                 </div>
                 <div id="bbox_studio_preview" class="bbox-studio-preview">
                     <img id="bbox_studio_img" alt="" draggable="false">
                     <canvas id="bbox_studio_canvas" class="bbox-canvas"></canvas>
-                    <input id="bbox_studio_label_input" class="bbox-label-input" type="text" autocomplete="off">
+                    <textarea id="bbox_studio_label_input" class="bbox-label-input" rows="1" autocomplete="off"></textarea>
                 </div>
             </div>
             <div id="bbox_studio_splitter" class="splitter" title="拖动调整"></div>

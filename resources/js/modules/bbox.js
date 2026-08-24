@@ -8,7 +8,8 @@
 //   "物体名1": [0.1, 0.2, 0.15, 0.4],
 //   "物体名2": [0.2, 0.3, 0.15, 0.3]
 //   }}
-// 坐标为归一化的 x1,y1,x2,y2（0~1）。
+// 坐标为归一化的 x1,y1,x2,y2（内部 0~1）。解析时自动识别数值范围（0~1 / 0~1000），
+// 显示始终正确；序列化输出的范围格式由设置 bbox_coordinate_range 决定。
 // 支持拖动整框移动、拖动边缘/角点缩放；重叠框通过多次点击循环切换。
 // 编辑后写回的 JSON 块保持展开（多行）格式、小数位数由设置控制，且不干扰 Caption 中其它换行。
 
@@ -72,17 +73,27 @@ export function findBalancedObject(s, start) {
     return null;
 }
 
-// 校验并规范化一组坐标（归一化 x1,y1,x2,y2，范围 0~1）
+// 校验并规范化一组坐标（内部统一为 0~1）。
+// 显示自适应：自动识别数值的实际范围（存在绝对值大于 1 的坐标即为 0~1000 格式），
+// 归一化到 0~1 后显示，与坐标范围设置无关——设置仅影响序列化输出（数值转换）。
 export function parseCoords(coords) {
     if (!Array.isArray(coords) || coords.length !== 4) return null;
     const nums = coords.map(Number);
     if (!nums.every(n => Number.isFinite(n))) return null;
+    const maxV = Math.max(...nums.map(Math.abs));
+    const range = maxV > 1 ? 1000 : 1;
     return {
-        x1: clamp01(nums[0]),
-        y1: clamp01(nums[1]),
-        x2: clamp01(nums[2]),
-        y2: clamp01(nums[3]),
+        x1: clamp01(nums[0] / range),
+        y1: clamp01(nums[1] / range),
+        x2: clamp01(nums[2] / range),
+        y2: clamp01(nums[3] / range),
     };
+}
+
+// 当前边界框坐标范围：设置 "0~1000" 时返回 1000，否则返回 1（归一化）。
+// 用于序列化输出与范围校验；解析/显示已自适应，不依赖此值。
+export function getCoordRange() {
+    return getSetting("bbox_coordinate_range") === "0~1000" ? 1000 : 1;
 }
 
 // 在文本中查找 object / objects 格式的 JSON 块
@@ -133,22 +144,27 @@ function getBboxPrecision() {
     return Number.isFinite(v) && v >= 0 ? Math.floor(v) : 3;
 }
 
-// 将边界框序列化为 JSON 块（小数位数由设置控制，展开为多行，写入时自动交换保证 x1<=x2 y1<=y2）
-export function serializeBboxes(list, key = "object", isMap = false) {
+// 将边界框序列化为 JSON 块（展开为多行，写入时自动交换保证 x1<=x2 y1<=y2）。
+// 入参为内部 0~1 坐标；range 可显式指定输出范围格式（"0~1"/"0~1000"），
+// 缺省读取设置：0~1 用设置的小数位数，0~1000 输出四舍五入整数。
+export function serializeBboxes(list, key = "object", isMap = false, range = null) {
+    const useK = (range === "0~1000" || range === "0~1" ? range : getSetting("bbox_coordinate_range")) === "0~1000";
     const precision = getBboxPrecision();
+    // 返回数字（而非字符串），手工拼接 JSON 时输出为数字字面量
+    const fmt = (n) => useK ? Math.round(n * 1000) : +n.toFixed(precision);
     let json;
     if (isMap) {
         const obj = {};
         for (const b of list) {
             const x1 = Math.min(b.x1, b.x2), x2 = Math.max(b.x1, b.x2), y1 = Math.min(b.y1, b.y2), y2 = Math.max(b.y1, b.y2);
-            const coords = [x1, y1, x2, y2].map(n => +n.toFixed(precision));
+            const coords = [x1, y1, x2, y2].map(fmt);
             obj[b.label] = coords;
         }
         json = JSON.stringify({ [key]: obj });
     } else {
         const inner = list.map(b => {
             const x1 = Math.min(b.x1, b.x2), x2 = Math.max(b.x1, b.x2), y1 = Math.min(b.y1, b.y2), y2 = Math.max(b.y1, b.y2);
-            const coords = [x1, y1, x2, y2].map(n => +n.toFixed(precision));
+            const coords = [x1, y1, x2, y2].map(fmt);
             return `{${JSON.stringify(b.label)}:[${coords.join(",")}]}`;
         }).join(",");
         json = `{"${key}":[${inner}]}`;
@@ -430,6 +446,13 @@ function hitLabel(px, py, w, h) {
     return px >= L && px <= L + bw && py >= T && py <= T + 15;
 }
 
+// 标签编辑框（textarea）按内容自适应高度（长文本自动换行）
+function autoSizeLabelInput() {
+    if (!labelInput || labelInput.style.display === "none") return;
+    labelInput.style.height = "auto";
+    labelInput.style.height = labelInput.scrollHeight + "px";
+}
+
 // 打开选中框标签编辑（左上角，归一化坐标）
 function openLabelEdit() {
     if (!labelInput || selected < 0 || selected >= boxes.length) return;
@@ -447,8 +470,10 @@ function openLabelEdit() {
     labelInput.style.top = (offY + T) + "px";
     ctx.font = "13px sans-serif";
     const tw = ctx.measureText(labelInput.value || "").width;
-    labelInput.style.width = (Math.max(MIN_EDIT_W, tw) + 24) + "px";
+    // 宽度钳制在 [MIN_EDIT_W, 240]，超长文本由 textarea 自动换行显示
+    labelInput.style.width = (Math.max(MIN_EDIT_W, Math.min(tw, 240)) + 24) + "px";
     labelInput.style.display = "block";
+    autoSizeLabelInput();
     labelInput.focus();
     labelInput.select();
 }
@@ -456,7 +481,8 @@ function openLabelEdit() {
 // 提交标签编辑
 function commitLabelEdit() {
     if (!labelInput || labelInput.style.display === "none") return;
-    const val = labelInput.value.trim();
+    // 清理粘贴带入的换行符（标签为单值，换行显示由 textarea 自动折行承担）
+    const val = labelInput.value.replace(/[\r\n]+/g, " ").trim();
     labelInput.style.display = "none";
     if (selected >= 0 && selected < boxes.length && val) {
         boxes[selected].label = val;
@@ -551,6 +577,8 @@ export function initBbox() {
         bindAutocomplete(labelInput, { appendComma: false });
         labelInput.addEventListener("mousedown", (e) => e.stopPropagation());
         labelInput.addEventListener("dblclick", (e) => e.stopPropagation());
+        // 输入时高度自适应（长文本自动换行）
+        labelInput.addEventListener("input", autoSizeLabelInput);
         labelInput.addEventListener("keydown", (e) => {
             if (e.key === "Enter") {
                 e.preventDefault();
