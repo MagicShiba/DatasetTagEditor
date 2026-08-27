@@ -1082,9 +1082,10 @@ textarea {
 }
 
 .actions-row {
-  justify-content: flex-end;
-  margin-bottom: 6px;
-  flex-wrap: nowrap;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+  max-height: 46px;
+  overflow-y: auto;
 }
 
 /* 编辑选中图像行内：标签不占过宽，LLM 按钮区占剩余空间 */
@@ -1093,21 +1094,9 @@ textarea {
   max-width: 120px;
 }
 
-/* 编辑选中图像 - 操作按钮区：最多显示两行，装不下时纵向滚动 */
+/* 编辑选中图像 - 操作按钮区：按钮作为 actions-row 的直接 flex 子元素参与排列 */
 .actions-scroll {
-  display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  gap: 4px;
-  overflow-y: auto;
-  overflow-x: hidden;
-  /* 预留滚动条空间，避免滚动条出现时按钮换行抖动 */
-  scrollbar-gutter: stable;
-  max-width: 100%;
-  flex: 1;
-  min-width: 0;
-  /* 两行紧凑按钮高度（约 21px/行 + 间距 4px） */
-  max-height: 46px;
+  display: contents;
 }
 
 .actions-scroll .btn {
