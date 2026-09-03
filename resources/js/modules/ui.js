@@ -120,6 +120,8 @@ function initGallerySort() {
     keySel.addEventListener("change", () => {
         app.gallerySort.key = keySel.value;
         refreshAll();
+        // 文件操作列表跟随画廊排序，当前正在查看时立即刷新
+        refreshRenameIfVisible();
     });
 
     dirBtn.addEventListener("click", () => {
@@ -127,6 +129,8 @@ function initGallerySort() {
         dirBtn.textContent = app.gallerySort.dir === 1 ? "▲" : "▼";
         dirBtn.title = app.gallerySort.dir === 1 ? t("common.ascending") : t("common.descending");
         refreshAll();
+        // 排序方向变化时同样刷新文件操作列表
+        refreshRenameIfVisible();
     });
 
     // 初始同步箭头方向
@@ -1749,12 +1753,13 @@ function initExtraTools() {
     }
 }
 
-// 重建全部行（打开窗口时同步当前状态）
-function renderAllRows() {
+// 重建全部行（打开窗口时同步当前状态，按画廊排序方式排序）
+async function renderAllRows() {
     const listEl = document.getElementById("llm_progress_list");
     listEl.innerHTML = "";
     llmReverse.rows.clear();
-    for (const path of llmReverse.paths) renderRow(path);
+    const sorted = await sortGalleryPaths(llmReverse.paths);
+    for (const path of sorted) renderRow(path);
 }
 
 // 更新进度显示（已完成 / 当前相关总数）
@@ -3036,9 +3041,16 @@ async function loadRenameThumb(img, path) {
     } catch (e) { /* 忽略加载失败 */ }
 }
 
-function populateRename() {
+// 文件操作页可见时才刷新重命名列表（切换排序时调用，避免后台无谓排序开销）
+function refreshRenameIfVisible() {
+    if (document.getElementById("tab_rename")?.classList.contains("active")) {
+        populateRename();
+    }
+}
+
+async function populateRename() {
     const tbody = document.querySelector("#df_rename tbody");
-    renamePaths = app.dte.getImgPathList().sort();
+    renamePaths = await sortGalleryPaths(app.dte.getImgPathList());
     renameDeleteSet = new Set();
     if (renamePaths.length === 0) {
         tbody.innerHTML = `<tr><td colspan="3" class="small-note">(empty)</td></tr>`;
