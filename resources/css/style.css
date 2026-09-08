@@ -414,12 +414,6 @@ textarea {
   accent-color: var(--accent);
 }
 
-.checkbox-group {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
 /* 单选框行（水平排列，宽度不足时自动换行） */
 .radio-row {
   display: flex;
@@ -671,20 +665,6 @@ textarea {
 
 .tab-content.active {
   display: block;
-}
-
-.tab-group {
-  margin-bottom: 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-panel);
-  padding: 10px;
-}
-
-.tab-label {
-  font-weight: 600;
-  margin-bottom: 6px;
-  font-size: 14px;
 }
 
 /* ============ 页内子标签页 ============ */
@@ -1049,12 +1029,6 @@ textarea {
   font-size: 12px;
   color: var(--text-dim);
   word-break: break-all;
-}
-
-.target-num {
-  margin: 6px 0;
-  font-size: 13px;
-  color: var(--text);
 }
 
 .cache-status {
@@ -1805,14 +1779,12 @@ textarea {
 
 /* ============ LLM 反推管理窗口 ============ */
 
-/* 浮动窗口：可拖动、右下角调整大小，可接收从画廊拖入的图像 */
-.llm-progress-panel {
+/* ============ 通用浮窗（可拖动、右下角调整大小） ============ */
+/* 所有浮窗共用容器样式：llm 反推 / json 检查 / 换行检查 / 翻译 / 信息 / 高亮规则 */
+
+.popup-window {
   position: fixed;
-  z-index: 1000000;
-  width: min(300px, 90vw);
-  min-width: 300px;
-  max-width: min(720px, 94vw);
-  min-height: 200px;
+  z-index: 1200000;
   display: flex;
   flex-direction: column;
   background: #1c2127dd;
@@ -1820,6 +1792,35 @@ textarea {
   border-radius: var(--radius);
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
   overflow: hidden;
+}
+
+/* 焦点浮窗：边框与标题高亮，区分层叠窗口的前后关系 */
+.popup-window.focused {
+  border-color: var(--accent);
+}
+
+.popup-window.focused .translate-popup-header {
+  background: #12315e;
+}
+
+.popup-window.focused .translate-popup-title {
+  color: #fff;
+}
+
+/* 尺寸预设：列表型浮窗（反推 / json / 换行）稍宽 */
+.llm-progress-panel {
+  width: min(300px, 90vw);
+  min-width: 300px;
+  max-width: min(720px, 94vw);
+  min-height: 200px;
+}
+
+/* 尺寸预设：文本型浮窗（翻译 / 信息 / 高亮规则） */
+.translate-popup {
+  width: 300px;
+  min-width: 220px;
+  max-width: min(600px, 80vw);
+  min-height: 140px;
 }
 
 .llm-progress-body {
@@ -1923,10 +1924,6 @@ textarea {
   color: var(--danger);
 }
 
-.llm-progress-status.cancelled {
-  color: var(--text-dim);
-}
-
 .llm-progress-footer {
   display: flex;
   justify-content: flex-end;
@@ -1934,7 +1931,7 @@ textarea {
 }
 
 /* 从画廊拖入图像时的高亮反馈 */
-.llm-progress-panel.drag-over {
+.popup-window.drag-over {
   outline: 2px dashed var(--accent);
   outline-offset: -2px;
 }
@@ -2210,22 +2207,7 @@ textarea {
   background: var(--accent-hover);
 }
 
-/* 翻译浮窗：可拖动、可调整大小，含固定与关闭按钮 */
-.translate-popup {
-  position: fixed;
-  z-index: 1200000;
-  width: 300px;
-  min-width: 220px;
-  max-width: min(600px, 80vw);
-  min-height: 140px;
-  display: flex;
-  flex-direction: column;
-  background: #1c2127dd;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
-  overflow: hidden;
-}
+/* 浮窗共用部件：标题栏 / 标题 / 按钮 / 内容区 / 缩放把手 */
 
 .translate-popup-header {
   display: flex;
@@ -2288,8 +2270,7 @@ textarea {
 }
 
 /* 固定状态：图钉恢复彩色与完整不透明度 */
-.translate-popup.pinned .translate-pin-btn,
-.llm-progress-panel.pinned .translate-pin-btn {
+.popup-window.pinned .translate-pin-btn {
   filter: none;
   opacity: 1;
 }

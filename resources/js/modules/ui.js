@@ -14,6 +14,8 @@ import * as llm from "./llm.js";
 import { initBbox, updateBboxes, setOnBboxChange, getCoordRange, serializeBboxes, findBalancedObject } from "./bbox.js";
 import { initCropPreview, updateCropPreview, setOnCropPreviewChange, getBucketForSize } from "./cropPreview.js";
 import { init as initCapsule, setOnChange as setCapsuleOnChange, refresh as capsuleRefresh, setEnabled as setCapsuleEnabled } from "./capsule.js";
+import { setupPopup, showPopup, hidePopup, focusPopup } from "./popup.js";
+import { initPopups } from "./popups.js";
 
 // ================================================================
 // 1. 标签筛选（正向/反向/移除）
@@ -203,61 +205,6 @@ function initPreviewBgToggle() {
     });
 }
 
-// 通用浮窗交互：点击外部/✕关闭、标题栏拖动、右下角缩放（与翻译/高亮帮助浮窗一致）
-function setupPopupWindow(popup, closeId, resizeId) {
-    if (!popup) return;
-
-    // 点击外部关闭
-    document.addEventListener("pointerdown", (e) => {
-        if (popup.classList.contains("hidden")) return;
-        if (popup.contains(e.target)) return;
-        popup.classList.add("hidden");
-    });
-
-    // ✕ 关闭
-    const closeBtn = document.getElementById(closeId);
-    if (closeBtn) closeBtn.addEventListener("click", () => popup.classList.add("hidden"));
-
-    // 右下角三角角标：拖动调整浮窗大小
-    const resize = document.getElementById(resizeId);
-    let rs = null;
-    resize.addEventListener("mousedown", (e) => {
-        e.preventDefault();
-        rs = { w: popup.offsetWidth, h: popup.offsetHeight, x: e.clientX, y: e.clientY };
-        document.body.style.userSelect = "none";
-    });
-    window.addEventListener("mousemove", (e) => {
-        if (!rs) return;
-        const MIN_W = 260, MIN_H = 160;
-        const MAX_W = Math.min(640, window.innerWidth - 8);
-        const MAX_H = window.innerHeight - 8;
-        const w = Math.max(MIN_W, Math.min(rs.w + (e.clientX - rs.x), MAX_W));
-        const h = Math.max(MIN_H, Math.min(rs.h + (e.clientY - rs.y), MAX_H));
-        popup.style.width = w + "px";
-        popup.style.height = h + "px";
-    });
-    window.addEventListener("mouseup", () => { rs = null; });
-
-    // 按住标题栏拖动浮窗
-    const header = popup.querySelector(".translate-popup-header");
-    let drag = null;
-    header.addEventListener("mousedown", (e) => {
-        if (e.target.closest("button")) return; // 标题栏上的按钮交给按钮处理
-        drag = { dx: e.clientX - popup.offsetLeft, dy: e.clientY - popup.offsetTop };
-        e.preventDefault();
-        document.body.style.userSelect = "none";
-    });
-    window.addEventListener("mousemove", (e) => {
-        if (!drag) return;
-        popup.style.left = Math.max(0, Math.min(e.clientX - drag.dx, window.innerWidth - popup.offsetWidth)) + "px";
-        popup.style.top = Math.max(0, Math.min(e.clientY - drag.dy, window.innerHeight - popup.offsetHeight)) + "px";
-    });
-    window.addEventListener("mouseup", () => {
-        drag = null;
-        document.body.style.userSelect = "";
-    });
-}
-
 // 通用信息浮窗：设置标题与内容后显示（与翻译/高亮帮助共用同一个浮窗）
 // html 为 true 时以 innerHTML 渲染内容（用于支持 readme 中的链接等标记）
 function showInfoPopup(title, text, html = false) {
@@ -268,16 +215,7 @@ function showInfoPopup(title, text, html = false) {
     if (titleEl) titleEl.textContent = title;
     if (html) content.innerHTML = text;
     else content.textContent = text;
-    popup.classList.remove("hidden");
-    // 首次打开时设置默认尺寸与居中位置（之后可拖动/缩放并保持位置）
-    if (!popup.style.width || !popup.style.left) {
-        const w = Math.min(480, window.innerWidth - 16);
-        const h = Math.min(380, window.innerHeight - 16);
-        popup.style.width = w + "px";
-        popup.style.height = h + "px";
-        popup.style.left = Math.max(0, Math.round((window.innerWidth - w) / 2)) + "px";
-        popup.style.top = Math.max(0, Math.round((window.innerHeight - h) / 2 - 40)) + "px";
-    }
+    showPopup(popup, 480, 380);
 }
 
 // 清洗 readme 原始文本为可安全渲染的 HTML：移除脚本/样式等危险标签，
@@ -1085,22 +1023,13 @@ function toggleLlmReversePanel(force) {
     const panel = document.getElementById("llm_progress_panel");
     const show = force !== undefined ? force : panel.classList.contains("hidden");
     if (show) {
-        panel.classList.remove("hidden");
-        // 首次打开：设置初始尺寸与居中位置（之后拖动/缩放会记住位置）
-        if (!panel.style.width || !panel.style.left) {
-            const w = Math.min(480, window.innerWidth - 16);
-            const h = Math.min(360, Math.max(240, window.innerHeight - 16));
-            panel.style.width = w + "px";
-            panel.style.height = h + "px";
-            panel.style.left = Math.max(0, Math.round((window.innerWidth - w) / 2)) + "px";
-            panel.style.top = Math.max(0, Math.round((window.innerHeight - h) / 2)) + "px";
-        }
+        showPopup(panel, 480, 360);
         // 同步追加/覆盖选项
         document.getElementById("cb_llm_reverse_append").checked = getSetting("llm_reverse_append") !== false;
         renderAllRows();
         updateProgress();
     } else {
-        panel.classList.add("hidden");
+        hidePopup(panel);
         hideLlmPreview();
     }
 }
@@ -1333,19 +1262,10 @@ function toggleJsonCheckPanel(force) {
     if (!panel) return;
     const show = force !== undefined ? force : panel.classList.contains("hidden");
     if (show) {
-        panel.classList.remove("hidden");
-        // 首次打开：设置初始尺寸与居中位置
-        if (!panel.style.width || !panel.style.left) {
-            const w = Math.min(480, window.innerWidth - 16);
-            const h = Math.min(360, Math.max(240, window.innerHeight - 16));
-            panel.style.width = w + "px";
-            panel.style.height = h + "px";
-            panel.style.left = Math.max(0, Math.round((window.innerWidth - w) / 2)) + "px";
-            panel.style.top = Math.max(0, Math.round((window.innerHeight - h) / 2)) + "px";
-        }
+        showPopup(panel, 480, 360);
         updateJsonCheckPinState();
     } else {
-        panel.classList.add("hidden");
+        hidePopup(panel);
     }
 }
 
@@ -1421,18 +1341,10 @@ function toggleNewlineCheckPanel(force) {
     if (!panel) return;
     const show = force !== undefined ? force : panel.classList.contains("hidden");
     if (show) {
-        panel.classList.remove("hidden");
-        if (!panel.style.width || !panel.style.left) {
-            const w = Math.min(480, window.innerWidth - 16);
-            const h = Math.min(360, Math.max(240, window.innerHeight - 16));
-            panel.style.width = w + "px";
-            panel.style.height = h + "px";
-            panel.style.left = Math.max(0, Math.round((window.innerWidth - w) / 2)) + "px";
-            panel.style.top = Math.max(0, Math.round((window.innerHeight - h) / 2)) + "px";
-        }
+        showPopup(panel, 480, 360);
         updateNewlineCheckPinState();
     } else {
-        panel.classList.add("hidden");
+        hidePopup(panel);
     }
 }
 
@@ -1639,62 +1551,21 @@ function initExtraTools() {
             e.stopPropagation();
             runJsonCheck();
         });
-        // 固定 / 取消固定
-        document.getElementById("json_check_pin").addEventListener("click", (e) => {
-            e.stopPropagation();
-            jsonCheckPinned = !jsonCheckPinned;
-            updateJsonCheckPinState();
+        // 通用浮窗行为：拖动 / 缩放 / 外部关闭 / 焦点置顶（固定状态由 jsonCheckPinned 控制）
+        setupPopup(panel, {
+            closeBtn: document.getElementById("btn_json_check_close"),
+            pinBtn: document.getElementById("json_check_pin"),
+            isPinned: () => jsonCheckPinned,
+            onPinToggle: () => { jsonCheckPinned = !jsonCheckPinned; updateJsonCheckPinState(); },
+            outsideClose: "click",
+            ignoreOutside: [document.getElementById("btn_check_json")],
+            onClose: () => toggleJsonCheckPanel(false),
+            dragIgnore: "button, label, input, select, a",
+            minW: 320,
+            minH: 240,
+            maxW: () => Math.min(720, window.innerWidth - 8),
+            maxH: () => window.innerHeight - 8,
         });
-        // 关闭
-        document.getElementById("btn_json_check_close").addEventListener("click", () => {
-            toggleJsonCheckPanel(false);
-        });
-        // 点击窗口外部关闭（固定时除外）
-        document.addEventListener("click", (e) => {
-            if (panel.classList.contains("hidden")) return;
-            if (jsonCheckPinned) return;
-            if (panel.contains(e.target)) return;
-            const btnEl = document.getElementById("btn_check_json");
-            if (btnEl && btnEl.contains(e.target)) return;
-            toggleJsonCheckPanel(false);
-        });
-        // 按住标题栏拖动窗口
-        const header = panel.querySelector(".translate-popup-header");
-        let drag = null;
-        header.addEventListener("mousedown", (e) => {
-            if (e.target.closest("button, label, input, select, a")) return;
-            drag = { dx: e.clientX - panel.offsetLeft, dy: e.clientY - panel.offsetTop };
-            e.preventDefault();
-            document.body.style.userSelect = "none";
-        });
-        window.addEventListener("mousemove", (e) => {
-            if (!drag) return;
-            panel.style.left = Math.max(0, Math.min(e.clientX - drag.dx, window.innerWidth - panel.offsetWidth)) + "px";
-            panel.style.top = Math.max(0, Math.min(e.clientY - drag.dy, window.innerHeight - panel.offsetHeight)) + "px";
-        });
-        window.addEventListener("mouseup", () => {
-            drag = null;
-            document.body.style.userSelect = "";
-        });
-        // 右下角三角角标：拖动调整浮窗大小
-        const resize = document.getElementById("json_check_resize");
-        let rs = null;
-        resize.addEventListener("mousedown", (e) => {
-            e.preventDefault();
-            rs = { w: panel.offsetWidth, h: panel.offsetHeight, x: e.clientX, y: e.clientY };
-            document.body.style.userSelect = "none";
-        });
-        window.addEventListener("mousemove", (e) => {
-            if (!rs) return;
-            const MIN_W = 320, MIN_H = 240;
-            const MAX_W = Math.min(720, window.innerWidth - 8);
-            const MAX_H = window.innerHeight - 8;
-            const w = Math.max(MIN_W, Math.min(rs.w + (e.clientX - rs.x), MAX_W));
-            const h = Math.max(MIN_H, Math.min(rs.h + (e.clientY - rs.y), MAX_H));
-            panel.style.width = w + "px";
-            panel.style.height = h + "px";
-        });
-        window.addEventListener("mouseup", () => { rs = null; });
     }
 
     // 换行检查按钮及浮窗（复用 JSON 检查样式，默认固定）
@@ -1704,52 +1575,20 @@ function initExtraTools() {
     if (nlPanel) {
         const nlRefresh = document.getElementById("newline_check_refresh");
         if (nlRefresh) nlRefresh.addEventListener("click", (e) => { e.stopPropagation(); runNewlineCheck(); });
-        document.getElementById("newline_check_pin").addEventListener("click", (e) => {
-            e.stopPropagation();
-            newlineCheckPinned = !newlineCheckPinned;
-            updateNewlineCheckPinState();
+        setupPopup(nlPanel, {
+            closeBtn: document.getElementById("btn_newline_check_close"),
+            pinBtn: document.getElementById("newline_check_pin"),
+            isPinned: () => newlineCheckPinned,
+            onPinToggle: () => { newlineCheckPinned = !newlineCheckPinned; updateNewlineCheckPinState(); },
+            outsideClose: "click",
+            ignoreOutside: [document.getElementById("btn_check_newline")],
+            onClose: () => toggleNewlineCheckPanel(false),
+            dragIgnore: "button, label, input, select, a",
+            minW: 320,
+            minH: 240,
+            maxW: () => Math.min(720, window.innerWidth - 8),
+            maxH: () => window.innerHeight - 8,
         });
-        document.getElementById("btn_newline_check_close").addEventListener("click", () => { toggleNewlineCheckPanel(false); });
-        document.addEventListener("click", (e) => {
-            if (nlPanel.classList.contains("hidden")) return;
-            if (newlineCheckPinned) return;
-            if (nlPanel.contains(e.target)) return;
-            const btnEl2 = document.getElementById("btn_check_newline");
-            if (btnEl2 && btnEl2.contains(e.target)) return;
-            toggleNewlineCheckPanel(false);
-        });
-        const nlHeader = nlPanel.querySelector(".translate-popup-header");
-        let nlDrag = null;
-        nlHeader.addEventListener("mousedown", (e) => {
-            if (e.target.closest("button, label, input, select, a")) return;
-            nlDrag = { dx: e.clientX - nlPanel.offsetLeft, dy: e.clientY - nlPanel.offsetTop };
-            e.preventDefault();
-            document.body.style.userSelect = "none";
-        });
-        window.addEventListener("mousemove", (e) => {
-            if (!nlDrag) return;
-            nlPanel.style.left = Math.max(0, Math.min(e.clientX - nlDrag.dx, window.innerWidth - nlPanel.offsetWidth)) + "px";
-            nlPanel.style.top = Math.max(0, Math.min(e.clientY - nlDrag.dy, window.innerHeight - nlPanel.offsetHeight)) + "px";
-        });
-        window.addEventListener("mouseup", () => { nlDrag = null; document.body.style.userSelect = ""; });
-        const nlResize = document.getElementById("newline_check_resize");
-        let nlRs = null;
-        nlResize.addEventListener("mousedown", (e) => {
-            e.preventDefault();
-            nlRs = { w: nlPanel.offsetWidth, h: nlPanel.offsetHeight, x: e.clientX, y: e.clientY };
-            document.body.style.userSelect = "none";
-        });
-        window.addEventListener("mousemove", (e) => {
-            if (!nlRs) return;
-            const MIN_W = 320, MIN_H = 240;
-            const MAX_W = Math.min(720, window.innerWidth - 8);
-            const MAX_H = window.innerHeight - 8;
-            const w2 = Math.max(MIN_W, Math.min(nlRs.w + (e.clientX - nlRs.x), MAX_W));
-            const h2 = Math.max(MIN_H, Math.min(nlRs.h + (e.clientY - nlRs.y), MAX_H));
-            nlPanel.style.width = w2 + "px";
-            nlPanel.style.height = h2 + "px";
-        });
-        window.addEventListener("mouseup", () => { nlRs = null; });
     }
 }
 
@@ -1846,19 +1685,12 @@ function initLlmReverse() {
     document.getElementById("btn_open_llm_progress").addEventListener("click", () => {
         toggleLlmReversePanel();
     });
-    document.getElementById("btn_llm_progress_close").addEventListener("click", () => {
-        toggleLlmReversePanel(false);
-    });
+    // 关闭按钮由下方 setupPopup 统一注册（含隐藏预览）
     // 追加/覆盖选项（默认追加）
     document.getElementById("cb_llm_reverse_append").addEventListener("change", (e) => {
         setSetting("llm_reverse_append", e.target.checked);
     });
-    // 固定 / 取消固定（点击外部时保持显示）
-    document.getElementById("llm_progress_pin").addEventListener("click", (e) => {
-        e.stopPropagation();
-        llmPinned = !llmPinned;
-        updateLlmPinState();
-    });
+    // 通用浮窗行为在下方 setupPopup 中统一注册（含固定按钮）
     // 全部移除：清空反推列表（已应用的标注保留在数据集中）
     document.getElementById("btn_llm_progress_cancel_all").addEventListener("click", () => {
         for (const path of [...llmReverse.paths]) removeLlmReverseImage(path);
@@ -1898,54 +1730,22 @@ function initLlmReverse() {
         }
     });
 
-    // 点击窗口外部关闭（固定时除外；用 click 而非 pointerdown：拖拽图像不会产生 click，避免误关）
-    document.addEventListener("click", (e) => {
-        if (panel.classList.contains("hidden")) return;
-        if (llmPinned) return;
-        if (panel.contains(e.target)) return;
-        const openBtn = document.getElementById("btn_open_llm_progress");
-        if (openBtn && openBtn.contains(e.target)) return;
-        toggleLlmReversePanel(false);
+    // 通用浮窗行为：拖动 / 缩放 / 外部关闭 / 焦点置顶
+    // 用 click 而非 pointerdown 关闭：拖拽图像不会产生 click，避免误关
+    setupPopup(panel, {
+        closeBtn: document.getElementById("btn_llm_progress_close"),
+        pinBtn: document.getElementById("llm_progress_pin"),
+        isPinned: () => llmPinned,
+        onPinToggle: () => { llmPinned = !llmPinned; updateLlmPinState(); },
+        outsideClose: "click",
+        ignoreOutside: [document.getElementById("btn_open_llm_progress")],
+        onClose: () => { toggleLlmReversePanel(false); hideLlmPreview(); },
+        dragIgnore: "button, label, input, select, a",
+        minW: 300,
+        minH: 240,
+        maxW: () => Math.min(720, window.innerWidth - 8),
+        maxH: () => window.innerHeight - 8,
     });
-
-    // 按住标题栏拖动窗口（标题栏上的按钮交给按钮自己处理）
-    const header = panel.querySelector(".translate-popup-header");
-    let drag = null;
-    header.addEventListener("mousedown", (e) => {
-        if (e.target.closest("button, label, input, select, a")) return;
-        drag = { dx: e.clientX - panel.offsetLeft, dy: e.clientY - panel.offsetTop };
-        e.preventDefault();
-        document.body.style.userSelect = "none";
-    });
-    window.addEventListener("mousemove", (e) => {
-        if (!drag) return;
-        panel.style.left = Math.max(0, Math.min(e.clientX - drag.dx, window.innerWidth - panel.offsetWidth)) + "px";
-        panel.style.top = Math.max(0, Math.min(e.clientY - drag.dy, window.innerHeight - panel.offsetHeight)) + "px";
-    });
-    window.addEventListener("mouseup", () => {
-        drag = null;
-        document.body.style.userSelect = "";
-    });
-
-    // 右下角三角角标：拖动调整浮窗大小（与翻译浮窗一致）
-    const resize = document.getElementById("llm_progress_resize");
-    let rs = null;
-    resize.addEventListener("mousedown", (e) => {
-        e.preventDefault();
-        rs = { w: panel.offsetWidth, h: panel.offsetHeight, x: e.clientX, y: e.clientY };
-        document.body.style.userSelect = "none";
-    });
-    window.addEventListener("mousemove", (e) => {
-        if (!rs) return;
-        const MIN_W = 300, MIN_H = 240;
-        const MAX_W = Math.min(720, window.innerWidth - 8);
-        const MAX_H = window.innerHeight - 8;
-        const w = Math.max(MIN_W, Math.min(rs.w + (e.clientX - rs.x), MAX_W));
-        const h = Math.max(MIN_H, Math.min(rs.h + (e.clientY - rs.y), MAX_H));
-        panel.style.width = w + "px";
-        panel.style.height = h + "px";
-    });
-    window.addEventListener("mouseup", () => { rs = null; });
 }
 
 // ================================================================
@@ -2423,15 +2223,19 @@ function hideTranslateTrigger() {
 function showTranslatePopup(anchorRect) {
     const popup = document.getElementById("translate_popup");
     if (!popup) return;
-    popup.classList.remove("hidden");
+    const firstShow = popup.classList.contains("hidden");
+    showPopup(popup, 300, 200);
     if (anchorRect && !translatePinned) {
         // 与"译"按钮位置保持一致（按钮在选中文本右下角，浮窗也出现在同一位置）
+        // showPopup 首次会自动居中，这里按锚点覆盖为按钮位置
         let left = anchorRect.left;
         let top = anchorRect.top;
         left = Math.max(4, Math.min(left, window.innerWidth - popup.offsetWidth - 4));
         top = Math.max(4, Math.min(top, window.innerHeight - popup.offsetHeight - 4));
         popup.style.left = left + "px";
         popup.style.top = top + "px";
+    } else if (!firstShow) {
+        focusPopup(popup);
     }
     updatePinState();
 }
@@ -2496,40 +2300,32 @@ function updatePinState() {
     if (popup) popup.classList.toggle("pinned", translatePinned);
 }
 
-// 初始化浮窗：固定 / 关闭 / 拖动 / 点击外部关闭
+// 初始化浮窗：固定 / 关闭 / 拖动 / 点击外部关闭（复用 popup.js）
 function initTranslatePopup() {
     const popup = document.getElementById("translate_popup");
     const trigger = document.getElementById("translate_trigger");
     if (!popup || !trigger) return;
 
-    // 点击外部关闭（固定时除外；点击译按钮 / 浮窗内部不关闭）
-    document.addEventListener("pointerdown", (e) => {
-        if (translatePinned) return;
-        if (popup.contains(e.target)) return;
-        if (trigger.contains(e.target)) return;
-        popup.classList.add("hidden");
-        hideTranslateTrigger();
+    // 通用浮窗行为：外部 pointerdown 关闭（固定/浮窗内部/译按钮除外）、拖动、缩放、焦点置顶
+    setupPopup(popup, {
+        closeBtn: document.getElementById("translate_close"),
+        pinBtn: document.getElementById("translate_pin"),
+        isPinned: () => translatePinned,
+        onPinToggle: () => { translatePinned = !translatePinned; updatePinState(); },
+        outsideClose: "pointerdown",
+        ignoreOutside: [trigger],
+        onClose: () => hideTranslateTrigger(),
+        dragIgnore: "button",
+        minW: 220,
+        minH: 120,
+        maxW: () => Math.min(600, window.innerWidth - 8),
+        maxH: () => window.innerHeight - 8,
     });
 
     // 译按钮点击 -> 翻译选中文本
     trigger.addEventListener("click", (e) => {
         e.stopPropagation();
         translateSelection();
-    });
-
-    // 固定 / 取消固定
-    const pinBtn = document.getElementById("translate_pin");
-    if (pinBtn) pinBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        translatePinned = !translatePinned;
-        updatePinState();
-    });
-
-    // 关闭
-    const closeBtn = document.getElementById("translate_close");
-    if (closeBtn) closeBtn.addEventListener("click", () => {
-        popup.classList.add("hidden");
-        hideTranslateTrigger();
     });
 
     // 原文编辑框：按回车（不含 Shift）翻译当前文本
@@ -2553,45 +2349,6 @@ function initTranslatePopup() {
             if (text) runTranslate(text, true);
         });
     }
-
-    // 右下角三角角标：拖动调整浮窗大小
-    const resize = document.getElementById("translate_resize");
-    let rs = null;
-    resize.addEventListener("mousedown", (e) => {
-        e.preventDefault();
-        rs = { w: popup.offsetWidth, h: popup.offsetHeight, x: e.clientX, y: e.clientY };
-        document.body.style.userSelect = "none";
-    });
-    window.addEventListener("mousemove", (e) => {
-        if (!rs) return;
-        const MIN_W = 220, MIN_H = 120;
-        const MAX_W = Math.min(600, window.innerWidth - 8);
-        const MAX_H = window.innerHeight - 8;
-        const w = Math.max(MIN_W, Math.min(rs.w + (e.clientX - rs.x), MAX_W));
-        const h = Math.max(MIN_H, Math.min(rs.h + (e.clientY - rs.y), MAX_H));
-        popup.style.width = w + "px";
-        popup.style.height = h + "px";
-    });
-    window.addEventListener("mouseup", () => { rs = null; });
-
-    // 按住标题栏拖动浮窗
-    const header = popup.querySelector(".translate-popup-header");
-    let drag = null;
-    header.addEventListener("mousedown", (e) => {
-        if (e.target.closest("button")) return; // 标题栏上的按钮交给按钮处理
-        drag = { dx: e.clientX - popup.offsetLeft, dy: e.clientY - popup.offsetTop };
-        e.preventDefault();
-        document.body.style.userSelect = "none";
-    });
-    window.addEventListener("mousemove", (e) => {
-        if (!drag) return;
-        popup.style.left = Math.max(0, Math.min(e.clientX - drag.dx, window.innerWidth - popup.offsetWidth)) + "px";
-        popup.style.top = Math.max(0, Math.min(e.clientY - drag.dy, window.innerHeight - popup.offsetHeight)) + "px";
-    });
-    window.addEventListener("mouseup", () => {
-        drag = null;
-        document.body.style.userSelect = "";
-    });
 
     // 键盘操作/滚动等导致选中变化时隐藏译按钮
     document.addEventListener("keyup", hideTranslateTrigger);
@@ -2675,7 +2432,16 @@ function showHighlightHelp() {
 
 // 通用信息浮窗：与翻译浮窗一致的交互（按住标题栏拖动、右下角缩放，点击外部或 ✕ 关闭）
 function initInfoPopup() {
-    setupPopupWindow(document.getElementById("info_popup"), "info_popup_close", "info_popup_resize");
+    const popup = document.getElementById("info_popup");
+    setupPopup(popup, {
+        closeBtn: document.getElementById("info_popup_close"),
+        outsideClose: "pointerdown",
+        dragIgnore: "button",
+        minW: 260,
+        minH: 160,
+        maxW: () => Math.min(640, window.innerWidth - 8),
+        maxH: () => window.innerHeight - 8,
+    });
 
     // readme 等 HTML 内容中的链接在系统默认浏览器中打开，不让当前窗口跳转
     const content = document.getElementById("info_popup_content");
@@ -2753,23 +2519,15 @@ function openHighlightRuleEditor(ta, clientX, clientY) {
     document.getElementById("hr_cs").checked = !!style.cs;
 
     const popup = document.getElementById("highlight_rule_modal");
-    popup.classList.remove("hidden");
-    // 首次打开：设置初始尺寸与居中位置（之后拖动/缩放会记住位置）
-    if (!popup.style.width || !popup.style.left) {
-        const w = Math.min(440, window.innerWidth - 16);
-        const h = Math.min(430, Math.max(300, window.innerHeight - 16));
-        popup.style.width = w + "px";
-        popup.style.height = h + "px";
-        popup.style.left = Math.max(0, Math.round((window.innerWidth - w) / 2)) + "px";
-        popup.style.top = Math.max(0, Math.round((window.innerHeight - h) / 2)) + "px";
-    }
+    showPopup(popup, 440, 430);
     document.getElementById("hr_tags").focus();
     updateHighlightPreview();
 }
 
 // 关闭高亮规则编辑窗口
 function closeHighlightRuleEditor() {
-    document.getElementById("highlight_rule_modal").classList.add("hidden");
+    const popup = document.getElementById("highlight_rule_modal");
+    if (popup) hidePopup(popup);
     highlightEditLine = null;
 }
 
@@ -2841,20 +2599,20 @@ function initHighlightRuleEditor() {
     document.getElementById("hr_save").addEventListener("click", saveHighlightRule);
     document.getElementById("hr_cancel").addEventListener("click", closeHighlightRuleEditor);
 
-    // 固定 / 取消固定（点击外部时保持显示）
-    document.getElementById("hr_pin").addEventListener("click", (e) => {
-        e.stopPropagation();
-        hrPinned = !hrPinned;
-        updateHrPinState();
-    });
-    // ✕ 关闭
-    document.getElementById("hr_close").addEventListener("click", closeHighlightRuleEditor);
-
-    // 点击窗口外部关闭（固定时除外）
-    document.addEventListener("click", (e) => {
-        if (hrPinned) return;
-        if (e.target.closest("#highlight_rule_modal")) return;
-        closeHighlightRuleEditor();
+    // 通用浮窗行为：拖动 / 缩放 / 外部关闭 / 焦点置顶（固定状态由 hrPinned 控制）
+    const popup = document.getElementById("highlight_rule_modal");
+    setupPopup(popup, {
+        closeBtn: document.getElementById("hr_close"),
+        pinBtn: document.getElementById("hr_pin"),
+        isPinned: () => hrPinned,
+        onPinToggle: () => { hrPinned = !hrPinned; updateHrPinState(); },
+        outsideClose: "click",
+        onClose: () => closeHighlightRuleEditor(),
+        dragIgnore: "button, label, input, select, a",
+        minW: 380,
+        minH: 300,
+        maxW: () => Math.min(720, window.innerWidth - 8),
+        maxH: () => window.innerHeight - 8,
     });
 
     // 按 Esc 关闭
@@ -2873,46 +2631,6 @@ function initHighlightRuleEditor() {
     document.getElementById("hr_bold").addEventListener("change", updateHighlightPreview);
     document.getElementById("hr_partial").addEventListener("change", updateHighlightPreview);
     document.getElementById("hr_cs").addEventListener("change", updateHighlightPreview);
-
-    // 按住标题栏拖动窗口（标题栏上的按钮交给按钮自己处理）
-    const popup = document.getElementById("highlight_rule_modal");
-    const header = popup.querySelector(".translate-popup-header");
-    let drag = null;
-    header.addEventListener("mousedown", (e) => {
-        if (e.target.closest("button, label, input, select, a")) return;
-        drag = { dx: e.clientX - popup.offsetLeft, dy: e.clientY - popup.offsetTop };
-        e.preventDefault();
-        document.body.style.userSelect = "none";
-    });
-    window.addEventListener("mousemove", (e) => {
-        if (!drag) return;
-        popup.style.left = Math.max(0, Math.min(e.clientX - drag.dx, window.innerWidth - popup.offsetWidth)) + "px";
-        popup.style.top = Math.max(0, Math.min(e.clientY - drag.dy, window.innerHeight - popup.offsetHeight)) + "px";
-    });
-    window.addEventListener("mouseup", () => {
-        drag = null;
-        document.body.style.userSelect = "";
-    });
-
-    // 右下角三角角标：拖动调整浮窗大小（与翻译浮窗一致）
-    const resize = document.getElementById("hr_resize");
-    let rs = null;
-    resize.addEventListener("mousedown", (e) => {
-        e.preventDefault();
-        rs = { w: popup.offsetWidth, h: popup.offsetHeight, x: e.clientX, y: e.clientY };
-        document.body.style.userSelect = "none";
-    });
-    window.addEventListener("mousemove", (e) => {
-        if (!rs) return;
-        const MIN_W = 380, MIN_H = 300;
-        const MAX_W = Math.min(720, window.innerWidth - 8);
-        const MAX_H = window.innerHeight - 8;
-        const w = Math.max(MIN_W, Math.min(rs.w + (e.clientX - rs.x), MAX_W));
-        const h = Math.max(MIN_H, Math.min(rs.h + (e.clientY - rs.y), MAX_H));
-        popup.style.width = w + "px";
-        popup.style.height = h + "px";
-    });
-    window.addEventListener("mouseup", () => { rs = null; });
 }
 
 // ================================================================
@@ -4313,6 +4031,8 @@ function setupClipboardRewrite() {
 }
 
 export async function setupUI() {
+    // 浮窗模板实例化：先建出 6 个浮窗 DOM，后续各 init 再绑定行为
+    initPopups();
     // 剪贴板历史修复：让默认复制的内容进入系统剪贴板历史(Win+V)
     setupClipboardRewrite();
     initTabs();

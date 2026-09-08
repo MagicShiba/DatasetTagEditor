@@ -441,105 +441,25 @@
         </div>
     </div>
 
-    <!-- ======================= LLM 反推管理窗口（可拖动浮窗，点击外部或 ✕ 关闭） ======================= -->
-    <div id="llm_progress_panel" class="llm-progress-panel hidden">
-        <div class="translate-popup-header">
-            <span class="translate-popup-title" data-i18n="llm_progress.title">LLM 反推管理</span>
-            <button id="llm_progress_pin" class="translate-pin-btn" data-i18n-title="llm_progress.pin">📌</button>
-            <button id="btn_llm_progress_close" class="translate-close-btn" data-i18n-title="llm_progress.close">✕</button>
-        </div>
-        <div class="llm-progress-body">
-            <label class="checkbox llm-progress-opt" title="如果图像已有标注内容，选择追加或覆盖">
-                <input type="checkbox" id="cb_llm_reverse_append" checked>
-                <span data-i18n="llm_progress.append_opt">已有标注则追加</span>
-            </label>
-            <div class="llm-progress-overview">
-                <div class="llm-progress-bar"><div class="llm-progress-fill" id="llm_progress_fill"></div></div>
-                <div class="llm-progress-summary" id="llm_progress_summary">0 / 0</div>
+    <!-- ======================= 浮窗模板（唯一骨架，所有浮窗由 popup.js 动态创建） ======================= -->
+    <template id="popup_template">
+        <div class="popup-window hidden">
+            <div class="translate-popup-header">
+                <span class="translate-popup-title"></span>
             </div>
-            <div class="llm-progress-list" id="llm_progress_list"></div>
-            <div class="llm-progress-footer">
-                <button id="btn_llm_progress_cancel_all" class="btn compact danger" data-i18n="llm_progress.cancel_all">全部移除</button>
-                <button id="btn_llm_progress_remove_done" class="btn compact" data-i18n="llm_progress.remove_done">移除已完成</button>
+            <div class="popup-body"></div>
+            <!-- 右下角三角角标：拖动调整浮窗大小 -->
+            <div class="translate-resize">
+                <svg viewBox="0 0 10 10" width="10" height="10"><path d="M3 9 L9 3 L9 9 Z" fill="currentColor"/></svg>
             </div>
         </div>
-        <!-- 右下角三角角标：拖动调整浮窗大小 -->
-        <div id="llm_progress_resize" class="translate-resize">
-            <svg viewBox="0 0 10 10" width="10" height="10"><path d="M3 9 L9 3 L9 9 Z" fill="currentColor"/></svg>
-        </div>
-    </div>
+    </template>
 
     <!-- 反推列表悬停时的图像预览（body 级元素，避免受面板 transform 影响定位） -->
     <img id="llm_progress_preview" class="llm-preview hidden" alt="">
 
-    <!-- ======================= JSON 检查结果窗口（可拖动浮窗，默认固定） ======================= -->
-    <div id="json_check_panel" class="llm-progress-panel hidden">
-        <div class="translate-popup-header">
-            <span class="translate-popup-title" data-i18n="extra_tools.title">JSON 检查结果</span>
-            <button id="json_check_refresh" class="translate-refresh-btn" data-i18n-title="extra_tools.refresh" title="重新检测">↻</button>
-            <button id="json_check_pin" class="translate-pin-btn" data-i18n-title="llm_progress.pin">📌</button>
-            <button id="btn_json_check_close" class="translate-close-btn" data-i18n-title="llm_progress.close">✕</button>
-        </div>
-        <div class="llm-progress-body">
-            <div class="extra-tools-summary" id="extra_tools_summary"></div>
-            <div class="llm-progress-list" id="extra_tools_json_list"></div>
-        </div>
-        <!-- 右下角三角角标：拖动调整浮窗大小 -->
-        <div id="json_check_resize" class="translate-resize">
-            <svg viewBox="0 0 10 10" width="10" height="10"><path d="M3 9 L9 3 L9 9 Z" fill="currentColor"/></svg>
-        </div>
-    </div>
-
-    <!-- ======================= 换行检查结果窗口（可拖动浮窗，默认固定） ======================= -->
-    <div id="newline_check_panel" class="llm-progress-panel hidden">
-        <div class="translate-popup-header">
-            <span class="translate-popup-title" data-i18n="extra_tools.newline_title">换行检查结果</span>
-            <button id="newline_check_refresh" class="translate-refresh-btn" data-i18n-title="extra_tools.refresh" title="重新检测">↻</button>
-            <button id="newline_check_pin" class="translate-pin-btn" data-i18n-title="llm_progress.pin">📌</button>
-            <button id="btn_newline_check_close" class="translate-close-btn" data-i18n-title="llm_progress.close">✕</button>
-        </div>
-        <div class="llm-progress-body">
-            <div class="extra-tools-summary" id="newline_tools_summary"></div>
-            <div class="llm-progress-list" id="newline_tools_list"></div>
-        </div>
-        <!-- 右下角三角角标：拖动调整浮窗大小 -->
-        <div id="newline_check_resize" class="translate-resize">
-            <svg viewBox="0 0 10 10" width="10" height="10"><path d="M3 9 L9 3 L9 9 Z" fill="currentColor"/></svg>
-        </div>
-    </div>
-
-    <!-- ======================= 选中文本翻译（译按钮 + 可拖动固定浮窗） ======================= -->
+    <!-- ======================= 选中文本翻译的“译”触发按钮 ======================= -->
     <div id="translate_trigger" class="translate-trigger hidden">译</div>
-    <div id="translate_popup" class="translate-popup hidden">
-<div class="translate-popup-header">
-            <span class="translate-popup-title" data-i18n="translate.title">翻译</span>
-            <button id="translate_refresh" class="translate-refresh-btn" data-i18n-title="translate.refresh" title="重新翻译（忽略重复检查）">↻</button>
-            <button id="translate_pin" class="translate-pin-btn" data-i18n-title="translate.pin" title="固定（点击外部时保持显示）">📌</button>
-            <button id="translate_close" class="translate-close-btn" data-i18n-title="common.close">✕</button>
-        </div>
-        <div class="translate-popup-body">
-            <textarea id="translate_source" class="translate-source" rows="2" placeholder="原文（回车翻译）"></textarea>
-            <div id="translate_output" class="translate-output"></div>
-        </div>
-        <!-- 右下角三角角标：拖动调整浮窗大小 -->
-        <div id="translate_resize" class="translate-resize">
-            <svg viewBox="0 0 10 10" width="10" height="10"><path d="M3 9 L9 3 L9 9 Z" fill="currentColor"/></svg>
-        </div>
-    </div>
-
-    <!-- ======================= 通用信息浮窗（可拖动、可调整大小，点击外部或 ✕ 关闭） ======================= -->
-    <div id="info_popup" class="translate-popup hidden">
-        <div class="translate-popup-header">
-            <span id="info_popup_title" class="translate-popup-title">信息</span>
-            <button id="info_popup_close" class="translate-close-btn" data-i18n-title="common.close">✕</button>
-        </div>
-        <div class="translate-popup-body">
-            <div id="info_popup_content" class="highlight-help-content"></div>
-        </div>
-        <div id="info_popup_resize" class="translate-resize">
-            <svg viewBox="0 0 10 10" width="10" height="10"><path d="M3 9 L9 3 L9 9 Z" fill="currentColor"/></svg>
-        </div>
-    </div>
 
     <!-- ======================= 自定义确认对话框 ======================= -->
     <div id="confirm_modal" class="modal-overlay hidden">
@@ -547,60 +467,6 @@
             <div class="modal-title"></div>
             <div class="modal-message"></div>
             <div class="modal-actions"></div>
-        </div>
-    </div>
-
-    <!-- ======================= 高亮规则编辑窗口（可拖动浮窗，点击外部或 ✕ 关闭） ======================= -->
-    <div id="highlight_rule_modal" class="translate-popup hidden">
-        <div class="translate-popup-header">
-            <span class="translate-popup-title" data-i18n="highlight.edit_rule">编辑高亮规则</span>
-            <button id="hr_pin" class="translate-pin-btn" data-i18n-title="highlight.pin">📌</button>
-            <button id="hr_close" class="translate-close-btn" data-i18n-title="common.close">✕</button>
-        </div>
-        <div class="hr-body modal-body">
-            <div class="field">
-                <label class="field-label" data-i18n="highlight.matched_tags">匹配标签</label>
-                <textarea id="hr_tags" rows="2" placeholder="girl, 1girl, long hair"></textarea>
-            </div>
-            <div class="field hr-color-row">
-                <label class="checkbox">
-                    <input type="checkbox" id="hr_enable_bg">
-                    <span data-i18n="highlight.bg_color">背景色</span>
-                </label>
-                <input type="color" id="hr_bg" value="#777700" disabled>
-            </div>
-            <div class="field hr-color-row">
-                <label class="checkbox">
-                    <input type="checkbox" id="hr_enable_fg">
-                    <span data-i18n="highlight.fg_color">文字色</span>
-                </label>
-                <input type="color" id="hr_fg" value="#ffffff" disabled>
-            </div>
-            <label class="checkbox">
-                <input type="checkbox" id="hr_bold">
-                <span data-i18n="highlight.bold">加粗</span>
-            </label>
-            <label class="checkbox">
-                <input type="checkbox" id="hr_partial">
-                <span data-i18n="highlight.partial_match">子串匹配</span>
-            </label>
-            <label class="checkbox">
-                <input type="checkbox" id="hr_cs">
-                <span data-i18n="highlight.case_sensitive">区分大小写</span>
-            </label>
-            <!-- 示例预览：实时反映颜色 / 加粗 / 子串匹配 / 大小写区分效果 -->
-            <div class="hr-preview-label" data-i18n="highlight.preview">示例预览</div>
-            <div class="hr-preview">
-                <div id="hr_preview" class="hr-preview-content"></div>
-            </div>
-        </div>
-        <div class="modal-actions hr-actions">
-            <button id="hr_cancel" class="btn" data-i18n="common.cancel">取消</button>
-            <button id="hr_save" class="btn primary" data-i18n="common.save">保存</button>
-        </div>
-        <!-- 右下角三角角标：拖动调整浮窗大小 -->
-        <div id="hr_resize" class="translate-resize">
-            <svg viewBox="0 0 10 10" width="10" height="10"><path d="M3 9 L9 3 L9 9 Z" fill="currentColor"/></svg>
         </div>
     </div>
 
