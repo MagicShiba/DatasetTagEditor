@@ -1097,10 +1097,12 @@ function renderRow(path) {
     row.appendChild(nameEl);
     row.appendChild(statusEl);
     row.appendChild(cancelBtn);
-    // 悬停行时显示对应的图像预览
-    row.addEventListener("mouseenter", (e) => showLlmPreview(path, e.clientX, e.clientY));
-    row.addEventListener("mousemove", (e) => moveLlmPreview(e.clientX, e.clientY));
-    row.addEventListener("mouseleave", hideLlmPreview);
+    // 悬停显示图像预览，点击行（取消按钮除外）跳转到画廊中对应的图像
+    bindRowPreview(row, path);
+    row.addEventListener("click", (e) => {
+        if (e.target.closest("button")) return;
+        jumpToGalleryImage(path);
+    });
     listEl.appendChild(row);
     llmReverse.rows.set(path, { row, statusEl, cancelBtn });
 }
@@ -1135,6 +1137,30 @@ function positionLlmPreview(img, x, y) {
 function hideLlmPreview() {
     const img = document.getElementById("llm_progress_preview");
     if (img) img.classList.add("hidden");
+}
+
+// 列表行/缩略图悬停预览：复用 body 级预览图（层级高于浮窗，不会被遮挡）
+function bindRowPreview(el, path) {
+    el.addEventListener("mouseenter", (e) => showLlmPreview(path, e.clientX, e.clientY));
+    el.addEventListener("mousemove", (e) => moveLlmPreview(e.clientX, e.clientY));
+    el.addEventListener("mouseleave", hideLlmPreview);
+}
+
+// 点击跳转到画廊中对应的图像（筛选后不可见时不跳转；已选中但滚出可视区时滚回可视区）
+async function jumpToGalleryImage(path) {
+    const idx = app.galleryPaths.indexOf(path);
+    if (idx < 0) return;
+    await onGallerySelect(idx, path);
+    if (app.gallerySelectedPath !== path) return; // 用户取消了未保存切换
+    scrollGalleryToPath(path);
+}
+
+// 将画廊滚动到指定图像位置（已在可视区内则不滚动）
+function scrollGalleryToPath(path) {
+    const galleryEl = document.getElementById("dataset_gallery");
+    if (!galleryEl) return;
+    const item = [...galleryEl.querySelectorAll(".thumb-item")].find(el => el.dataset.path === path);
+    if (item) item.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
 // ================================================================
@@ -1266,6 +1292,7 @@ function toggleJsonCheckPanel(force) {
         updateJsonCheckPinState();
     } else {
         hidePopup(panel);
+        hideLlmPreview();
     }
 }
 
@@ -1302,7 +1329,8 @@ function runJsonCheck() {
         t("extra_tools.summary_total").replace("{n}", String(total)) + "<br>" +
         t("extra_tools.summary_with_json").replace("{n}", String(withJson)) + "<br>" +
         t("extra_tools.summary_bad").replace("{n}", String(badPaths.length));
-    // 列表
+    // 列表（重建前先隐藏悬浮预览，避免旧行被移除后预览残留）
+    hideLlmPreview();
     listEl.innerHTML = "";
     if (badPaths.length === 0) {
         const empty = document.createElement("div");
@@ -1323,10 +1351,10 @@ function runJsonCheck() {
             reason.title = reason.textContent;
             row.appendChild(name);
             row.appendChild(reason);
-            // 点击跳转到画廊中对应的图像
+            // 悬停显示图像预览，点击跳转到画廊中对应的图像
+            bindRowPreview(row, item.path);
             row.addEventListener("click", () => {
-                const idx = app.galleryPaths.indexOf(item.path);
-                if (idx >= 0) onGallerySelect(idx, item.path);
+                jumpToGalleryImage(item.path);
             });
             listEl.appendChild(row);
         }
@@ -1345,6 +1373,7 @@ function toggleNewlineCheckPanel(force) {
         updateNewlineCheckPinState();
     } else {
         hidePopup(panel);
+        hideLlmPreview();
     }
 }
 
@@ -1375,6 +1404,7 @@ function runNewlineCheck() {
     summaryEl.innerHTML =
         t("extra_tools.summary_total").replace("{n}", String(total)) + "<br>" +
         t("extra_tools.summary_newline_bad").replace("{n}", String(badPaths.length));
+    hideLlmPreview();
     listEl.innerHTML = "";
     if (badPaths.length === 0) {
         const empty = document.createElement("div");
@@ -1395,9 +1425,9 @@ function runNewlineCheck() {
             reason.title = reason.textContent;
             row.appendChild(name);
             row.appendChild(reason);
+            bindRowPreview(row, item.path);
             row.addEventListener("click", () => {
-                const idx = app.galleryPaths.indexOf(item.path);
-                if (idx >= 0) onGallerySelect(idx, item.path);
+                jumpToGalleryImage(item.path);
             });
             listEl.appendChild(row);
         }
@@ -2768,6 +2798,7 @@ function refreshRenameIfVisible() {
 
 async function populateRename() {
     const tbody = document.querySelector("#df_rename tbody");
+    hideLlmPreview();
     renamePaths = await sortGalleryPaths(app.dte.getImgPathList());
     renameDeleteSet = new Set();
     if (renamePaths.length === 0) {
@@ -2780,7 +2811,11 @@ async function populateRename() {
         const tdThumb = document.createElement("td");
         const img = document.createElement("img");
         img.className = "rename-thumb";
+        img.title = path;
         loadRenameThumb(img, path);
+        // 悬停显示大图预览，点击缩略图跳转到画廊中对应的图像
+        bindRowPreview(img, path);
+        tdThumb.addEventListener("click", () => jumpToGalleryImage(path));
         tdThumb.appendChild(img);
 
         const tdName = document.createElement("td");

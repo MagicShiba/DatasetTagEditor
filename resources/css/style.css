@@ -1430,6 +1430,7 @@ textarea {
   object-fit: cover;
   border-radius: 4px;
   display: block;
+  cursor: pointer;
 }
 
 /* 标记删除的行 */
@@ -1891,6 +1892,7 @@ textarea {
   font-size: 12px;
   padding: 3px 6px;
   border-radius: 3px;
+  cursor: pointer;
 }
 
 .llm-progress-row:hover {
@@ -1980,10 +1982,10 @@ textarea {
   padding: 6px;
 }
 
-/* 反推列表悬停时对应的图像预览 */
+/* 列表悬停时对应的图像预览（body 级元素，层级高于浮窗，避免被遮挡） */
 .llm-preview {
   position: fixed;
-  z-index: 1000001;
+  z-index: 1600000;
   height: 160px;
   object-fit: contain;
   border: 1px solid var(--border);
