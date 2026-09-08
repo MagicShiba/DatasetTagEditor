@@ -26,6 +26,7 @@ load_edit_config = "Load and Edit Config"
 reload_settings = "Reload Config"
 save_current_settings = "Save Config"
 restore_default = "Restore to default"
+save_done = "Saved {saved}/{total} captions"
 
 [dataset]
 directory = "Dataset directory"

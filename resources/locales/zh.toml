@@ -25,6 +25,7 @@ load_edit_config = "加载与编辑配置"
 reload_settings = "重新加载配置"
 save_current_settings = "保存当前配置"
 restore_default = "恢复默认配置"
+save_done = "已保存 {saved}/{total} 个标注"
 
 [dataset]
 directory = "数据集目录"

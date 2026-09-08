@@ -2948,13 +2948,11 @@ function initTopbar() {
         const backup = document.getElementById("cb_backup").checked;
         const captionExt = document.getElementById("tb_caption_file_ext").value.trim() || ".txt";
         const result = await app.dte.saveDataset(backup, captionExt, document.getElementById("cb_remove_newlines").checked);
-        const el = document.getElementById("tool-result");
-        if (el) {
-            el.textContent = `Saved: ${result.saved}/${result.total} captions`;
-            document.getElementById("btn_append_result_to_caption").disabled = true;
-            const overwriteBtn = document.getElementById("btn_overwrite_result_to_caption");
-            if (overwriteBtn) overwriteBtn.disabled = true;
-        }
+        // 保存结果用 toast 提示，不再写入 tool-result（避免覆盖 LLM 工具输出）
+        showToast(t("topbar.save_done").replace("{saved}", String(result.saved)).replace("{total}", String(result.total)), "success");
+        document.getElementById("btn_append_result_to_caption").disabled = true;
+        const overwriteBtn = document.getElementById("btn_overwrite_result_to_caption");
+        if (overwriteBtn) overwriteBtn.disabled = true;
         app.changeIsSaved = true;
         app.datasetDirty = false;
     });
