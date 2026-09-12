@@ -81,6 +81,8 @@ copied_link = "Image path copied"
 copy_failed = "Copy failed"
 added_to_reverse = "Added to reverse list"
 added_to_selection = "Added to selection filter"
+reveal_image = "Reveal in Explorer"
+reveal_failed = "Failed to reveal image"
 
 [tab]
 filter_tags = "Filter by Tags"

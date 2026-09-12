@@ -1,6 +1,6 @@
 // api.js - Neutralino 文件系统/系统 API 封装
 
-import { normalizePath } from "./utils.js";
+import { normalizePath, getDirname } from "./utils.js";
 
 // 应用根目录
 export const APP_DIR = NL_PATH;
@@ -286,6 +286,27 @@ export async function showNotification(title, content, icon) {
     try {
         await Neutralino.os.showNotification(title, content, icon);
     } catch (e) { }
+}
+
+// 在系统资源管理器中定位文件（打开所在文件夹并选中该文件）
+export async function revealInExplorer(p) {
+    try {
+        const clean = String(p || "").replace(/"/g, "");
+        if (!clean) return false;
+        const os = window.NL_OS || "";
+        if (os === "Windows") {
+            // 路径转反斜杠，避免正斜杠被 explorer 误解析
+            await Neutralino.os.execCommand(`explorer /select,"${clean.replace(/\//g, "\\")}"`);
+        } else if (os === "Darwin") {
+            await Neutralino.os.execCommand(`open -R "${clean}"`);
+        } else {
+            // Linux 无统一选中语义，打开所在文件夹
+            await Neutralino.os.open(getDirname(clean));
+        }
+        return true;
+    } catch (e) {
+        return false;
+    }
 }
 
 // 挂载本地目录到静态服务器，返回 URL 前缀

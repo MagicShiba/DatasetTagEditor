@@ -80,6 +80,8 @@ copied_link = "已复制图像路径"
 copy_failed = "复制失败"
 added_to_reverse = "已加入反推列表"
 added_to_selection = "已加入选择筛选"
+reveal_image = "定位图像"
+reveal_failed = "定位图像失败"
 
 [tab]
 filter_tags = "按标签筛选"

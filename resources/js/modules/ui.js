@@ -1904,6 +1904,14 @@ function addContextToSelection() {
     showToast(`${t("gallery.added_to_selection")}: ${paths.size}`, "success");
 }
 
+// 菜单动作：在系统资源管理器中定位图像（打开所在文件夹并选中）
+async function revealImageAction() {
+    const path = galleryContextPath || app.gallerySelectedPath;
+    if (!path) return;
+    const ok = await api.revealInExplorer(path);
+    if (!ok) showToast(t("gallery.reveal_failed"), "error");
+}
+
 // 菜单动作：将当前所有显示（经筛选后）的图像加入选择筛选
 function addAllDisplayedToSelection() {
     const imgs = app.dte.getFilteredImgpaths(app.getFilters());
@@ -1948,6 +1956,7 @@ function initGalleryContextMenu() {
         const action = btn.dataset.action;
         if (action === "copy_image") copyImageAction();
         else if (action === "copy_link") copyLinkAction();
+        else if (action === "reveal") revealImageAction();
         else if (action === "reverse") addSelectedToReverse();
         else if (action === "add_selection") addContextToSelection();
         else if (action === "add_selection_all") addAllDisplayedToSelection();
