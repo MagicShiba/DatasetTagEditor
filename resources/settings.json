@@ -7,6 +7,7 @@
   "num_cpu_worker": -1,
   "tag_separators": ",.。",
   "bbox_json_decimal_places": 3,
+  "bbox_coordinate_range": "0~1000",
   "auto_compress_json": true,
   "auto_switch_next": true,
   "replace_punct_enabled": false,
@@ -105,5 +106,7 @@
   "splitter_right_width": 486,
   "dataset_dir_history": [
     "example_image"
-  ]
+  ],
+  "char_count_ascii_ratio": 0.3,
+  "char_count_non_ascii_ratio": 0.6
 }

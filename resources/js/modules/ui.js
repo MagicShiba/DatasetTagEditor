@@ -2012,10 +2012,13 @@ function initEditSelected() {
     editTa.addEventListener("input", () => {
         app.changeIsSaved = false;
         updateHighlightOverlay();
+        updateCaptionCharCount();
         updateBboxes();
         // 内容变化后之前的选中范围失效，避免点击"译"翻译到旧文本
         translateSel = null;
     });
+    // 初始化字符数统计（dataset 加载前为 0，切换图像时由 updateEditCaptionPanel 刷新）
+    updateCaptionCharCount();
     editTa.addEventListener("scroll", syncOverlayScroll);
     // 选中文本翻译：鼠标松开且存在选中文本时，在松开处显示 "译" 按钮
     // 注意：不要在 textarea 失焦时隐藏按钮——点击"译"会先触发失焦，
@@ -2088,6 +2091,7 @@ function initEditSelected() {
     setCapsuleOnChange(() => {
         app.changeIsSaved = false;
         updateHighlightOverlay();
+        updateCaptionCharCount();
         updateBboxes();
     });
 }
@@ -2425,6 +2429,40 @@ function syncOverlayScroll() {
     syncOverlayScrollPos();
 }
 
+// 计算加权字符数：粗略按 ASCII (<128) 划分，分别使用不同倍率
+// 默认倍率均为 1 时直接按字符串长度计算（与 length 等价，性能最优）
+function calcCaptionCharCount(text) {
+    const s = String(text || "");
+    const asciiRatio = Number(getSetting("char_count_ascii_ratio"));
+    const nonAsciiRatio = Number(getSetting("char_count_non_ascii_ratio"));
+    const a = Number.isFinite(asciiRatio) ? asciiRatio : 1;
+    const n = Number.isFinite(nonAsciiRatio) ? nonAsciiRatio : 1;
+    if (a === 1 && n === 1) return s.length;
+    let total = 0;
+    for (let i = 0; i < s.length; i++) {
+        const code = s.charCodeAt(i);
+        total += code < 128 ? a : n;
+    }
+    return total;
+}
+
+// 更新编辑框字符数统计（仅数字，半透明叠加在 field 右下角）
+function updateCaptionCharCount() {
+    const ta = document.getElementById("dte_edit_caption");
+    const el = document.getElementById("dte_caption_char_count");
+    if (!el) return;
+    const text = ta ? ta.value : "";
+    const count = calcCaptionCharCount(text);
+    // 整数直接显示；浮点保留最多 2 位小数并去除尾零
+    if (Number.isInteger(count)) {
+        el.textContent = String(count);
+    } else {
+        let str = count.toFixed(2);
+        str = str.replace(/\.?0+$/, "");
+        el.textContent = str;
+    }
+}
+
 // 更新编辑面板（读取选中图像标注）
 function updateEditCaptionPanel() {
     // 与画廊显示保持一致，使用排序后的路径列表
@@ -2454,12 +2492,14 @@ function updateEditCaptionPanel() {
     // 编辑框内容变化后同步边界框与胶囊标签
     updateBboxes();
     capsuleRefresh();
+    updateCaptionCharCount();
 }
 
 function triggerEditInput() {
     const ta = document.getElementById("dte_edit_caption");
     app.changeIsSaved = false;
     updateHighlightOverlay();
+    updateCaptionCharCount();
     // 胶囊编辑模式下同步刷新胶囊标签
     capsuleRefresh();
 }
@@ -3312,6 +3352,8 @@ function initSettings() {
         buildLlmFunctions();
         // 保存后重建编辑区的 LLM 功能按钮
         buildLlmFunctionButtons();
+        // 字符统计倍率变化后立即刷新编辑框计数
+        updateCaptionCharCount();
         showToast(t("settings.saved"), "success");
     });
 
@@ -3321,6 +3363,7 @@ function initSettings() {
         buildLlmConfigs();
         buildLlmFunctions();
         buildLlmFunctionButtons();
+        updateCaptionCharCount();
     });
 
     document.getElementById("btn_clear_cache").addEventListener("click", async () => {
@@ -3422,18 +3465,19 @@ function buildSettingsGrid() {
     divider();
     grid.appendChild(buildGallerySection(clearBox));
 
-    // 通用设置区
+    // 文件名相关设置
     divider();
-    for (const name of ["filename_word_regex", "filename_join_string", "num_cpu_worker", "tag_separators", "auto_compress_json", "auto_switch_next"]) {
+    for (const name of ["filename_word_regex", "filename_join_string", "num_cpu_worker"]) {
         if (seen.has(name)) continue;
         markSeen(name);
         if (SETTINGS_HIDDEN.has(name)) continue;
         grid.appendChild(renderSettingsControl(name));
     }
 
-    // 标点替换分组（默认折叠，折叠时只显示启用开关），置于边界框设置之前
-    for (const n of ["replace_punct_enabled", "replace_punct_from"]) markSeen(n);
-    grid.appendChild(buildPunctGroup());
+    // 标签与标点分组：从标签分隔符到替换标点（含字符统计）
+    divider();
+    for (const n of ["tag_separators", "auto_compress_json", "auto_switch_next", "replace_punct_enabled", "replace_punct_from", "char_count_ascii_ratio", "char_count_non_ascii_ratio"]) markSeen(n);
+    grid.appendChild(buildTagPunctGroup());
 
     // 边界框设置（坐标范围在前，0~1000 时小数位数禁用）
     divider();
@@ -3577,6 +3621,42 @@ function buildGallerySection(clearBox) {
     return group;
 }
 
+// 字符统计倍率：合并为单个文本框，逗号分隔（ASCII,非ASCII）
+function createCharCountField() {
+    const field = document.createElement("div");
+    field.className = "field";
+    const label = document.createElement("label");
+    label.className = "field-label";
+    label.textContent = t(SETTINGS_DESCRIPTIONS["char_count_ratio"]);
+    label.htmlFor = "setting_char_count_ratio";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.id = "setting_char_count_ratio";
+    const a = getSetting("char_count_ascii_ratio");
+    const n = getSetting("char_count_non_ascii_ratio");
+    input.value = `${a},${n}`;
+    input.placeholder = "1,1";
+    field.appendChild(label);
+    field.appendChild(input);
+    return field;
+}
+
+// 标签与标点分组：从标签分隔符到替换标点（含字符统计）合并为一组
+function buildTagPunctGroup() {
+    const group = document.createElement("div");
+    group.className = "settings-group";
+    const title = document.createElement("div");
+    title.className = "settings-group-title";
+    title.textContent = t("settings.tag_punct_group");
+    group.appendChild(title);
+    group.appendChild(renderSettingsField("tag_separators"));
+    group.appendChild(renderSettingsRow("auto_compress_json"));
+    group.appendChild(renderSettingsRow("auto_switch_next"));
+    group.appendChild(createCharCountField());
+    group.appendChild(buildPunctGroup());
+    return group;
+}
+
 // 标点替换分组：使用 details/summary 折叠（折叠三角与 common.settings、dataset.load_settings 一致），
 // 启用开关（复选框在前）作为折叠标题，默认折叠
 function buildPunctGroup() {
@@ -3604,6 +3684,8 @@ function buildPunctGroup() {
 function readSettingsFromGrid() {
     for (const name of Object.keys(SETTINGS_DEFAULT)) {
         if (SETTINGS_HIDDEN.has(name)) continue;
+        // 字符统计两项由合并文本框统一读取，跳过单独处理
+        if (name === "char_count_ascii_ratio" || name === "char_count_non_ascii_ratio") continue;
         const el = document.getElementById("setting_" + name);
         if (!el) continue;
         const cur = settings.current[name];
@@ -3630,6 +3712,19 @@ function readSettingsFromGrid() {
             settings.current[name] = isNaN(v) ? cur : v;
         } else {
             settings.current[name] = el.value;
+        }
+    }
+    // 字符统计倍率：单文本框逗号分隔（ASCII,非ASCII）
+    const charEl = document.getElementById("setting_char_count_ratio");
+    if (charEl) {
+        const parts = charEl.value.split(",").map(s => s.trim()).filter(s => s.length > 0);
+        const a = parseFloat(parts[0]);
+        const n = parseFloat(parts[1]);
+        if (Number.isFinite(a) && a >= 0) settings.current.char_count_ascii_ratio = a;
+        if (Number.isFinite(n) && n >= 0) settings.current.char_count_non_ascii_ratio = n;
+        // 仅一个值时视为两项相同
+        if (parts.length === 1 && Number.isFinite(a)) {
+            settings.current.char_count_non_ascii_ratio = a;
         }
     }
 }

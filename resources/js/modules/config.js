@@ -169,6 +169,9 @@ export const SETTINGS_DEFAULT = {
     splitter_right_width: 0,
     // 数据集目录加载历史（最近加载的在最前，自动去重）
     dataset_dir_history: [],
+    // 字符数量统计倍率：粗略按 ASCII 划分，ASCII (<128) 与非 ASCII 分别加权；默认均为 1
+    char_count_ascii_ratio: 1,
+    char_count_non_ascii_ratio: 1,
 };
 
 // 不显示在通用设置列表中的内部设置项（LLM 相关走独立管理界面）
@@ -192,6 +195,7 @@ export const SETTINGS_DESCRIPTIONS = {
     replace_punct_enabled: "settings.replace_punct_enabled",
     replace_punct_from: "settings.replace_punct_from",
     language: "settings.language",
+    char_count_ratio: "settings.char_count_ratio",
 };
 
 // ================================================================
