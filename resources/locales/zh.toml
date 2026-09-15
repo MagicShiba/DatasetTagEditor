@@ -197,6 +197,7 @@ mark_delete = "标记删除"
 [settings]
 tag_punct_group = "标签与标点"
 char_count_ratio = "字符统计倍率（ASCII,非ASCII 逗号分隔，默认 1,1）"
+char_count_ignore_spaces = "字符统计忽略空格"
 general_settings = "通用设置"
 general = "通用"
 local = "本地"

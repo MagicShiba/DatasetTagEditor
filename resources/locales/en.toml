@@ -198,6 +198,7 @@ mark_delete = "Mark for Delete"
 [settings]
 tag_punct_group = "Tags & Punctuation"
 char_count_ratio = "Char count ratio (ASCII,non-ASCII comma-separated, default 1,1)"
+char_count_ignore_spaces = "Ignore spaces in char count"
 general_settings = "General Settings"
 general = "General"
 local = "Local"

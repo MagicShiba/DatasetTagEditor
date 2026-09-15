@@ -2431,8 +2431,13 @@ function syncOverlayScroll() {
 
 // 计算加权字符数：粗略按 ASCII (<128) 划分，分别使用不同倍率
 // 默认倍率均为 1 时直接按字符串长度计算（与 length 等价，性能最优）
+// 启用忽略空格时先清除空格再计算
 function calcCaptionCharCount(text) {
-    const s = String(text || "");
+    let s = String(text || "");
+    // 忽略空格：移除所有空格后再计算
+    if (getSetting("char_count_ignore_spaces")) {
+        s = s.replace(/ /g, "");
+    }
     const asciiRatio = Number(getSetting("char_count_ascii_ratio"));
     const nonAsciiRatio = Number(getSetting("char_count_non_ascii_ratio"));
     const a = Number.isFinite(asciiRatio) ? asciiRatio : 1;
@@ -3518,7 +3523,7 @@ function buildSettingsGrid() {
 
     // 标签与标点分组：从标签分隔符到替换标点（含字符统计）
     divider();
-    for (const n of ["tag_separators", "auto_compress_json", "auto_switch_next", "replace_punct_enabled", "replace_punct_from", "char_count_ascii_ratio", "char_count_non_ascii_ratio"]) markSeen(n);
+    for (const n of ["tag_separators", "auto_compress_json", "auto_switch_next", "replace_punct_enabled", "replace_punct_from", "char_count_ascii_ratio", "char_count_non_ascii_ratio", "char_count_ignore_spaces"]) markSeen(n);
     grid.appendChild(buildTagPunctGroup());
 
     // 边界框设置（坐标范围在前，0~1000 时小数位数禁用）
@@ -3695,6 +3700,7 @@ function buildTagPunctGroup() {
     group.appendChild(renderSettingsRow("auto_compress_json"));
     group.appendChild(renderSettingsRow("auto_switch_next"));
     group.appendChild(createCharCountField());
+    group.appendChild(renderSettingsRow("char_count_ignore_spaces"));
     group.appendChild(buildPunctGroup());
     return group;
 }

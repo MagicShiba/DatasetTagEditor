@@ -172,6 +172,8 @@ export const SETTINGS_DEFAULT = {
     // 字符数量统计倍率：粗略按 ASCII 划分，ASCII (<128) 与非 ASCII 分别加权；默认均为 1
     char_count_ascii_ratio: 1,
     char_count_non_ascii_ratio: 1,
+    // 字符统计时忽略空格（启用时先清除空格再计算）
+    char_count_ignore_spaces: true,
 };
 
 // 不显示在通用设置列表中的内部设置项（LLM 相关走独立管理界面）
@@ -196,6 +198,7 @@ export const SETTINGS_DESCRIPTIONS = {
     replace_punct_from: "settings.replace_punct_from",
     language: "settings.language",
     char_count_ratio: "settings.char_count_ratio",
+    char_count_ignore_spaces: "settings.char_count_ignore_spaces",
 };
 
 // ================================================================
