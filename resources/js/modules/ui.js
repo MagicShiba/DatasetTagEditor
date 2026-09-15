@@ -694,7 +694,6 @@ function renderDirHistory() {
     for (const dir of list) {
         const item = document.createElement("div");
         item.className = "dir-history-item";
-        item.title = dir;
 
         const path = document.createElement("span");
         path.className = "dir-history-path";
@@ -1074,7 +1073,6 @@ function renderRow(path) {
     const nameEl = document.createElement("span");
     nameEl.className = "llm-progress-name";
     nameEl.textContent = getBasename(path);
-    nameEl.title = path;
 
     const statusEl = document.createElement("span");
     statusEl.className = "llm-progress-status " + s;
@@ -2860,7 +2858,6 @@ async function populateRename() {
         const tdThumb = document.createElement("td");
         const img = document.createElement("img");
         img.className = "rename-thumb";
-        img.title = path;
         loadRenameThumb(img, path);
         // 悬停显示大图预览，点击缩略图跳转到画廊中对应的图像
         bindRowPreview(img, path);

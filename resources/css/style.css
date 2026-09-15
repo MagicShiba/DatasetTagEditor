@@ -497,6 +497,7 @@ textarea {
   cursor: pointer;
   font-size: 12px;
   color: var(--text);
+  border-bottom: 1px solid #444;
 }
 
 .dir-history-item:hover {
