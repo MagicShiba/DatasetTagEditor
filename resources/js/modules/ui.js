@@ -474,7 +474,8 @@ function applyEditToSelected() {
 
 // 自定义确认对话框（HTML/JS/CSS）
 // buttons: [{ key, label, cls }]，返回用户点击按钮的 key；点击遮罩或按 Esc 视为取消
-function showConfirmDialog(title, message, buttons) {
+// html 为 true 时以 innerHTML 渲染 message（支持格式化内容）
+function showConfirmDialog(title, message, buttons, html = false) {
     return new Promise((resolve) => {
         const overlay = document.getElementById("confirm_modal");
         const titleEl = overlay.querySelector(".modal-title");
@@ -494,7 +495,8 @@ function showConfirmDialog(title, message, buttons) {
         const onOverlayClick = (e) => { if (e.target === overlay) finish("cancel"); };
 
         titleEl.textContent = title;
-        msgEl.textContent = message;
+        if (html) msgEl.innerHTML = message;
+        else msgEl.textContent = message;
         actionsEl.innerHTML = "";
         buttons.forEach(btn => {
             const b = document.createElement("button");
@@ -3055,8 +3057,51 @@ function initTopbar() {
         showToast(t("settings.saved_to_config"), "success");
     });
 
-    // 恢复默认设置
+    // 恢复默认设置（需二次确认，显示当前配置内容）
     document.getElementById("btn_restore_default").addEventListener("click", async () => {
+        // 构建当前配置的摘要信息
+        const sections = [];
+        const general = config.read("general");
+        if (general) {
+            const items = [];
+            if (general.dataset_dir) items.push(`${t("dialog.cfg_dataset")}: ${general.dataset_dir}`);
+            if (general.caption_ext) items.push(`${t("dialog.cfg_caption_ext")}: ${general.caption_ext}`);
+            if (general.backup !== undefined) items.push(`${t("dialog.cfg_backup")}: ${general.backup ? t("dialog.cfg_yes") : t("dialog.cfg_no")}`);
+            if (general.load_recursive) items.push(`${t("dialog.cfg_load_recursive")}: ${t("dialog.cfg_yes")}`);
+            if (items.length > 0) sections.push(`<b>${t("dialog.cfg_general")}:</b> ${items.join(", ")}`);
+        }
+        const filter = config.read("filter");
+        if (filter) {
+            const pos = filter.positive;
+            const neg = filter.negative;
+            if (pos || neg) sections.push(`<b>${t("dialog.cfg_filter")}:</b> ${t("dialog.cfg_configured")}`);
+        }
+        const batchEdit = config.read("batch_edit");
+        if (batchEdit) sections.push(`<b>${t("dialog.cfg_batch_edit")}:</b> ${t("dialog.cfg_configured")}`);
+        const editSelected = config.read("edit_selected");
+        if (editSelected) {
+            const items = [];
+            if (editSelected.auto_copy) items.push(t("dialog.cfg_auto_copy"));
+            if (editSelected.highlight_rules) items.push(t("dialog.cfg_highlight_rules"));
+            if (items.length > 0) sections.push(`<b>${t("dialog.cfg_edit_selected")}:</b> ${items.join(", ")}`);
+        }
+        const cropPreview = config.read("crop_preview");
+        if (cropPreview && cropPreview.enabled) sections.push(`<b>${t("dialog.cfg_crop_preview")}:</b> ${t("dialog.cfg_enabled")}`);
+
+        const msg = sections.length > 0
+            ? `${t("dialog.restore_default_msg")}<br><br>${sections.join("<br>")}`
+            : t("dialog.restore_default_msg");
+
+        const key = await showConfirmDialog(
+            t("dialog.restore_default"),
+            msg,
+            [
+                { key: "ok", label: t("common.apply"), cls: "danger" },
+                { key: "cancel", label: t("common.cancel") },
+            ],
+            true
+        );
+        if (key !== "ok") return;
         config.config = {};
         await config.save();
         location.reload();

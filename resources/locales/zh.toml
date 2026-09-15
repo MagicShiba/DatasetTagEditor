@@ -22,9 +22,9 @@ dont_save = "不保存"
 
 [topbar]
 load_edit_config = "加载与编辑配置"
-reload_settings = "重新加载配置"
-save_current_settings = "保存当前配置"
-restore_default = "恢复默认配置"
+reload_settings = "重新加载"
+save_current_settings = "保存配置"
+restore_default = "恢复默认"
 save_done = "已保存 {saved}/{total} 个标注"
 
 [dataset]
@@ -285,6 +285,23 @@ confirm_exit_msg = "提示词已修改但尚未保存，退出前是否保存？
 save_exit = "保存并退出"
 exit_without_saving = "不保存退出"
 delete_files_msg = "标记的文件将被移入回收站，是否继续？"
+restore_default = "恢复默认配置"
+restore_default_msg = "确定要恢复默认配置吗？当前所有配置将丢失。"
+cfg_dataset = "数据集"
+cfg_caption_ext = "扩展名"
+cfg_backup = "备份"
+cfg_yes = "是"
+cfg_no = "否"
+cfg_load_recursive = "子目录加载"
+cfg_general = "通用"
+cfg_filter = "标签筛选"
+cfg_batch_edit = "批量编辑"
+cfg_edit_selected = "编辑选中"
+cfg_auto_copy = "自动复制"
+cfg_highlight_rules = "高亮规则"
+cfg_crop_preview = "分桶裁剪预览"
+cfg_configured = "已配置"
+cfg_enabled = "已启用"
 
 [dir_history]
 empty = "暂无目录历史"
