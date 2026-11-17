@@ -60,6 +60,7 @@ function initTagFilters() {
         app.gallerySelectedIndex = -1;
         app.gallerySelectedPath = "";
         app.galleryMultiSelected.clear();
+        syncRenameSelectionHighlight();
         const gl = document.getElementById("filter_gallery");
         gl.innerHTML = "";
         refreshAll();
@@ -409,6 +410,14 @@ function syncGallerySelectionHighlight() {
     document.querySelectorAll("#dataset_gallery .thumb-item").forEach(item => {
         const path = item.dataset.path;
         item.classList.toggle("selected", path === app.gallerySelectedPath || app.galleryMultiSelected.has(path));
+    });
+    syncRenameSelectionHighlight();
+}
+
+// 同步重命名区高亮：与画廊当前选中图像保持一致
+function syncRenameSelectionHighlight() {
+    document.querySelectorAll("#df_rename tbody tr").forEach(tr => {
+        tr.classList.toggle("selected", !!app.gallerySelectedPath && tr.dataset.path === app.gallerySelectedPath);
     });
 }
 
@@ -897,6 +906,7 @@ function initLoadDataset() {
         app.gallerySelectedIndex = -1;
         app.gallerySelectedPath = "";
         app.galleryMultiSelected.clear();
+        syncRenameSelectionHighlight();
         document.getElementById("dataset_gallery").innerHTML = "";
         document.getElementById("filter_gallery").innerHTML = "";
         document.getElementById("tb_common_tags").value = "";
@@ -2944,6 +2954,7 @@ async function populateRename() {
     tbody.innerHTML = "";
     renamePaths.forEach((path, i) => {
         const tr = document.createElement("tr");
+        tr.dataset.path = path;
         const tdThumb = document.createElement("td");
         const img = document.createElement("img");
         img.className = "rename-thumb";
@@ -2987,6 +2998,8 @@ async function populateRename() {
         tr.appendChild(tdDel);
         tbody.appendChild(tr);
     });
+    // 列表重建后同步画廊当前选中图像的高亮
+    syncRenameSelectionHighlight();
 }
 
 async function applyRename() {

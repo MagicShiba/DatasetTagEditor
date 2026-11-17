@@ -1514,6 +1514,15 @@ textarea {
   opacity: 0.5;
 }
 
+/* 与左侧画廊选中图像对应的行 */
+.rename-table tr.selected {
+  background: rgba(13, 110, 253, 0.18);
+}
+
+.rename-table tr.selected td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
 .rename-table tr.marked-delete input[type="text"] {
   text-decoration: line-through;
   color: var(--text-dim);
