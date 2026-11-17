@@ -27,6 +27,43 @@ export function resolveLlmConfig(name) {
     return getActiveLlmConfig();
 }
 
+// 规范化 API 地址为 base url：去掉末尾斜杠，并移除可能已填写的 /chat/completions
+function normalizeBaseUrl(url) {
+    return String(url || "").trim().replace(/\/+$/, "").replace(/\/chat\/completions$/i, "");
+}
+
+// 将用户填写的 API 地址规范为 chat/completions 端点：
+// 支持直接填写 base url（如 http://127.0.0.1:1234/v1），自动补全 /chat/completions；
+// 若已包含 /chat/completions 则不会重复补充。
+export function toChatCompletionsUrl(url) {
+    const base = normalizeBaseUrl(url);
+    return base ? `${base}/chat/completions` : "";
+}
+
+// 由 API 地址推导模型列表端点（GET {base}/models）
+export function toModelsUrl(url) {
+    const base = normalizeBaseUrl(url);
+    return base ? `${base}/models` : "";
+}
+
+// 查询服务端可用模型列表，返回模型 ID 数组
+export async function fetchModelIds(config) {
+    if (!config || !config.api_url) throw new Error("API URL 未配置");
+    const headers = {};
+    if (config.api_key) headers["Authorization"] = `Bearer ${config.api_key}`;
+    const response = await fetch(toModelsUrl(config.api_url), { method: "GET", headers });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    // 兼容 OpenAI（data 数组）、部分服务直接返回数组或 models 字段的格式
+    const list = Array.isArray(data) ? data
+        : Array.isArray(data?.data) ? data.data
+        : Array.isArray(data?.models) ? data.models : [];
+    const ids = list
+        .map(item => typeof item === "string" ? item : (item?.id || item?.name || item?.model || ""))
+        .filter(Boolean);
+    return [...new Set(ids)];
+}
+
 // 流式请求 OpenAI 兼容 API，chunk 回调返回累积文本
 // config: { api_url, api_key, model, temperature, max_tokens }
 async function streamChat(config, payload, onChunk) {
@@ -34,7 +71,7 @@ async function streamChat(config, payload, onChunk) {
     if (config.api_key) {
         headers["Authorization"] = `Bearer ${config.api_key}`;
     }
-    const response = await fetch(config.api_url, {
+    const response = await fetch(toChatCompletionsUrl(config.api_url), {
         method: "POST",
         headers,
         body: JSON.stringify({ ...payload, stream: true }),
@@ -241,7 +278,7 @@ export async function testLLM(config) {
     try {
         const headers = { "Content-Type": "application/json" };
         if (cfg.api_key) headers["Authorization"] = `Bearer ${cfg.api_key}`;
-        const response = await fetch(cfg.api_url, {
+        const response = await fetch(toChatCompletionsUrl(cfg.api_url), {
             method: "POST",
             headers,
             body: JSON.stringify({

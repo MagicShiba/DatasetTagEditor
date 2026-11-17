@@ -3878,14 +3878,17 @@ function buildLlmConfigs() {
         // 连接信息
         const row1 = document.createElement("div");
         row1.className = "llm-card-row";
-        row1.appendChild(makeField(t("settings.api_url"), "text", "lc-api-url", cfg.api_url, idx));
-        row1.appendChild(makeField(t("settings.api_key"), "password", "lc-api-key", cfg.api_key, idx));
+        const apiUrlField = makeField(t("settings.api_url"), "text", "lc-api-url", cfg.api_url, idx);
+        // 提示可直接填写 base url，请求时会自动补全 /chat/completions
+        apiUrlField.querySelector("input").placeholder = t("settings.api_url_hint");
+        row1.appendChild(apiUrlField);
+        row1.appendChild(makeSecretField(t("settings.api_key"), "lc-api-key", cfg.api_key, idx));
         card.appendChild(row1);
 
         // 模型与图像参数
         const row2 = document.createElement("div");
         row2.className = "llm-card-row";
-        row2.appendChild(makeField(t("settings.model_name"), "text", "lc-model", cfg.model, idx));
+        row2.appendChild(makeModelField(card, cfg, idx));
         row2.appendChild(makeNumField(t("settings.max_image_resolution"), "lc-max-res", cfg.max_image_resolution, idx, 1));
         card.appendChild(row2);
 
@@ -4049,6 +4052,200 @@ function readLlmFunctions() {
         fns.push(fn);
     });
     setSetting("llm_functions", fns);
+}
+
+// ================================================================
+// LLM 卡片字段辅助
+// ================================================================
+
+// 眼睛图标（SVG），用于 API Key 明文/密文切换
+const EYE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"/><circle cx="12" cy="12" r="3"/><path class="llm-eye-slash" d="M3 3l18 18"/></svg>`;
+
+// 生成带"显示/隐藏"眼睛按钮的密码字段（用于 API Key）
+function makeSecretField(labelText, cls, value, idx) {
+    const wrap = makeField(labelText, "password", cls, value, idx);
+    const input = wrap.querySelector("input");
+    const holder = document.createElement("div");
+    holder.className = "llm-input-wrap";
+
+    const eyeBtn = document.createElement("button");
+    eyeBtn.type = "button";
+    eyeBtn.className = "llm-eye-btn";
+    eyeBtn.title = t("settings.show_api_key");
+    eyeBtn.innerHTML = EYE_ICON;
+    eyeBtn.addEventListener("click", () => {
+        const show = input.type === "password";
+        input.type = show ? "text" : "password";
+        eyeBtn.classList.toggle("active", show);
+        eyeBtn.title = t(show ? "settings.hide_api_key" : "settings.show_api_key");
+    });
+
+    holder.appendChild(input);
+    holder.appendChild(eyeBtn);
+    wrap.appendChild(holder);
+    return wrap;
+}
+
+// 查询到的模型列表缓存：key 为模型接口地址 + Key，重建卡片时仍可保留下拉列表
+const llmModelCache = new Map();
+
+// 当前展开的模型列表下拉（全局只保留一个）
+let openModelMenuEl = null;
+
+// 关闭模型列表下拉
+function closeModelMenu() {
+    if (openModelMenuEl) openModelMenuEl.classList.add("hidden");
+    openModelMenuEl = null;
+}
+
+// 打开模型列表下拉
+function openModelMenu(menu) {
+    closeModelMenu();
+    menu.classList.remove("hidden");
+    openModelMenuEl = menu;
+}
+
+// 点击其它区域时关闭模型列表下拉（全局只需绑定一次）
+document.addEventListener("click", (e) => {
+    if (!openModelMenuEl) return;
+    if (e.target.closest(".llm-model-input-wrap")) return;
+    closeModelMenu();
+});
+
+// 模型列表缓存的 key（与实际查询使用的接口地址和 Key 保持一致）
+function modelCacheKey(card) {
+    const apiUrl = card.querySelector(".lc-api-url")?.value.trim() || "";
+    const apiKey = card.querySelector(".lc-api-key")?.value || "";
+    return `${llm.toModelsUrl(apiUrl)}\n${apiKey}`;
+}
+
+// 渲染模型列表下拉菜单；点击条目回填模型名
+function renderModelMenu(menu, input, models) {
+    menu.innerHTML = "";
+    for (const id of models) {
+        const item = document.createElement("div");
+        item.className = "dir-history-item";
+        const name = document.createElement("span");
+        name.className = "dir-history-path";
+        name.textContent = id;
+        item.appendChild(name);
+        item.addEventListener("click", () => {
+            input.value = id;
+            closeModelMenu();
+        });
+        menu.appendChild(item);
+    }
+}
+
+// 生成"模型名"字段：可自定义的文本框 + 查询模型按钮 + 模型列表下拉；
+// 下拉样式复用数据集目录历史（#btn_dir_history）的做法。
+function makeModelField(card, cfg, idx) {
+    const wrap = document.createElement("div");
+    wrap.className = "field llm-field";
+
+    const head = document.createElement("div");
+    head.className = "llm-model-head";
+    const label = document.createElement("label");
+    label.className = "field-label";
+    label.textContent = t("settings.model_name");
+    const queryBtn = document.createElement("button");
+    queryBtn.type = "button";
+    queryBtn.className = "btn llm-model-query-btn";
+    queryBtn.textContent = t("settings.query_models");
+    queryBtn.title = t("settings.query_models_hint");
+    head.appendChild(label);
+    head.appendChild(queryBtn);
+
+    const inputWrap = document.createElement("div");
+    inputWrap.className = "dir-input-wrap llm-model-input-wrap";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "lc-model";
+    input.value = cfg.model ?? "";
+    input.dataset.idx = idx;
+    input.autocomplete = "off";
+
+    // 下拉按钮 + 模型列表菜单（结构与数据集目录历史一致）
+    const dropBtn = document.createElement("button");
+    dropBtn.type = "button";
+    dropBtn.className = "dir-drop-btn";
+    dropBtn.title = t("settings.show_models");
+    dropBtn.textContent = "▼";
+    const menu = document.createElement("div");
+    menu.className = "dir-dropdown hidden";
+
+    // 按当前接口地址与 Key 取缓存中的模型列表
+    const getModels = () => llmModelCache.get(modelCacheKey(card)) || [];
+
+    // 只有查询过（缓存中有模型）时才显示下拉箭头
+    const updateDropBtnVisibility = () => {
+        const hasModels = getModels().length > 0;
+        dropBtn.classList.toggle("hidden", !hasModels);
+        if (!hasModels) closeModelMenu();
+    };
+    updateDropBtnVisibility();
+    // 接口地址或 Key 变化后，按新的缓存 key 重新判断是否显示
+    card.querySelector(".lc-api-url").addEventListener("input", updateDropBtnVisibility);
+    card.querySelector(".lc-api-key").addEventListener("input", updateDropBtnVisibility);
+
+    dropBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (menu.classList.contains("hidden")) {
+            renderModelMenu(menu, input, getModels());
+            openModelMenu(menu);
+        } else {
+            closeModelMenu();
+        }
+    });
+
+    // 与数据集目录历史一致：点击输入框展开列表，输入时关闭
+    input.addEventListener("click", (e) => {
+        const models = getModels();
+        if (!models.length) return;
+        e.stopPropagation();
+        renderModelMenu(menu, input, models);
+        openModelMenu(menu);
+    });
+    input.addEventListener("input", closeModelMenu);
+
+    queryBtn.addEventListener("click", () => queryModels(card, queryBtn, input, menu, updateDropBtnVisibility));
+
+    inputWrap.appendChild(input);
+    inputWrap.appendChild(dropBtn);
+    inputWrap.appendChild(menu);
+    wrap.appendChild(head);
+    wrap.appendChild(inputWrap);
+    return wrap;
+}
+
+// 查询服务端模型列表并填充下拉菜单（使用卡片中当前的 API 地址与 Key）
+async function queryModels(card, btn, input, menu, updateDropBtnVisibility) {
+    const apiUrl = card.querySelector(".lc-api-url")?.value.trim() || "";
+    const apiKey = card.querySelector(".lc-api-key")?.value || "";
+    if (!apiUrl) {
+        showToast(t("settings.api_url_required"), "error");
+        return;
+    }
+    const oldText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = t("settings.querying_models");
+    try {
+        const ids = await llm.fetchModelIds({ api_url: apiUrl, api_key: apiKey });
+        if (!ids.length) {
+            showToast(t("settings.models_empty"), "error");
+            return;
+        }
+        // 缓存查询结果并渲染下拉菜单，模型名仍可自由编辑
+        llmModelCache.set(modelCacheKey(card), ids);
+        updateDropBtnVisibility();
+        renderModelMenu(menu, input, ids);
+        openModelMenu(menu);
+    } catch (e) {
+        showToast(t("settings.query_models_failed").replace("{msg}", e?.message || String(e)), "error");
+    } finally {
+        btn.disabled = false;
+        btn.textContent = oldText;
+    }
 }
 
 // 生成一个输入字段（label + input），用于 LLM 卡片

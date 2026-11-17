@@ -1706,6 +1706,69 @@ textarea {
   -webkit-text-fill-color: var(--text);
 }
 
+/* API Key 输入框 + 显示/隐藏眼睛按钮 */
+.llm-input-wrap {
+  position: relative;
+}
+
+.llm-input-wrap input {
+  /* 右侧留出眼睛按钮的空间，避免文字被遮挡 */
+  padding-right: 26px;
+}
+
+.llm-eye-btn {
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.llm-eye-btn:hover {
+  color: var(--text);
+}
+
+.llm-eye-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* 默认密文状态显示带斜线的眼睛，明文时隐藏斜线 */
+.llm-eye-btn.active .llm-eye-slash {
+  display: none;
+}
+
+/* 模型名：标签行内放置"查询模型"按钮，下方为查询结果下拉框 */
+.llm-model-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+
+.llm-model-head .field-label {
+  margin-bottom: 0;
+}
+
+.llm-model-query-btn {
+  flex: none;
+  padding: 1px 8px;
+  font-size: 12px;
+}
+
+/* 模型名输入框复用目录输入框的下拉结构，右侧留出 ▼ 按钮的空间 */
+.llm-model-input-wrap input {
+  padding-right: 24px;
+}
+
 /* ============ 自动补全（由 JS 注入样式） ============ */
 
 /* ============ 滚动条 ============ */

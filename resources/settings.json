@@ -67,7 +67,7 @@
       "max_image_resolution": 1280
     }
   ],
-  "llm_active_config": "本地模型",
+  "llm_active_config": "deepseek-flash",
   "llm_functions": [
     {
       "name": "翻译",
@@ -108,5 +108,6 @@
     "example_image"
   ],
   "char_count_ascii_ratio": 0.3,
-  "char_count_non_ascii_ratio": 0.6
+  "char_count_non_ascii_ratio": 0.6,
+  "char_count_ignore_spaces": true
 }
