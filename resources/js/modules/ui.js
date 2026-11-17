@@ -2052,11 +2052,11 @@ function initEditSelected() {
         }
     });
 
-    // 将 LLM 结果追加到标注编辑框
+    // 将 LLM 结果追加到标注编辑框（只取正文，不包含思考过程与统计信息）
     document.getElementById("btn_append_result_to_caption").addEventListener("click", () => {
         const body = document.getElementById("tool-result");
         // 先移除首尾空白，再移除首尾的 ```json 与 ``` 代码块标记
-        let text = body.textContent.trim();
+        let text = (body.querySelector(".tool-answer")?.textContent || "").trim();
         text = text.replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim();
         if (!text) return;
         const ta = document.getElementById("dte_edit_caption");
@@ -2065,11 +2065,11 @@ function initEditSelected() {
         updateBboxes();
     });
 
-    // 将 LLM 结果覆盖到标注编辑框
+    // 将 LLM 结果覆盖到标注编辑框（只取正文，不包含思考过程与统计信息）
     document.getElementById("btn_overwrite_result_to_caption").addEventListener("click", () => {
         const body = document.getElementById("tool-result");
         // 先移除首尾空白，再移除首尾的 ```json 与 ``` 代码块标记
-        let text = body.textContent.trim();
+        let text = (body.querySelector(".tool-answer")?.textContent || "").trim();
         text = text.replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim();
         if (!text) return;
         const ta = document.getElementById("dte_edit_caption");
@@ -2142,12 +2142,85 @@ function buildLlmFunctionButtons() {
     }
 }
 
+// 取思考过程的最后一行（忽略末尾空行），用于折叠时在标题行预览
+function lastReasoningLine(text) {
+    const lines = String(text || "").trimEnd().split(/\r?\n/);
+    for (let i = lines.length - 1; i >= 0; i--) {
+        const line = lines[i].trim();
+        if (line) return line;
+    }
+    return "";
+}
+
+// 初始化 #tool-result 的结构：思考过程（默认折叠且无内容时隐藏）+ 正文 + 统计信息
+function resetToolResult(body) {
+    body.innerHTML = "";
+    const reasoning = document.createElement("details");
+    reasoning.className = "tool-reasoning hidden";
+    const summary = document.createElement("summary");
+    const label = document.createElement("span");
+    label.className = "tool-reasoning-label";
+    label.textContent = t("llm_progress.reasoning");
+    const preview = document.createElement("span");
+    preview.className = "tool-reasoning-preview";
+    summary.appendChild(label);
+    summary.appendChild(preview);
+    const reasoningBody = document.createElement("div");
+    reasoningBody.className = "tool-reasoning-body";
+    reasoning.appendChild(summary);
+    reasoning.appendChild(reasoningBody);
+    // 折叠时在标题行显示最后一行；展开时隐藏预览并自动滚动到底部
+    reasoning.addEventListener("toggle", () => {
+        preview.classList.toggle("hidden", reasoning.open);
+        if (reasoning.open) reasoningBody.scrollTop = reasoningBody.scrollHeight;
+    });
+
+    const answer = document.createElement("div");
+    answer.className = "tool-answer";
+
+    const stats = document.createElement("div");
+    stats.className = "tool-stats";
+
+    body.appendChild(reasoning);
+    body.appendChild(answer);
+    body.appendChild(stats);
+    return { reasoning, reasoningBody, preview, answer, stats };
+}
+
+// 格式化用量统计：⏱️耗时 速度 📦️总token ↑上传 ↓下载 ♻缓存命中；获取不到的项省略
+function formatToolStats(stats) {
+    const toNum = v => (typeof v === "number" && Number.isFinite(v)) ? v : undefined;
+    const usage = stats?.usage || {};
+    const durationMs = toNum(stats?.durationMs);
+    const seconds = durationMs === undefined ? undefined : durationMs / 1000;
+    const prompt = toNum(usage.prompt_tokens);
+    const completion = toNum(usage.completion_tokens);
+    const total = toNum(usage.total_tokens);
+    const cached = toNum(usage.prompt_tokens_details?.cached_tokens)
+        ?? toNum(usage.prompt_cache_hit_tokens)
+        ?? toNum(usage.cached_tokens);
+
+    const head = [];
+    if (seconds !== undefined) head.push(`⏱️${seconds.toFixed(2)}s`);
+    if (seconds !== undefined && seconds > 0 && completion !== undefined) {
+        head.push(`${(completion / seconds).toFixed(1)}t/s`);
+    }
+
+    const detail = [];
+    if (total !== undefined) detail.push(`📦️${total}`);
+    if (prompt !== undefined) detail.push(`↑${prompt}`);
+    if (completion !== undefined) detail.push(`↓${completion}`);
+    if (cached !== undefined) detail.push(`♻${cached}`);
+
+    return [head.join(" "), detail.join(" ")].filter(Boolean).join("  ");
+}
+
 // 执行自定义 LLM 功能按钮
 async function runLlmFunctionButton(fn) {
     const body = document.getElementById("tool-result");
     const appendBtn = document.getElementById("btn_append_result_to_caption");
     const overwriteBtn = document.getElementById("btn_overwrite_result_to_caption");
-    body.textContent = "";
+    const view = resetToolResult(body);
     appendBtn.disabled = true;
     if (overwriteBtn) overwriteBtn.disabled = true;
     try {
@@ -2171,9 +2244,18 @@ async function runLlmFunctionButton(fn) {
             return;
         }
         await llm.runLlmFunction(fn, { imageDataUrl, captionText }, acc => {
-            body.textContent = acc;
+            view.answer.textContent = acc;
             appendBtn.disabled = !acc.trim();
             if (overwriteBtn) overwriteBtn.disabled = !acc.trim();
+        }, reasoning => {
+            // 有思考过程时才显示可折叠区域，默认保持折叠
+            view.reasoning.classList.remove("hidden");
+            view.reasoningBody.textContent = reasoning;
+            view.preview.textContent = lastReasoningLine(reasoning);
+            // 已展开时跟随最新内容滚动到底部
+            if (view.reasoning.open) view.reasoningBody.scrollTop = view.reasoningBody.scrollHeight;
+        }, stats => {
+            view.stats.textContent = formatToolStats(stats);
         });
     } catch (e) {
         body.textContent = t("translate.error_prefix") + (e.message || e);

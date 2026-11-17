@@ -66,15 +66,22 @@ export async function fetchModelIds(config) {
 
 // 流式请求 OpenAI 兼容 API，chunk 回调返回累积文本
 // config: { api_url, api_key, model, temperature, max_tokens }
-async function streamChat(config, payload, onChunk) {
+// onReasoning(text) 返回累积的思考过程；onStats({ usage, durationMs }) 在结束后回调
+async function streamChat(config, payload, onChunk, onReasoning, onStats) {
     const headers = { "Content-Type": "application/json" };
     if (config.api_key) {
         headers["Authorization"] = `Bearer ${config.api_key}`;
     }
+    const startTime = performance.now();
     const response = await fetch(toChatCompletionsUrl(config.api_url), {
         method: "POST",
         headers,
-        body: JSON.stringify({ ...payload, stream: true }),
+        // 请求流式响应时携带用量统计（不支持的服务器会忽略该字段）
+        body: JSON.stringify({
+            ...payload,
+            stream: true,
+            stream_options: { include_usage: true, ...(payload.stream_options || {}) },
+        }),
     });
 
     if (!response.ok) {
@@ -85,6 +92,8 @@ async function streamChat(config, payload, onChunk) {
     const decoder = new TextDecoder();
     let remain = "";
     let result = "";
+    let reasoning = "";
+    let usage = null;
 
     while (true) {
         const { done, value } = await reader.read();
@@ -100,14 +109,22 @@ async function streamChat(config, payload, onChunk) {
             if (payload === "[DONE]" || !payload) continue;
             try {
                 const data = JSON.parse(payload);
-                const delta = data.choices?.[0]?.delta?.content;
-                if (delta) {
-                    result += delta;
+                const delta = data.choices?.[0]?.delta;
+                // 不同服务商的思考过程字段名不同，按常见字段依次兼容
+                const reasoningDelta = delta?.reasoning_content || delta?.reasoning || delta?.thinking;
+                if (reasoningDelta) {
+                    reasoning += reasoningDelta;
+                    onReasoning?.(reasoning);
+                }
+                if (delta?.content) {
+                    result += delta.content;
                     onChunk?.(result);
                 }
+                if (data.usage) usage = data.usage;
             } catch (e) { /* 忽略解析失败的数据行 */ }
         }
     }
+    onStats?.({ usage, durationMs: performance.now() - startTime });
     return result;
 }
 
@@ -115,7 +132,9 @@ async function streamChat(config, payload, onChunk) {
 // fn: { name, system_prompt, user_prompt, send_image, send_caption }
 // input: { imageDataUrl?, captionText? }
 // onChunk: (accumulatedText) => void
-export async function runLlmFunction(fn, input, onChunk) {
+// onReasoning: (accumulatedReasoning) => void
+// onStats: ({ usage, durationMs }) => void
+export async function runLlmFunction(fn, input, onChunk, onReasoning, onStats) {
     const config = resolveLlmConfig(fn.config);
     if (!config) throw new Error("未配置 LLM，请先在设置中配置模型");
     if (!config.api_url) throw new Error("LLM API URL 未配置");
@@ -143,7 +162,7 @@ export async function runLlmFunction(fn, input, onChunk) {
         ],
         ...parseExtraParams(config.extra_params),
     };
-    return await streamChat(config, payload, onChunk);
+    return await streamChat(config, payload, onChunk, onReasoning, onStats);
 }
 
 // 反推标注：将图片发送给 LLM，返回逗号分隔的标签文本

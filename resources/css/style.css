@@ -1209,6 +1209,69 @@ textarea {
   color: var(--text);
 }
 
+/* LLM 工具结果：思考过程（默认折叠）与用量统计 */
+.tool-reasoning {
+  padding: 3px 0px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+}
+
+.tool-reasoning summary {
+  display: flex;
+  align-items: center;
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+.tool-reasoning summary::-webkit-details-marker {
+  display: none;
+}
+
+/* 自定义展开指示箭头（默认折叠） */
+.tool-reasoning summary::before {
+  content: "▸";
+  flex: none;
+}
+
+.tool-reasoning[open] summary::before {
+  content: "▾";
+}
+
+.tool-reasoning-label {
+  flex: none;
+}
+
+/* 折叠时在标题行显示思考过程的最后一行，过长则省略 */
+.tool-reasoning-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.8;
+}
+
+.tool-reasoning-body {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.tool-stats {
+  color: var(--text-dim);
+  font-size: 10px;
+  text-align: end;
+}
+
 /* 将更改应用于选中图像：占满整行，高度约为标准按钮的 1.5 倍 */
 #btn_apply_changes {
   width: 100%;

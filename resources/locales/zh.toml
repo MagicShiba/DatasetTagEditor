@@ -336,6 +336,7 @@ missing_hint = "有图像缺少文本文件"
 select_image = "请选择图像"
 image_load_failed = "图片加载失败"
 select_image_or_text = "请选择图像或输入文本"
+reasoning = "思考过程"
 
 [extra_tools]
 title = "JSON 检查结果"

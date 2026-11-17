@@ -337,6 +337,7 @@ missing_hint = "Some images have no text file"
 select_image = "Select an image first"
 image_load_failed = "Failed to load image"
 select_image_or_text = "Select an image or enter text"
+reasoning = "Reasoning"
 
 [extra_tools]
 title = "JSON Check Result"
