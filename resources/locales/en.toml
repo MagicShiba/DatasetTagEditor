@@ -339,6 +339,22 @@ image_load_failed = "Failed to load image"
 select_image_or_text = "Select an image or enter text"
 reasoning = "Reasoning"
 
+[llm_history]
+title = "LLM Call History"
+open = "History"
+pin = "Pin (keep open when clicking outside)"
+empty = "No call records"
+type_function = "LLM Function"
+type_reverse = "Reverse Caption"
+type_translate = "Text Translation"
+type_test = "Connection Test"
+role_system = "System"
+role_user = "User"
+role_model = "Model"
+reasoning = "Reasoning"
+error = "Error"
+no_image = "(image path not recorded)"
+
 [extra_tools]
 title = "JSON Check Result"
 refresh = "Refresh"

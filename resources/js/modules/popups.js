@@ -5,7 +5,7 @@
 
 import { createPopup } from "./popup.js";
 
-// 6 个浮窗的内容定义：id/size/标题/按钮/内容保持与原静态 HTML 一致
+// 各浮窗的内容定义：id/size/标题/按钮/内容保持与原静态 HTML 一致
 const POPUP_DEFS = [
     {
         id: "llm_progress_panel", size: "list",
@@ -52,6 +52,19 @@ const POPUP_DEFS = [
         bodyHTML: `
             <div class="extra-tools-summary" id="newline_tools_summary"></div>
             <div class="llm-progress-list" id="newline_tools_list"></div>`,
+    },
+    {
+        id: "llm_history_panel", size: "history",
+        titleKey: "llm_history.title", titleText: "LLM 调用历史",
+        buttons: [
+            { type: "pin", id: "llm_history_pin", titleKey: "llm_history.pin" },
+            { type: "close", id: "btn_llm_history_close", titleKey: "common.close" },
+        ],
+        bodyHTML: `
+            <div class="llm-history">
+                <div class="llm-history-list" id="llm_history_list"></div>
+                <div class="llm-history-detail" id="llm_history_detail"></div>
+            </div>`,
     },
     {
         id: "translate_popup", size: "text",

@@ -3,7 +3,8 @@
 
 import { getSetting } from "./config.js";
 import { readBinaryFile } from "./api.js";
-import { getExtension } from "./utils.js";
+import { getImageMime } from "./utils.js";
+import { addHistoryEntry } from "./llmHistory.js";
 
 // 获取当前激活的 LLM 配置
 export function getActiveLlmConfig() {
@@ -64,73 +65,120 @@ export async function fetchModelIds(config) {
     return [...new Set(ids)];
 }
 
+// 将请求消息转换为历史记录格式：图片只保留图像地址字符串，不保存 base64 数据
+function buildHistoryMessages(payload, meta) {
+    const imageRef = meta.imagePath ? String(meta.imagePath) : "";
+    return (payload?.messages || []).map(msg => {
+        const texts = [];
+        const images = [];
+        if (Array.isArray(msg.content)) {
+            for (const part of msg.content) {
+                if (!part) continue;
+                if (part.type === "text") texts.push(part.text || "");
+                else if (part.type === "image_url") images.push(imageRef);
+            }
+        } else if (typeof msg.content === "string") {
+            texts.push(msg.content);
+        }
+        return { role: msg.role || "", text: texts.join("\n"), images };
+    });
+}
+
+// 记录一次 LLM 调用（成功与失败都会记录；写入失败不影响调用流程）
+function recordLlmCall({ meta, config, payload, result, reasoning, usage, durationMs, error }) {
+    addHistoryEntry({
+        type: meta.type || "function",
+        name: meta.name || "",
+        config: config?.name || "",
+        model: config?.model || payload?.model || "",
+        messages: buildHistoryMessages(payload, meta),
+        reasoning: reasoning || "",
+        answer: result || "",
+        usage: usage || null,
+        durationMs: Math.round(durationMs || 0),
+        error: error || "",
+    }).catch(e => console.warn("记录 LLM 调用历史失败", e));
+}
+
 // 流式请求 OpenAI 兼容 API，chunk 回调返回累积文本
 // config: { api_url, api_key, model, temperature, max_tokens }
 // onReasoning(text) 返回累积的思考过程；onStats({ usage, durationMs }) 在结束后回调
-async function streamChat(config, payload, onChunk, onReasoning, onStats) {
+// meta: { type, name, imagePath } 用于写入调用历史（图片只记录地址字符串）
+async function streamChat(config, payload, onChunk, onReasoning, onStats, meta = {}) {
     const headers = { "Content-Type": "application/json" };
     if (config.api_key) {
         headers["Authorization"] = `Bearer ${config.api_key}`;
     }
     const startTime = performance.now();
-    const response = await fetch(toChatCompletionsUrl(config.api_url), {
-        method: "POST",
-        headers,
-        // 请求流式响应时携带用量统计（不支持的服务器会忽略该字段）
-        body: JSON.stringify({
-            ...payload,
-            stream: true,
-            stream_options: { include_usage: true, ...(payload.stream_options || {}) },
-        }),
-    });
-
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let remain = "";
     let result = "";
     let reasoning = "";
     let usage = null;
+    try {
+        const response = await fetch(toChatCompletionsUrl(config.api_url), {
+            method: "POST",
+            headers,
+            // 请求流式响应时携带用量统计（不支持的服务器会忽略该字段）
+            body: JSON.stringify({
+                ...payload,
+                stream: true,
+                stream_options: { include_usage: true, ...(payload.stream_options || {}) },
+            }),
+        });
 
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        remain += decoder.decode(value, { stream: true });
-
-        let idx;
-        while ((idx = remain.indexOf("\n")) !== -1) {
-            const line = remain.slice(0, idx);
-            remain = remain.slice(idx + 1);
-            if (!line.startsWith("data: ")) continue;
-            const payload = line.slice(6).trim();
-            if (payload === "[DONE]" || !payload) continue;
-            try {
-                const data = JSON.parse(payload);
-                const delta = data.choices?.[0]?.delta;
-                // 不同服务商的思考过程字段名不同，按常见字段依次兼容
-                const reasoningDelta = delta?.reasoning_content || delta?.reasoning || delta?.thinking;
-                if (reasoningDelta) {
-                    reasoning += reasoningDelta;
-                    onReasoning?.(reasoning);
-                }
-                if (delta?.content) {
-                    result += delta.content;
-                    onChunk?.(result);
-                }
-                if (data.usage) usage = data.usage;
-            } catch (e) { /* 忽略解析失败的数据行 */ }
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
         }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let remain = "";
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            remain += decoder.decode(value, { stream: true });
+
+            let idx;
+            while ((idx = remain.indexOf("\n")) !== -1) {
+                const line = remain.slice(0, idx);
+                remain = remain.slice(idx + 1);
+                if (!line.startsWith("data: ")) continue;
+                const linePayload = line.slice(6).trim();
+                if (linePayload === "[DONE]" || !linePayload) continue;
+                try {
+                    const data = JSON.parse(linePayload);
+                    const delta = data.choices?.[0]?.delta;
+                    // 不同服务商的思考过程字段名不同，按常见字段依次兼容
+                    const reasoningDelta = delta?.reasoning_content || delta?.reasoning || delta?.thinking;
+                    if (reasoningDelta) {
+                        reasoning += reasoningDelta;
+                        onReasoning?.(reasoning);
+                    }
+                    if (delta?.content) {
+                        result += delta.content;
+                        onChunk?.(result);
+                    }
+                    if (data.usage) usage = data.usage;
+                } catch (e) { /* 忽略解析失败的数据行 */ }
+            }
+        }
+        const durationMs = performance.now() - startTime;
+        onStats?.({ usage, durationMs });
+        recordLlmCall({ meta, config, payload, result, reasoning, usage, durationMs, error: "" });
+        return result;
+    } catch (e) {
+        recordLlmCall({
+            meta, config, payload, result, reasoning, usage,
+            durationMs: performance.now() - startTime,
+            error: e.message || String(e),
+        });
+        throw e;
     }
-    onStats?.({ usage, durationMs: performance.now() - startTime });
-    return result;
 }
 
 // 执行自定义 LLM 功能
 // fn: { name, system_prompt, user_prompt, send_image, send_caption }
-// input: { imageDataUrl?, captionText? }
+// input: { imageDataUrl?, captionText?, imagePath? }（imagePath 仅用于调用历史，记录图片地址）
 // onChunk: (accumulatedText) => void
 // onReasoning: (accumulatedReasoning) => void
 // onStats: ({ usage, durationMs }) => void
@@ -162,7 +210,11 @@ export async function runLlmFunction(fn, input, onChunk, onReasoning, onStats) {
         ],
         ...parseExtraParams(config.extra_params),
     };
-    return await streamChat(config, payload, onChunk, onReasoning, onStats);
+    return await streamChat(config, payload, onChunk, onReasoning, onStats, {
+        type: "function",
+        name: fn.name || "",
+        imagePath: input.imagePath || "",
+    });
 }
 
 // 反推标注：将图片发送给 LLM，返回逗号分隔的标签文本
@@ -186,7 +238,10 @@ export async function reverseCaption(imagePath) {
         ],
         ...parseExtraParams(config.extra_params),
     };
-    return await streamChat(config, payload);
+    return await streamChat(config, payload, null, null, null, {
+        type: "reverse",
+        imagePath,
+    });
 }
 
 // 翻译文本：将选中文本发送给 LLM，返回译文（流式）
@@ -205,7 +260,9 @@ export async function translateText(text, onChunk) {
         ],
         ...parseExtraParams(config.extra_params),
     };
-    return await streamChat(config, payload, onChunk);
+    return await streamChat(config, payload, onChunk, null, null, {
+        type: "translate",
+    });
 }
 
 // 解析自定义请求参数字符串（每行一个 "key: value"），也支持 JSON
@@ -245,8 +302,7 @@ export async function prepareImage(imagePath, maxResolution = 0) {
     const buffer = await readBinaryFile(imagePath);
     if (!buffer) return null;
 
-    const ext = getExtension(imagePath).toLowerCase();
-    const mime = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif", ".bmp": "image/bmp", ".avif": "image/avif" }[ext] || "image/png";
+    const mime = getImageMime(imagePath) || "image/png";
     const dataUrl = `data:${mime};base64,${bufferToBase64(buffer)}`;
 
     // 无需压缩或未启用压缩时直接返回
@@ -294,20 +350,37 @@ function bufferToBase64(buffer) {
 export async function testLLM(config) {
     const cfg = config || getActiveLlmConfig();
     if (!cfg || !cfg.api_url) return false;
+    const payload = {
+        model: cfg.model,
+        messages: [{ role: "user", content: "ping" }],
+        max_tokens: 1,
+    };
+    const startTime = performance.now();
     try {
         const headers = { "Content-Type": "application/json" };
         if (cfg.api_key) headers["Authorization"] = `Bearer ${cfg.api_key}`;
         const response = await fetch(toChatCompletionsUrl(cfg.api_url), {
             method: "POST",
             headers,
-            body: JSON.stringify({
-                model: cfg.model,
-                messages: [{ role: "user", content: "ping" }],
-                max_tokens: 1,
-            }),
+            body: JSON.stringify(payload),
+        });
+        recordLlmCall({
+            meta: { type: "test" },
+            config: cfg,
+            payload,
+            result: response.ok ? "OK" : "",
+            durationMs: performance.now() - startTime,
+            error: response.ok ? "" : `HTTP ${response.status}`,
         });
         return response.ok;
     } catch (e) {
+        recordLlmCall({
+            meta: { type: "test" },
+            config: cfg,
+            payload,
+            durationMs: performance.now() - startTime,
+            error: e.message || String(e),
+        });
         return false;
     }
 }

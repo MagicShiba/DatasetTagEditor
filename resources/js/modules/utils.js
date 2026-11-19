@@ -26,6 +26,21 @@ export function getExtension(p) {
     return idx >= 0 ? name.slice(idx) : "";
 }
 
+// 按扩展名返回图像 MIME 类型（未知类型返回空字符串）
+const IMAGE_MIME = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".bmp": "image/bmp",
+    ".avif": "image/avif",
+};
+
+export function getImageMime(p) {
+    return IMAGE_MIME[getExtension(p).toLowerCase()] || "";
+}
+
 // 替换扩展名
 export function withSuffix(p, suffix) {
     const parts = splitPath(p);

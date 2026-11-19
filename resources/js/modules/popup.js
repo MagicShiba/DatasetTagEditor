@@ -8,9 +8,9 @@ function getPopup(id) {
     return popupRegistry.get(id) || document.getElementById(id);
 }
 
-// 浮窗尺寸预设：list（反推/检查类，稍宽）/ text（翻译/信息/规则类）
-const POPUP_SIZE_CLASS = { list: "llm-progress-panel", text: "translate-popup" };
-const POPUP_BODY_CLASS = { list: "llm-progress-body", text: "translate-popup-body" };
+// 浮窗尺寸预设：list（反推/检查类，稍宽）/ text（翻译/信息/规则类）/ history（调用历史，较宽）
+const POPUP_SIZE_CLASS = { list: "llm-progress-panel", text: "translate-popup", history: "llm-history-panel" };
+const POPUP_BODY_CLASS = { list: "llm-progress-body", text: "translate-popup-body", history: "llm-history-body" };
 
 // 标题栏按钮预设：统一符号与样式，调用方按需选用
 const POPUP_BTN = {

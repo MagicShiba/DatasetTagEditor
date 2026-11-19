@@ -987,7 +987,7 @@ textarea {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 4px;
-  word-break: break-all
+  word-break: break-all;
   max-height: 300px;
   overflow-y: auto;
 }
@@ -1947,7 +1947,7 @@ textarea {
 }
 
 .popup-window.focused .translate-popup-header {
-  background: #12315e;
+  background:var(--accent-hover);
 }
 
 .popup-window.focused .translate-popup-title {
@@ -1968,6 +1968,14 @@ textarea {
   min-width: 220px;
   max-width: min(600px, 80vw);
   min-height: 140px;
+}
+
+/* 尺寸预设：LLM 调用历史（左侧名称列表 + 右侧正文） */
+.llm-history-panel {
+  width: min(900px, 94vw);
+  min-width: 520px;
+  max-width: min(1200px, 96vw);
+  min-height: 320px;
 }
 
 .llm-progress-body {
@@ -2460,6 +2468,208 @@ textarea {
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--text);
+}
+
+/* ============ LLM 调用历史 ============ */
+
+.llm-history-body {
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.llm-history {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+/* 左侧名称列表：点击后右侧正文跳转到对应记录 */
+.llm-history-list {
+  flex: none;
+  width: auto;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  background: #191d22;
+  border-right: 2px solid var(--border);
+}
+
+.llm-history-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 6px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.llm-history-item:hover {
+  background: var(--bg-input);
+}
+
+.llm-history-item.selected {
+  background: rgba(255, 255, 255, 0.1);
+  border-left-color: var(--accent);
+}
+
+.llm-history-item-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.llm-history-item-time {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* 调用失败的记录用红色名称提示 */
+.llm-history-item.error .llm-history-item-name {
+  color: #f08080;
+}
+
+/* 右侧正文：全部记录纵向排列，点击左侧名称立即滚动定位 */
+.llm-history-detail {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.llm-history-empty {
+  color: var(--text-dim);
+  font-size: 12px;
+  padding: 8px;
+}
+
+.llm-history-record {
+  margin-bottom: 10px;
+  padding: 6px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+}
+
+/* 点击左侧名称时短暂高亮定位到的记录 */
+.llm-history-record.flash {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.llm-history-record-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.llm-history-record-title {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.llm-history-block {
+  margin-bottom: 6px;
+}
+
+.llm-history-block-title {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* 系统 / 用户 / 模型 / 思考过程 / 错误 使用不同颜色区分 */
+.llm-history-block.system .llm-history-block-title { color: #79c0ff;text-align: center; }
+.llm-history-block.user .llm-history-block-title { color: #7ee787; }
+.llm-history-block.model .llm-history-block-title { color: #d2a8ff; }
+.llm-history-block.reasoning .llm-history-block-title { color: #e3b341; }
+.llm-history-block.error .llm-history-block-title { color: #f85149; }
+
+.llm-history-block-text {
+  margin: 0;
+  padding: 4px 6px;
+  max-height: 150px;
+  overflow: auto;
+  border-radius: 4px;
+  background: var(--bg-input);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 历史记录中的图像与地址：纵向排列，地址使用完整可用宽度，不跟随缩略图宽度 */
+.llm-history-images {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+/* 用户消息：整体右对齐，标题、正文与图像依内容宽度靠右显示 */
+.llm-history-block.user {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  border-right: 2px solid #7EE787;
+  background: var(--bg-panel);
+  padding-right: 5px;
+  background: #223322;
+}
+
+.llm-history-block.user .llm-history-block-title {
+  text-align: right;
+}
+
+/* 正文不拉伸到整行，按实际文字宽度显示；过长时仍受容器宽度限制 */
+.llm-history-block.user .llm-history-block-text {
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+.llm-history-block.user .llm-history-images {
+  align-items: flex-end;
+}
+
+/* 历史记录中只显示缩略图，尺寸固定，避免加载后撑开布局影响跳转定位 */
+.llm-history-image-thumb {
+  display: block;
+  width: 128px;
+  height: 128px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #0d0f12;
+  object-fit: contain;
+}
+
+.llm-history-image-path {
+  max-width: 100%;
+  font-size: 11px;
+  color: var(--text-dim);
+  word-break: break-all;
+}
+
+/* "历史"按钮放在结果操作行最右侧 */
+.result-actions .history-btn {
+  margin-left: auto;
 }
 
 /* 高亮规则帮助浮窗内容：可选中复制，保留换行，纵向滚动 */

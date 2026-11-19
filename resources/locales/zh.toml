@@ -338,6 +338,22 @@ image_load_failed = "图片加载失败"
 select_image_or_text = "请选择图像或输入文本"
 reasoning = "思考过程"
 
+[llm_history]
+title = "LLM 调用历史"
+open = "历史"
+pin = "固定（点击外部时保持显示）"
+empty = "暂无调用记录"
+type_function = "LLM 功能"
+type_reverse = "反推标注"
+type_translate = "文本翻译"
+type_test = "连接测试"
+role_system = "系统"
+role_user = "用户"
+role_model = "模型"
+reasoning = "思考过程"
+error = "错误"
+no_image = "（未记录图像地址）"
+
 [extra_tools]
 title = "JSON 检查结果"
 refresh = "重新检测"

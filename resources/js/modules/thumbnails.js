@@ -32,26 +32,38 @@ export function md5Key(imgPath, maxRes, mtime) {
     return getCacheKey(imgPath, maxRes, mtime);
 }
 
+// 规范化目录路径：统一分隔符并去掉尾部多余的分隔符
+// 用于路径前缀比较，避免输入目录带尾随分隔符（如 "E:/data/"）时
+// 与代码生成的不带尾随分隔符的路径（如重命名后的新路径）比较失败
+function normalizeDirPath(p) {
+    return normalizePath(p).replace(/\/+$/, "");
+}
+
 // 挂载数据集目录，返回 URL 前缀
 export async function mountDataset(dir) {
+    const dirKey = normalizeDirPath(dir);
     // 若相同目录已挂载则直接复用
-    if (datasetUrl && datasetMountedDir === normalizePath(dir)) {
+    if (datasetUrl && datasetMountedDir === dirKey) {
         return datasetUrl;
     }
     // 卸载旧的数据集挂载
     if (datasetUrl) {
         await api.unmountDir(datasetUrl);
     }
-    datasetMountedDir = normalizePath(dir);
+    datasetMountedDir = dirKey;
     datasetUrl = await api.mountDir(dir);
     return datasetUrl;
 }
 
 // 获取数据集中图片的原始 URL（用于生成缩略图）
+// 路径不在当前已挂载的数据集目录内时返回空字符串，避免构造出错误的 URL
 export function getOriginalImageUrl(imgPath) {
     if (!datasetUrl) return "";
     const n = normalizePath(imgPath);
-    const rel = n.slice(datasetMountedDir.length).replace(/^[/\\]+/, "");
+    const dir = datasetMountedDir;
+    // 目录比较忽略尾部/重复的分隔符，兼容 "E:/data/" 与 "E:/data//a.jpg" 等写法
+    if (n !== dir && !n.startsWith(dir + "/")) return "";
+    const rel = n.slice(dir.length).replace(/^[/\\]+/, "");
     return `${datasetUrl}/${rel.split("/").map(seg => encodeURIComponent(seg)).join("/")}`;
 }
 

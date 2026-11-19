@@ -7,10 +7,11 @@ import { PathFilter, FilterMode, FilterLogic, SortBy, SortOrder, joinTagsWithSep
 import { TagFilterState } from "./tagfilter_state.js";
 import * as api from "./api.js";
 import * as thumbs from "./thumbnails.js";
-import { normalizePath, getStem, getExtension, withSuffix, getBasename, getDirname, formatAspectRatio, floorToMultiple, splitCaption, splitCaptionWithSepts, setTagSeparators, normalizeSepSpaces, expandJsonInText, compressJsonInText } from "./utils.js";
+import { normalizePath, getStem, getExtension, getImageMime, withSuffix, getBasename, getDirname, formatAspectRatio, floorToMultiple, splitCaption, splitCaptionWithSepts, setTagSeparators, normalizeSepSpaces, expandJsonInText, compressJsonInText } from "./utils.js";
 import { parseRules, applyHighlight, escapeHtml } from "./highlight.js";
 import { initAutocomplete, loadAutocompleteData, bindAutocomplete } from "./autocomplete.js";
 import * as llm from "./llm.js";
+import * as llmHistory from "./llmHistory.js";
 import { initBbox, updateBboxes, setOnBboxChange, getCoordRange, serializeBboxes, findBalancedObject } from "./bbox.js";
 import { initCropPreview, updateCropPreview, setOnCropPreviewChange, getBucketForSize } from "./cropPreview.js";
 import { init as initCapsule, setOnChange as setCapsuleOnChange, refresh as capsuleRefresh, setEnabled as setCapsuleEnabled } from "./capsule.js";
@@ -1993,20 +1994,17 @@ function initEditSelected() {
     document.getElementById("btn_copy_caption").addEventListener("click", () => {
         const cap = document.getElementById("html_caption_display").textContent;
         // 复制到编辑框时同样将 json 块展开，便于编辑
-        document.getElementById("dte_edit_caption").value = expandJsonInText(cap);
-        triggerEditInput();
+        setEditCaptionValue(expandJsonInText(cap));
     });
     document.getElementById("btn_prepend_caption").addEventListener("click", () => {
         const ta = document.getElementById("dte_edit_caption");
         const cap = document.getElementById("html_caption_display").textContent;
-        ta.value = [cap, ta.value].filter(Boolean).join(", ");
-        triggerEditInput();
+        setEditCaptionValue([cap, ta.value].filter(Boolean).join(", "));
     });
     document.getElementById("btn_append_caption").addEventListener("click", () => {
         const ta = document.getElementById("dte_edit_caption");
         const cap = document.getElementById("html_caption_display").textContent;
-        ta.value = [ta.value, cap].filter(Boolean).join(", ");
-        triggerEditInput();
+        setEditCaptionValue([ta.value, cap].filter(Boolean).join(", "));
     });
 
     // 动态构建编辑选中图像页面的操作按钮（替换标点 + LLM 功能）
@@ -2070,9 +2068,7 @@ function initEditSelected() {
         text = text.replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim();
         if (!text) return;
         const ta = document.getElementById("dte_edit_caption");
-        ta.value = [ta.value, text].filter(Boolean).join(", ");
-        triggerEditInput();
-        updateBboxes();
+        setEditCaptionValue([ta.value, text].filter(Boolean).join(", "));
     });
 
     // 将 LLM 结果覆盖到标注编辑框（只取正文，不包含思考过程与统计信息）
@@ -2082,10 +2078,7 @@ function initEditSelected() {
         let text = (body.querySelector(".tool-answer")?.textContent || "").trim();
         text = text.replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim();
         if (!text) return;
-        const ta = document.getElementById("dte_edit_caption");
-        ta.value = text;
-        triggerEditInput();
-        updateBboxes();
+        setEditCaptionValue(text);
     });
 
     // 自动补全：主标注编辑框 + 其他标签输入处
@@ -2119,8 +2112,7 @@ function replacePunctuation() {
     for (const r of rules) {
         text = text.split(r.from).join(r.to);
     }
-    ta.value = text;
-    triggerEditInput();
+    setEditCaptionValue(text);
 }
 
 // 动态构建编辑选中图像页面的操作按钮（替换标点 + LLM 功能），均使用紧凑样式
@@ -2236,6 +2228,7 @@ async function runLlmFunctionButton(fn) {
     try {
         // 需要图片时读取并压缩选中图像
         let imageDataUrl = null;
+        let imagePath = "";
         if (fn.send_image) {
             const selPath = app.gallerySelectedPath;
             if (!selPath) { body.textContent = t("llm_progress.select_image"); return; }
@@ -2243,6 +2236,8 @@ async function runLlmFunctionButton(fn) {
             const maxRes = cfg ? (cfg.max_image_resolution || 0) : 0;
             imageDataUrl = await llm.prepareImage(selPath, maxRes);
             if (!imageDataUrl) { body.textContent = t("llm_progress.image_load_failed"); return; }
+            // 调用历史只记录图像地址，不记录图片数据
+            imagePath = selPath;
         }
         // 需要文本时读取编辑框内容
         let captionText = "";
@@ -2253,7 +2248,7 @@ async function runLlmFunctionButton(fn) {
             body.textContent = t("llm_progress.select_image_or_text");
             return;
         }
-        await llm.runLlmFunction(fn, { imageDataUrl, captionText }, acc => {
+        await llm.runLlmFunction(fn, { imageDataUrl, imagePath, captionText }, acc => {
             view.answer.textContent = acc;
             appendBtn.disabled = !acc.trim();
             if (overwriteBtn) overwriteBtn.disabled = !acc.trim();
@@ -2270,6 +2265,313 @@ async function runLlmFunctionButton(fn) {
     } catch (e) {
         body.textContent = t("translate.error_prefix") + (e.message || e);
     }
+}
+
+// ================================================================
+// LLM 调用历史查看（左侧名称 + 右侧正文）
+// ================================================================
+
+// 历史浮窗是否固定（固定后点击窗口外不关闭）
+let llmHistoryPinned = false;
+
+// 历史记录中的图像显示：由图像地址读取生成的对象 URL（重新渲染/关闭浮窗时释放）
+let historyImageUrls = [];
+let historyImageObserver = null;
+
+// 释放历史图像占用的对象 URL 并断开懒加载观察器
+function releaseHistoryImages() {
+    for (const url of historyImageUrls) URL.revokeObjectURL(url);
+    historyImageUrls = [];
+    if (historyImageObserver) {
+        historyImageObserver.disconnect();
+        historyImageObserver = null;
+    }
+}
+
+// 将本地文件缩放为缩略图对象 URL（用于不在当前数据集挂载目录中的历史图像）
+async function fileToThumbUrl(path) {
+    const buffer = await api.readBinaryFile(path);
+    if (!buffer) return "";
+    const blob = api.bufferToBlob(buffer, getImageMime(path));
+    const bitmap = await createImageBitmap(blob);
+    try {
+        const maxRes = getSetting("max_resolution") || 128;
+        const scale = Math.min(1, maxRes / Math.max(bitmap.width, bitmap.height));
+        const w = Math.max(1, Math.round(bitmap.width * scale));
+        const h = Math.max(1, Math.round(bitmap.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext("2d").drawImage(bitmap, 0, 0, w, h);
+        const out = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", 0.85));
+        return out ? URL.createObjectURL(out) : "";
+    } finally {
+        bitmap.close();
+    }
+}
+
+// 从本地文件生成缩略图并显示（不在当前数据集内的历史图像走这里）
+async function loadHistoryImageFromFile(img, path) {
+    try {
+        const url = await fileToThumbUrl(path);
+        if (!url) {
+            img.remove();
+            return;
+        }
+        if (!img.isConnected) {
+            URL.revokeObjectURL(url);
+            return;
+        }
+        historyImageUrls.push(url);
+        img.src = url;
+    } catch (e) {
+        // 读取失败时移除图片元素，仅保留原图地址文本
+        img.remove();
+        console.warn("读取历史图像失败", path, e);
+    }
+}
+
+// 显示历史记录中的缩略图：记录中保存的是原图地址，这里优先使用缩略图缓存
+async function loadHistoryImage(img, path) {
+    if (!path || !img.isConnected) return;
+    const maxRes = getSetting("max_resolution") || 128;
+    const stats = await api.getStats(path);
+    if (!stats) {
+        img.remove();
+        return;
+    }
+    const mtime = stats.modifiedAt || 0;
+    // 数据集已挂载时生成并缓存缩略图（已有缓存会直接返回）；失败则读取本地文件缩放
+    const key = await thumbs.generateThumbnail(path, maxRes, mtime).catch(() => "");
+    if (key && img.isConnected) {
+        img.src = thumbs.getThumbCacheUrl(key);
+        return;
+    }
+    await loadHistoryImageFromFile(img, path);
+}
+
+// 观察图像元素，滚动到可见区域附近时才加载（避免一次读取大量图片）
+function observeHistoryImage(img, path) {
+    if (!("IntersectionObserver" in window)) {
+        loadHistoryImage(img, path);
+        return;
+    }
+    if (!historyImageObserver) {
+        const observer = new IntersectionObserver(entries => {
+            for (const entry of entries) {
+                if (!entry.isIntersecting) continue;
+                observer.unobserve(entry.target);
+                loadHistoryImage(entry.target, entry.target.dataset.path || "");
+            }
+        }, { root: document.getElementById("llm_history_detail"), rootMargin: "300px" });
+        historyImageObserver = observer;
+    }
+    img.dataset.path = path;
+    historyImageObserver.observe(img);
+}
+
+// 创建历史记录中的图像区域（图像与地址纵向排列，地址不跟随缩略图宽度）
+function createHistoryImages(images) {
+    const wrap = document.createElement("div");
+    wrap.className = "llm-history-images";
+    for (const path of images) {
+        if (path) {
+            const img = document.createElement("img");
+            img.className = "llm-history-image-thumb";
+            img.alt = "";
+            wrap.appendChild(img);
+            observeHistoryImage(img, path);
+        }
+        const pathEl = document.createElement("div");
+        pathEl.className = "llm-history-image-path";
+        pathEl.textContent = path || t("llm_history.no_image");
+        wrap.appendChild(pathEl);
+    }
+    return wrap;
+}
+
+// 记录的类型名称：自定义功能显示其名称，内置调用按当前语言显示类别
+function llmHistoryTypeLabel(entry) {
+    if (entry.type === "function") return entry.name || t("llm_history.type_function");
+    const key = `llm_history.type_${entry.type}`;
+    const label = t(key);
+    return label === key ? (entry.name || entry.type || t("llm_history.type_function")) : label;
+}
+
+// 格式化记录时间
+function formatHistoryTime(iso) {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return String(iso || "");
+    return d.toLocaleString();
+}
+
+// 创建正文中的一个消息块（系统/用户/模型/思考过程/错误）
+// images 为图像地址字符串数组（不包含 base64 数据）
+function createHistoryBlock(kind, title, text, images) {
+    const block = document.createElement("div");
+    block.className = `llm-history-block ${kind}`;
+
+    const label = document.createElement("span");
+    label.className = "llm-history-block-title";
+    label.textContent = title;
+    block.appendChild(label);
+
+    const body = document.createElement("pre");
+    body.className = "llm-history-block-text";
+    body.textContent = text || "";
+    block.appendChild(body);
+
+    if (images && images.length > 0) {
+        block.appendChild(createHistoryImages(images));
+    }
+    return block;
+}
+
+// 创建右侧正文中的一条完整记录
+function createHistoryRecord(entry) {
+    const record = document.createElement("section");
+    record.className = "llm-history-record";
+
+    const head = document.createElement("div");
+    head.className = "llm-history-record-head";
+
+    const title = document.createElement("span");
+    title.className = "llm-history-record-title";
+    title.textContent = llmHistoryTypeLabel(entry);
+    head.appendChild(title);
+
+    const time = document.createElement("span");
+    time.textContent = formatHistoryTime(entry.time);
+    head.appendChild(time);
+
+    const modelInfo = [entry.config, entry.model].filter(Boolean).join(" / ");
+    if (modelInfo) {
+        const modelEl = document.createElement("span");
+        modelEl.textContent = modelInfo;
+        head.appendChild(modelEl);
+    }
+
+    const statsText = formatToolStats({ usage: entry.usage, durationMs: entry.durationMs });
+    if (statsText) {
+        const statsEl = document.createElement("span");
+        statsEl.textContent = statsText;
+        head.appendChild(statsEl);
+    }
+    record.appendChild(head);
+
+    // 请求消息：区分系统与用户；用户消息附带图像地址
+    const roleLabels = {
+        system: t("llm_history.role_system"),
+        user: t("llm_history.role_user"),
+        assistant: t("llm_history.role_model"),
+    };
+    for (const msg of entry.messages || []) {
+        const kind = msg.role === "system" ? "system" : msg.role === "user" ? "user" : "model";
+        const titleText = roleLabels[msg.role] || msg.role || kind;
+        // 系统与用户消息即使文本为空也保留，便于查看调用的完整结构
+        record.appendChild(createHistoryBlock(kind, titleText, msg.text, msg.images));
+    }
+
+    if (entry.reasoning) {
+        record.appendChild(createHistoryBlock("reasoning", t("llm_history.reasoning"), entry.reasoning));
+    }
+    if (entry.answer) {
+        record.appendChild(createHistoryBlock("model", t("llm_history.role_model"), entry.answer));
+    }
+    if (entry.error) {
+        record.appendChild(createHistoryBlock("error", t("llm_history.error"), entry.error));
+    }
+    return record;
+}
+
+// 选中左侧名称并把右侧正文滚动到对应记录
+function selectHistoryRecord(item, record) {
+    document.querySelectorAll("#llm_history_list .llm-history-item.selected")
+        .forEach(el => el.classList.remove("selected"));
+    item.classList.add("selected");
+    record.scrollIntoView({ block: "start", behavior: "auto" });
+    record.classList.add("flash");
+    clearTimeout(record._flashTimer);
+    record._flashTimer = setTimeout(() => record.classList.remove("flash"), 900);
+}
+
+// 渲染历史查看界面（左侧名称列表 + 右侧全部记录正文）
+async function renderLlmHistory() {
+    const listEl = document.getElementById("llm_history_list");
+    const detailEl = document.getElementById("llm_history_detail");
+    if (!listEl || !detailEl) return;
+
+    const entries = await llmHistory.loadHistory();
+    // 释放上一次渲染生成的图像 URL 与观察器
+    releaseHistoryImages();
+    listEl.innerHTML = "";
+    detailEl.innerHTML = "";
+
+    if (entries.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "llm-history-empty";
+        empty.textContent = t("llm_history.empty");
+        detailEl.appendChild(empty);
+        return;
+    }
+
+    entries.forEach(entry => {
+        const record = createHistoryRecord(entry);
+        detailEl.appendChild(record);
+
+        // 左侧名称：点击后右侧跳转到该条记录
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = "llm-history-item" + (entry.error ? " error" : "");
+
+        const name = document.createElement("span");
+        name.className = "llm-history-item-name";
+        name.textContent = llmHistoryTypeLabel(entry);
+        item.appendChild(name);
+
+        const time = document.createElement("span");
+        time.className = "llm-history-item-time";
+        time.textContent = formatHistoryTime(entry.time);
+        item.appendChild(time);
+
+        item.addEventListener("click", () => selectHistoryRecord(item, record));
+        listEl.appendChild(item);
+    });
+}
+
+// 初始化历史浮窗：打开/固定/拖动/缩放
+function initLlmHistory() {
+    const panel = document.getElementById("llm_history_panel");
+    const openBtn = document.getElementById("btn_llm_history");
+    if (!panel || !openBtn) return;
+
+    openBtn.addEventListener("click", async () => {
+        // 已打开时点击按钮关闭（与其它浮窗的开关行为一致）
+        if (!panel.classList.contains("hidden")) {
+            hidePopup(panel);
+            return;
+        }
+        await renderLlmHistory();
+        showPopup(panel, 900, 600);
+    });
+
+    setupPopup(panel, {
+        closeBtn: document.getElementById("btn_llm_history_close"),
+        pinBtn: document.getElementById("llm_history_pin"),
+        isPinned: () => llmHistoryPinned,
+        onPinToggle: () => {
+            llmHistoryPinned = !llmHistoryPinned;
+            panel.classList.toggle("pinned", llmHistoryPinned);
+        },
+        outsideClose: "pointerdown",
+        ignoreOutside: [openBtn],
+        onClose: () => releaseHistoryImages(),
+        dragIgnore: "button, input, select, a",
+        minW: 520,
+        minH: 300,
+        maxW: () => Math.min(1200, window.innerWidth - 8),
+        maxH: () => window.innerHeight - 8,
+    });
 }
 
 // 解析标注文本（按配置的分隔符拆分标签）
@@ -2592,11 +2894,39 @@ function updateEditCaptionPanel() {
     updateCaptionCharCount();
 }
 
+// 通过原生编辑命令替换编辑框内容，使本次修改进入浏览器撤销栈（Ctrl+Z / Ctrl+Y 可用）。
+// 直接设置 textarea.value 会清空原生撤销历史，因此按钮触发的文本修改统一走这里。
+function setEditCaptionValue(text) {
+    const ta = document.getElementById("dte_edit_caption");
+    if (!ta) return;
+    if (ta.value === text) return;
+    ta.focus();
+    // 全选后插入新文本：execCommand 会作为一次可撤销的编辑记录
+    ta.setSelectionRange(0, ta.value.length);
+    let ok = false;
+    try {
+        ok = document.execCommand("insertText", false, text);
+    } catch (e) {
+        ok = false;
+    }
+    if (!ok) {
+        // 原生命令不可用时回退（不会保留撤销历史）
+        ta.value = text;
+        triggerEditInput();
+    } else {
+        // execCommand 已触发 input 事件，其余刷新由输入监听器完成，这里只同步胶囊标签
+        capsuleRefresh();
+    }
+    // 光标放到末尾，方便继续编辑
+    ta.setSelectionRange(text.length, text.length);
+}
+
 function triggerEditInput() {
     const ta = document.getElementById("dte_edit_caption");
     app.changeIsSaved = false;
     updateHighlightOverlay();
     updateCaptionCharCount();
+    updateBboxes();
     // 胶囊编辑模式下同步刷新胶囊标签
     capsuleRefresh();
 }
@@ -4520,6 +4850,7 @@ export async function setupUI() {
     initFilterSelection();
     initBatchEdit();
     initEditSelected();
+    initLlmHistory();
     initRename();
     initTopbar();
     initSettings();
