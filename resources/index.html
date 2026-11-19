@@ -365,10 +365,14 @@
                         <div class="markdown" data-i18n="extra_tools.json_help">检查标注中的 JSON 坐标是否合规（0~1 / 0~1000 格式）。</div>
                         <div class="row" style="margin-top:8px">
                             <button id="btn_check_json" class="btn" data-i18n="extra_tools.check_json">检查 JSON</button>
-                        </div>
+                        </div><hr>
 						<div class="markdown" data-i18n="extra_tools.convert_bbox_help">将所有标注中的边界框坐标批量转换为当前设置的范围格式（0~1 / 0~1000）</div>
                         <div class="row" style="margin-top:8px">
                             <button id="btn_convert_bbox_range" class="btn" data-i18n="extra_tools.convert_bbox">批量转换边界框坐标</button>
+                        </div><hr>
+                        <div class="markdown" data-i18n="extra_tools.convert_order_help">将所有标注中的边界框坐标类型在 [x_min, y_min, x_max, y_max] 与 [y_min, x_min, y_max, x_max] 之间互换</div>
+                        <div class="row" style="margin-top:8px">
+                            <button id="btn_convert_bbox_order" class="btn" data-i18n="extra_tools.convert_order">转换边界框坐标类型</button>
                         </div>
                     </div>
 

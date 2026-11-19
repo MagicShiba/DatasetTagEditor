@@ -8,6 +8,7 @@
   "tag_separators": ",.。",
   "bbox_json_decimal_places": 3,
   "bbox_coordinate_range": "0~1000",
+  "bbox_coordinate_order": "yxyx",
   "auto_compress_json": true,
   "auto_switch_next": true,
   "replace_punct_enabled": false,

@@ -135,6 +135,9 @@ export const SETTINGS_DEFAULT = {
     bbox_json_decimal_places: 3,
     // 边界框坐标范围格式："0~1"（归一化小数）或 "0~1000"（Qwen-VL 风格整数）
     bbox_coordinate_range: "0~1",
+    // 边界框坐标类型（JSON 中四个数值的排列顺序）：
+    // "xyxy" → [x_min, y_min, x_max, y_max]；"yxyx" → [y_min, x_min, y_max, x_max]
+    bbox_coordinate_order: "xyxy",
     // 点击"将更改应用于选中图像"时自动将 json 块压缩为单行（部分 lora 训练器只支持单行文本）
     auto_compress_json: true,
     // 点击"将更改应用于选中图像"保存后，自动切换至下一个图像
@@ -192,6 +195,7 @@ export const SETTINGS_DESCRIPTIONS = {
     tag_separators: "settings.tag_separators",
     bbox_json_decimal_places: "settings.bbox_json_decimal_places",
     bbox_coordinate_range: "settings.bbox_coordinate_range",
+    bbox_coordinate_order: "settings.bbox_coordinate_order",
     auto_compress_json: "settings.auto_compress_json",
     auto_switch_next: "settings.auto_switch_next",
     replace_punct_enabled: "settings.replace_punct_enabled",

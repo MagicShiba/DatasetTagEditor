@@ -28,6 +28,7 @@ html, body {
   font-size: 14px;
   overflow: hidden;
 }
+hr {border: 1px solid var(--border);}
 
 /* ============ 布局 ============ */
 

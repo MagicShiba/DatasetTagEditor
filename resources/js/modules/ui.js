@@ -12,7 +12,7 @@ import { parseRules, applyHighlight, escapeHtml } from "./highlight.js";
 import { initAutocomplete, loadAutocompleteData, bindAutocomplete } from "./autocomplete.js";
 import * as llm from "./llm.js";
 import * as llmHistory from "./llmHistory.js";
-import { initBbox, updateBboxes, setOnBboxChange, getCoordRange, serializeBboxes, findBalancedObject } from "./bbox.js";
+import { initBbox, updateBboxes, setOnBboxChange, getCoordRange, serializeBboxes, findBalancedObject, coordsToXY } from "./bbox.js";
 import { initCropPreview, updateCropPreview, setOnCropPreviewChange, getBucketForSize } from "./cropPreview.js";
 import { init as initCapsule, setOnChange as setCapsuleOnChange, refresh as capsuleRefresh, setEnabled as setCapsuleEnabled } from "./capsule.js";
 import { setupPopup, showPopup, hidePopup, focusPopup } from "./popup.js";
@@ -1232,7 +1232,8 @@ function extractJsonCoordinates(text) {
                     emptyIssues.push({ kind: "invalid_coords", label: String(label) });
                     return;
                 }
-                boxes.push({ label: String(label), x1: nums[0], y1: nums[1], x2: nums[2], y2: nums[3] });
+                // 数值顺序由坐标类型设置决定，统一转换为内部 x/y 后再校验
+                boxes.push({ label: String(label), ...coordsToXY(nums) });
             } else {
                 emptyIssues.push({ kind: "invalid_coords", label: String(label) });
             }
@@ -1473,7 +1474,8 @@ function convertBboxRangeInText(text, target) {
             if (!Array.isArray(coords) || coords.length !== 4) { ok = false; return; }
             const nums = coords.map(Number);
             if (!nums.every(n => Number.isFinite(n))) { ok = false; return; }
-            items.push({ label: String(label), x1: nums[0], y1: nums[1], x2: nums[2], y2: nums[3] });
+            // 按坐标类型设置把原始数值还原为内部 x/y，避免转换时打乱顺序
+            items.push({ label: String(label), ...coordsToXY(nums) });
         };
         if (Array.isArray(raw)) {
             if (raw.length === 0) ok = false;
@@ -1505,6 +1507,79 @@ function convertBboxRangeInText(text, target) {
     }
     if (converted === 0) return { text: s, converted };
     return { text: out + s.slice(last), converted };
+}
+
+// 将文本中边界框 JSON 块的坐标类型互换：
+// [x_min, y_min, x_max, y_max] ↔ [y_min, x_min, y_max, x_max]。
+// 仅调整块内四数字数组的排列顺序，数值本身原样保留（不重新格式化/换算），
+// 避免精度变化。返回 { text, converted }（converted 为实际互换的坐标数组数）。
+function convertBboxOrderInText(text) {
+    const s = String(text || "");
+    const re = /\{\s*"(object|objects)"\s*:/g;
+    const reCoords = /\[\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\]/g;
+    let m;
+    let out = "";
+    let last = 0;
+    let converted = 0;
+    while ((m = re.exec(s))) {
+        const start = m.index;
+        const bal = findBalancedObject(s, start);
+        if (!bal || bal.end < start) continue;
+        const end = bal.end;
+        // 只处理当前 JSON 块内部的坐标数组
+        const block = s.slice(start, end + 1);
+        let changed = 0;
+        const swapped = block.replace(reCoords, (all, a, b, c, d) => {
+            changed++;
+            return `[${b},${a},${d},${c}]`;
+        });
+        if (changed > 0) {
+            out += s.slice(last, start) + swapped;
+            last = end + 1;
+            converted += changed;
+        }
+        re.lastIndex = end + 1;
+    }
+    if (converted === 0) return { text: s, converted };
+    return { text: out + s.slice(last), converted };
+}
+
+// 批量互换边界框坐标类型（两种类型互为目标）；
+// 修改仅作用于内存中的标注，需点击"保存所有更改"写入文件
+async function runConvertBboxOrder() {
+    if (!app.dte || !app.dte.dataset || app.dte.dataset.length === 0) {
+        showToast(t("extra_tools.convert_none"), "info");
+        return;
+    }
+    const ok = await showConfirmDialog(
+        t("extra_tools.convert_order_title"),
+        t("extra_tools.convert_order_confirm"),
+        [
+            { key: "ok", label: t("common.apply"), cls: "primary" },
+            { key: "cancel", label: t("common.cancel") },
+        ]
+    );
+    if (ok !== "ok") return;
+    let blocks = 0;
+    let images = 0;
+    // 与范围转换保持一致：启用自动压缩 json 时结果压缩为单行
+    const compress = getSetting("auto_compress_json");
+    for (const [, data] of app.dte.dataset.datas) {
+        let imgChanged = 0;
+        data.tags = data.tags.map(tag => {
+            const r = convertBboxOrderInText(tag);
+            if (r.converted > 0) { imgChanged += r.converted; return compress ? compressJsonInText(r.text) : r.text; }
+            return tag;
+        });
+        if (imgChanged > 0) { blocks += imgChanged; images++; }
+    }
+    if (blocks === 0) {
+        showToast(t("extra_tools.convert_none"), "info");
+        return;
+    }
+    app.datasetDirty = true;
+    refreshAll();
+    showToast(t("extra_tools.convert_done").replace("{img}", String(images)).replace("{n}", String(blocks)), "success");
 }
 
 // 批量转换边界框坐标：目标格式取自设置 bbox_coordinate_range，
@@ -1553,6 +1628,9 @@ function initExtraTools() {
     // 批量转换边界框坐标范围（0~1 <-> 0~1000）
     const convertBtn = document.getElementById("btn_convert_bbox_range");
     if (convertBtn) convertBtn.addEventListener("click", runConvertBboxRange);
+    // 批量互换边界框坐标类型（x/y 与 y/x 两种排列）
+    const convertOrderBtn = document.getElementById("btn_convert_bbox_order");
+    if (convertOrderBtn) convertOrderBtn.addEventListener("click", runConvertBboxOrder);
     // 边界框画板：启动新的应用程序级窗口（独立 HTML）
     const studioBtn = document.getElementById("btn_open_bbox_studio");
     if (studioBtn) studioBtn.addEventListener("click", async () => {
@@ -3826,6 +3904,8 @@ function initSettings() {
         buildLlmFunctionButtons();
         // 字符统计倍率变化后立即刷新编辑框计数
         updateCaptionCharCount();
+        // 坐标范围 / 坐标类型设置可能变化，重绘当前图像的边界框
+        updateBboxes();
         showToast(t("settings.saved"), "success");
     });
 
@@ -3951,9 +4031,9 @@ function buildSettingsGrid() {
     for (const n of ["tag_separators", "auto_compress_json", "auto_switch_next", "replace_punct_enabled", "replace_punct_from", "char_count_ascii_ratio", "char_count_non_ascii_ratio", "char_count_ignore_spaces"]) markSeen(n);
     grid.appendChild(buildTagPunctGroup());
 
-    // 边界框设置（坐标范围在前，0~1000 时小数位数禁用）
+    // 边界框设置（坐标范围、坐标类型在前，0~1000 时小数位数禁用）
     divider();
-    for (const name of ["bbox_coordinate_range", "bbox_json_decimal_places"]) {
+    for (const name of ["bbox_coordinate_range", "bbox_coordinate_order", "bbox_json_decimal_places"]) {
         if (seen.has(name)) continue;
         markSeen(name);
         if (SETTINGS_HIDDEN.has(name)) continue;
@@ -3983,6 +4063,29 @@ function renderSettingsControl(name) {
         : renderSettingsField(name);
 }
 
+// 生成设置用的单选框组（name 同时作为 id 前缀与 radio 的 name）
+// options: [[值, 语言键], ...]；onChange 可选
+function createSettingsRadioGroup(name, options, onChange) {
+    const wrap = document.createElement("div");
+    wrap.id = "setting_" + name;
+    wrap.className = "radio-row";
+    for (const [val, labelKey] of options) {
+        const label = document.createElement("label");
+        label.className = "checkbox";
+        const r = document.createElement("input");
+        r.type = "radio";
+        r.name = "setting_" + name;
+        r.value = val;
+        r.checked = settings.current[name] === val;
+        const span = document.createElement("span");
+        span.textContent = t(labelKey);
+        label.append(r, span);
+        wrap.appendChild(label);
+    }
+    if (onChange) wrap.addEventListener("change", onChange);
+    return wrap;
+}
+
 // 构建设置输入控件（含语言下拉与标点规则表格等特殊分支）
 function createSettingsInput(name, value) {
     let input;
@@ -4005,28 +4108,20 @@ function createSettingsInput(name, value) {
         input.value = value;
     } else if (name === "bbox_coordinate_range") {
         // 边界框坐标范围：单选框（0~1 归一化小数 / 0~1000 整数）
-        input = document.createElement("div");
-        input.id = "setting_" + name;
-        input.className = "radio-row";
-        const mkRadio = (val, labelKey) => {
-            const label = document.createElement("label");
-            label.className = "checkbox";
-            const r = document.createElement("input");
-            r.type = "radio";
-            r.name = "setting_bbox_coordinate_range";
-            r.value = val;
-            r.checked = value === val;
-            const span = document.createElement("span");
-            span.textContent = t(labelKey);
-            label.append(r, span);
-            return label;
-        };
-        input.append(mkRadio("0~1", "settings.coord_range_01"), mkRadio("0~1000", "settings.coord_range_1000"));
-        // 选中 0~1000 时使用整数，联动禁用小数位数设置
-        input.addEventListener("change", () => {
+        input = createSettingsRadioGroup(name, [
+            ["0~1", "settings.coord_range_01"],
+            ["0~1000", "settings.coord_range_1000"],
+        ], () => {
+            // 选中 0~1000 时使用整数，联动禁用小数位数设置
             const prec = document.getElementById("setting_bbox_json_decimal_places");
             if (prec) prec.disabled = input.querySelector("input:checked").value === "0~1000";
         });
+    } else if (name === "bbox_coordinate_order") {
+        // 边界框坐标类型：JSON 中两组坐标数值的排列顺序
+        input = createSettingsRadioGroup(name, [
+            ["xyxy", "settings.coord_order_xyxy"],
+            ["yxyx", "settings.coord_order_yxyx"],
+        ]);
     } else if (name === "replace_punct_from") {
         // 标点替换规则：表格显示，每行两列（原字符 / 替换字符），可编辑、删除、添加
         input = createPunctRulesTable();
@@ -4164,8 +4259,8 @@ function readSettingsFromGrid() {
         const cur = settings.current[name];
         if (name === "language") {
             settings.current[name] = el.value;
-        } else if (name === "bbox_coordinate_range") {
-            // 边界框坐标范围：从单选框读取选中值
+        } else if (name === "bbox_coordinate_range" || name === "bbox_coordinate_order") {
+            // 边界框坐标范围 / 坐标类型：从单选框读取选中值
             const checked = el.querySelector("input:checked");
             if (checked) settings.current[name] = checked.value;
         } else if (name === "replace_punct_from") {

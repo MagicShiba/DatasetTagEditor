@@ -1,1 +1,1 @@
-an outdoor photo shows three animals and a statue, From left to right, they are a Shiba Inu, a blue cat, a panda, and dragon statue made of stained glass. {"objects":{"橘黄色柴犬":[0.12,0.4,0.25,0.67],"灰色柴犬":[0.24,0.29,0.45,0.58],"熊猫雕塑":[0.47,0.23,0.63,0.54],"蓝色龙雕塑":[0.6,0.25,0.94,0.62]}}
+an outdoor photo shows three animals and a statue, From left to right, they are a Shiba Inu, a blue cat, a panda, and dragon statue made of stained glass. {"objects":{"橘黄色柴犬":[400,120,670,250],"灰色柴犬":[290,240,580,450],"熊猫雕塑":[230,470,540,630],"蓝色龙雕塑":[250,600,620,940]}}

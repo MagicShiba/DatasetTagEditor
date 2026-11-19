@@ -12,6 +12,7 @@ import {
     clamp01,
     findBalancedObject,
     parseCoords,
+    coordsToXY,
     extractBboxBlock as extractBboxBlockCore,
     serializeBboxes as serializeBboxesCore,
     boxArea,
@@ -109,7 +110,8 @@ function convertCoordinateRange() {
         if (!Array.isArray(coords) || coords.length !== 4) return;
         const nums = coords.map(Number);
         if (!nums.every(n => Number.isFinite(n))) return;
-        items.push({ label: String(label), x1: nums[0], y1: nums[1], x2: nums[2], y2: nums[3] });
+        // 按坐标类型设置把原始数值还原为内部 x/y，避免转换时打乱顺序
+        items.push({ label: String(label), ...coordsToXY(nums) });
     };
     if (Array.isArray(raw)) {
         for (const item of raw) {

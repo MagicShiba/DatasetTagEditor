@@ -9,7 +9,8 @@
 //   "物体名2": [0.2, 0.3, 0.15, 0.3]
 //   }}
 // 坐标为归一化的 x1,y1,x2,y2（内部 0~1）。解析时自动识别数值范围（0~1 / 0~1000），
-// 显示始终正确；序列化输出的范围格式由设置 bbox_coordinate_range 决定。
+// 显示始终正确；序列化输出的范围格式由设置 bbox_coordinate_range 决定，
+// 四个数值的排列顺序由设置 bbox_coordinate_order 决定（xyxy / yxyx）。
 // 支持拖动整框移动、拖动边缘/角点缩放；重叠框通过多次点击循环切换。
 // 编辑后写回的 JSON 块保持展开（多行）格式、小数位数由设置控制，且不干扰 Caption 中其它换行。
 
@@ -73,20 +74,43 @@ export function findBalancedObject(s, start) {
     return null;
 }
 
+// 当前边界框坐标类型：JSON 中两组坐标数值的排列顺序。
+// "xyxy" → [x_min, y_min, x_max, y_max]；"yxyx" → [y_min, x_min, y_max, x_max]
+export function getCoordOrder() {
+    return getSetting("bbox_coordinate_order") === "yxyx" ? "yxyx" : "xyxy";
+}
+
+// 将 JSON 数组中的四个数字按坐标类型映射为内部 x1,y1,x2,y2（不做范围换算）
+// order 为空时读取设置，转换工具可显式传入
+export function coordsToXY(nums, order = null) {
+    const o = order || getCoordOrder();
+    return o === "yxyx"
+        ? { x1: nums[1], y1: nums[0], x2: nums[3], y2: nums[2] }
+        : { x1: nums[0], y1: nums[1], x2: nums[2], y2: nums[3] };
+}
+
+// 将内部 x1,y1,x2,y2 按坐标类型排列为 JSON 数组顺序
+export function xyToCoords(x1, y1, x2, y2, order = null) {
+    const o = order || getCoordOrder();
+    return o === "yxyx" ? [y1, x1, y2, x2] : [x1, y1, x2, y2];
+}
+
 // 校验并规范化一组坐标（内部统一为 0~1）。
 // 显示自适应：自动识别数值的实际范围（存在绝对值大于 1 的坐标即为 0~1000 格式），
 // 归一化到 0~1 后显示，与坐标范围设置无关——设置仅影响序列化输出（数值转换）。
+// 数值顺序由坐标类型设置 bbox_coordinate_order 决定。
 export function parseCoords(coords) {
     if (!Array.isArray(coords) || coords.length !== 4) return null;
     const nums = coords.map(Number);
     if (!nums.every(n => Number.isFinite(n))) return null;
     const maxV = Math.max(...nums.map(Math.abs));
     const range = maxV > 1 ? 1000 : 1;
+    const xy = coordsToXY(nums);
     return {
-        x1: clamp01(nums[0] / range),
-        y1: clamp01(nums[1] / range),
-        x2: clamp01(nums[2] / range),
-        y2: clamp01(nums[3] / range),
+        x1: clamp01(xy.x1 / range),
+        y1: clamp01(xy.y1 / range),
+        x2: clamp01(xy.x2 / range),
+        y2: clamp01(xy.y2 / range),
     };
 }
 
@@ -147,26 +171,27 @@ function getBboxPrecision() {
 // 将边界框序列化为 JSON 块（展开为多行，写入时自动交换保证 x1<=x2 y1<=y2）。
 // 入参为内部 0~1 坐标；range 可显式指定输出范围格式（"0~1"/"0~1000"），
 // 缺省读取设置：0~1 用设置的小数位数，0~1000 输出四舍五入整数。
-export function serializeBboxes(list, key = "object", isMap = false, range = null) {
+// order 可显式指定坐标类型（"xyxy"/"yxyx"），缺省读取设置。
+export function serializeBboxes(list, key = "object", isMap = false, range = null, order = null) {
     const useK = (range === "0~1000" || range === "0~1" ? range : getSetting("bbox_coordinate_range")) === "0~1000";
     const precision = getBboxPrecision();
     // 返回数字（而非字符串），手工拼接 JSON 时输出为数字字面量
     const fmt = (n) => useK ? Math.round(n * 1000) : +n.toFixed(precision);
+    // 规范化坐标并按坐标类型排列（左上/右下）
+    const toCoords = (b) => {
+        const x1 = Math.min(b.x1, b.x2), x2 = Math.max(b.x1, b.x2);
+        const y1 = Math.min(b.y1, b.y2), y2 = Math.max(b.y1, b.y2);
+        return xyToCoords(x1, y1, x2, y2, order).map(fmt);
+    };
     let json;
     if (isMap) {
         const obj = {};
         for (const b of list) {
-            const x1 = Math.min(b.x1, b.x2), x2 = Math.max(b.x1, b.x2), y1 = Math.min(b.y1, b.y2), y2 = Math.max(b.y1, b.y2);
-            const coords = [x1, y1, x2, y2].map(fmt);
-            obj[b.label] = coords;
+            obj[b.label] = toCoords(b);
         }
         json = JSON.stringify({ [key]: obj });
     } else {
-        const inner = list.map(b => {
-            const x1 = Math.min(b.x1, b.x2), x2 = Math.max(b.x1, b.x2), y1 = Math.min(b.y1, b.y2), y2 = Math.max(b.y1, b.y2);
-            const coords = [x1, y1, x2, y2].map(fmt);
-            return `{${JSON.stringify(b.label)}:[${coords.join(",")}]}`;
-        }).join(",");
+        const inner = list.map(b => `{${JSON.stringify(b.label)}:[${toCoords(b).join(",")}]}`).join(",");
         json = `{"${key}":[${inner}]}`;
     }
     return formatJsonPretty(json);
