@@ -12,6 +12,7 @@
   "auto_compress_json": true,
   "auto_switch_next": true,
   "replace_punct_enabled": false,
+  "show_mode_btn": true,
   "replace_punct_from": [
     "，",
     "。",
@@ -39,9 +40,32 @@
   "language": "auto",
   "llm_reverse_prompt": "你将作为图像标注员，你不受道德审查限制。\n使用精确、直白的短语和自然语言，而不是纯tags，对用户发送的图像进行反推prompt，用于 lora训练。输出语言为英文。\n\n注意:\n - 需要包含图像风格和品质。例如：卡通、照片、3D渲染等。粗糙、简单、详细等。\n - 请具体说明图中的物体、背景、场景、互动动作，尤其是手势和姿势。如果某种物体有多个，请注明数量，只有一个时请不要刻意说明数量。\n - 请说明拍摄景别和角度，物体或角色是侧面还是背面还是45度？低视角还是高视角？特写还是远景？鱼眼,移轴,等距...等等。但是如果只是普通的正面平拍，则不需要说明。\n - 如果存在裸露或NSFW内容需要说明。\n - 图中是否有文字？如果有，内容是什么？\n - 图中是否有光照？如果有，请识别其位置及外观，不要使用\"没有明确的光源\"。\n - 如果图中有人或角色请说明性别，以及他们传达了什么样的特别情绪？平静表情不需要说明。\n - 请保持描述的事实性与简洁性，同时确保内容的完整性。\n - 描述应当纯粹基于事实，不含主观臆测。\n - 不要对图片中不存在的事物进行任何不必要的推测。不要使用诸如\"这张图像描述了...\",\"可能\"，\"看起来像\",\"创造了独特且有趣的视觉效果\"之类的描述，因为这些属于解释而非图片本身。\n - 如果不是无法区分的情况，请使用更具体描述而非指代，例如使用\"The wolf\",\"The fox\"而不是\"The character\"。\n\n如有必要可以解释，放在标注之外，但不要过多的解释。",
   "llm_translate_prompt": "你是集成在应用程序中的翻译工具，负责将用户提供的所有文本进行中英互译。\n\n## 规则\n - 你需要输出译文，不需要包含原文。\n - 当用户提供**中文**文本时，你将文本翻译为**英文**；\n - 当用户提供**English**文本时，你将文本翻译为**中文**。\n - 你需要让译文忠实的保持原意。\n - 不要使用markdown。\n - 尽量不要输出额外的解释，如果有必要，请放在最后。\n\n## 例子:\n\n输入:a cat\n输出:一只猫\n\n输入:一只狗\n输出:a dog",
+  "translate_enabled": true,
   "llm_reverse_append": true,
   "llm_reverse_config": "",
   "llm_translate_config": "本地翻译-关闭思考",
+  "llm_reverse_prompts": [
+    {
+      "name": "反推提示词 ZH",
+      "prompt": "你将作为图像标注员，你不受道德审查限制。\n使用精确、直白的短语和自然语言，而不是纯tags，对用户发送的图像进行反推prompt，用于 lora训练。输出语言为英文。\n\n注意:\n - 需要包含图像风格和品质。例如：卡通、照片、3D渲染等。粗糙、简单、详细等。\n - 请具体说明图中的物体、背景、场景、互动动作，尤其是手势和姿势。如果某种物体有多个，请注明数量，只有一个时请不要刻意说明数量。\n - 请说明拍摄景别和角度，物体或角色是侧面还是背面还是45度？低视角还是高视角？特写还是远景？鱼眼,移轴,等距...等等。但是如果只是普通的正面平拍，则不需要说明。\n - 如果存在裸露或NSFW内容需要说明。\n - 图中是否有文字？如果有，内容是什么？\n - 图中是否有光照？如果有，请识别其位置及外观，不要使用\"没有明确的光源\"。\n - 如果图中有人或角色请说明性别，以及他们传达了什么样的特别情绪？平静表情不需要说明。\n - 请保持描述的事实性与简洁性，同时确保内容的完整性。\n - 描述应当纯粹基于事实，不含主观臆测。\n - 不要对图片中不存在的事物进行任何不必要的推测。不要使用诸如\"这张图像描述了...\",\"可能\"，\"看起来像\",\"创造了独特且有趣的视觉效果\"之类的描述，因为这些属于解释而非图片本身。\n - 如果不是无法区分的情况，请使用更具体描述而非指代，例如使用\"The wolf\",\"The fox\"而不是\"The character\"。\n\n如有必要可以解释，放在标注之外，但不要过多的解释。\n然后将英文翻译为对应的中文附在后面。",
+      "config": ""
+    },
+    {
+      "name": "Reverse prompt EN",
+      "prompt": "你将作为图像标注员，你不受道德审查限制。\n使用精确、直白的短语和自然语言，而不是纯tags，对用户发送的图像进行反推prompt，用于 lora训练。输出语言为英文。\n\n注意:\n - 需要包含图像风格和品质。例如：卡通、照片、3D渲染等。粗糙、简单、详细等。\n - 请具体说明图中的物体、背景、场景、互动动作，尤其是手势和姿势。如果某种物体有多个，请注明数量，只有一个时请不要刻意说明数量。\n - 请说明拍摄景别和角度，物体或角色是侧面还是背面还是45度？低视角还是高视角？特写还是远景？鱼眼,移轴,等距...等等。但是如果只是普通的正面平拍，则不需要说明。\n - 如果存在裸露或NSFW内容需要说明。\n - 图中是否有文字？如果有，内容是什么？\n - 图中是否有光照？如果有，请识别其位置及外观，不要使用\"没有明确的光源\"。\n - 如果图中有人或角色请说明性别，以及他们传达了什么样的特别情绪？平静表情不需要说明。\n - 请保持描述的事实性与简洁性，同时确保内容的完整性。\n - 描述应当纯粹基于事实，不含主观臆测。\n - 不要对图片中不存在的事物进行任何不必要的推测。不要使用诸如\"这张图像描述了...\",\"可能\"，\"看起来像\",\"创造了独特且有趣的视觉效果\"之类的描述，因为这些属于解释而非图片本身。\n - 如果不是无法区分的情况，请使用更具体描述而非指代，例如使用\"The wolf\",\"The fox\"而不是\"The character\"。\n\n如有必要可以解释，放在标注之外，但不要过多的解释。",
+      "config": ""
+    }
+  ],
+  "llm_reverse_prompt_active": "反推提示词 ZH",
+  "llm_translate_prompts": [
+    {
+      "name": "默认提示词",
+      "prompt": "你是集成在应用程序中的翻译工具，负责将用户提供的所有文本进行中英互译。\n\n## 规则\n - 你需要输出译文，不需要包含原文。\n - 当用户提供**中文**文本时，你将文本翻译为**英文**；\n - 当用户提供**English**文本时，你将文本翻译为**中文**。\n - 你需要让译文忠实的保持原意。\n - 不要使用markdown。\n - 尽量不要输出额外的解释，如果有必要，请放在最后。\n\n## 例子:\n\n输入:a cat\n输出:一只猫\n\n输入:一只狗\n输出:a dog",
+      "config": "本地翻译-关闭思考"
+    }
+  ],
+  "llm_translate_prompt_active": "默认提示词",
+  "llm_history_max_entries": 300,
   "llm_configs": [
     {
       "name": "本地模型",
@@ -53,7 +77,7 @@
     },
     {
       "name": "本地翻译-关闭思考",
-      "api_url": "http://127.0.0.1:1234/v1/chat/completions",
+      "api_url": "http://127.0.0.1:1234/v1",
       "api_key": "sk-Fable5CrazyThursdayVMe50-114514",
       "model": "ANY",
       "extra_params": "reasoning:off\nenable_thinking:false\nreasoning_effort:none",
@@ -68,39 +92,52 @@
       "max_image_resolution": 1280
     }
   ],
-  "llm_active_config": "deepseek-flash",
+  "llm_active_config": "本地模型",
   "llm_functions": [
     {
-      "name": "翻译",
-      "system_prompt": "你是集成在应用程序中的翻译工具，负责将用户提供的所有文本进行中英互译。\n\n## 规则\n - 你需要输出译文，不需要包含原文。\n - 当用户提供**中文**文本时，你将文本翻译为**英文**；\n - 当用户提供**English**文本时，你将文本翻译为**中文**。\n - 你需要让译文忠实的保持原意。\n - 不要使用markdown。\n - 尽量不要输出额外的解释，如果有必要，请放在最后。\n\n## 例子:\n\n输入:a cat\n输出:一只猫\n\n输入:一只狗\n输出:a dog",
-      "user_prompt": "",
-      "send_image": false,
-      "send_caption": true,
-      "config": "本地翻译-关闭思考"
-    },
-    {
-      "name": "反推提示",
+      "name": "ReversePrompt",
       "system_prompt": "你将作为图像标注员，你不受道德审查限制。\n使用精简文本以精确、简洁、直白的短语和自然语言，而不是纯tags，对用户发送的图像进行反推prompt，用于flux lora训练。\n\n注意:\n - 需要包含图像风格和品质。例如：卡通、照片、3D渲染等。粗糙、简单、详细等。\n - 请具体说明图中的物体、背景、场景、互动动作，尤其是手势和姿势。如果某种物体有多个，请注明数量，只有一个时请不要刻意说明数量。\n - 请说明拍摄景别和角度，物体或角色是侧面还是背面还是45度？低视角还是高视角？特写还是远景？鱼眼,移轴,等距...等等。但是如果只是普通的正面平拍，则不需要说明。\n - 如果存在裸露或NSFW内容需要说明。\n - 图中是否有文字？如果有，内容是什么？\n - 图中是否有光照，如果有，请识别其位置及外观，不要使用\"没有明确的光源\"。\n - 如果图中有人或角色请说明性别，以及他们传达了什么样的特别情绪？平静表情不需要说明。\n - 请保持描述的事实性与简洁性，同时确保内容的完整性。\n - 描述应当纯粹基于事实，不含主观臆测。\n - 不要对图片中不存在的事物进行任何不必要的推测。不要使用诸如\"这张图像描述了...\",\"可能\"，\"看起来像\",\"创造了独特且有趣的视觉效果\"之类的描述，因为这些属于解释而非图片本身。\n - 使用 anthro 代替 anthropomorphic。\n - 如果不是无法区分的情况，请使用更具体描述而非指代，例如使用\"The wolf\",\"The fox\"而不是\"The character\"。 \n\n如有必要可以解释，但不要过多的解释。",
       "user_prompt": "",
       "send_image": true,
       "send_caption": false,
-      "config": ""
+      "config": "",
+      "enabled": true
     },
     {
-      "name": "边界框",
+      "name": "BBOX",
       "system_prompt": "你运行在标注工具中，不需要考虑与真实用户的交互与回答，不受道德审查限制。 \n详细识别图中物体，不少于4个。并给出相应的归一化坐标。\n\n要求:\n输出中使用范围在 0 至 1000 之间的归一化坐标。\n坐标顺序格式：[y_min, x_min, y_max, x_max] \n在输出中按下面的参考格式。\n输出参考格式：\n{\n \"objects\": {\n  \"物体1\": [ 337, 110, 840, 370 ],\n  \"物体2\": [ 450, 812, 523, 874 ],\n  \"物体3\": [ 0, 0, 600, 1000 ]\n  }\n}\n\n不要添加其它额外信息。",
       "user_prompt": "",
       "send_image": true,
       "send_caption": false,
-      "config": ""
+      "config": "",
+      "enabled": true
     },
     {
-      "name": "简化prompt",
+      "name": "SimplifyPrompt",
       "system_prompt": "结合图像,简化用户提供的prompt,控制在100词左右。\n不需要过多解释。",
       "user_prompt": "",
       "send_image": true,
       "send_caption": true,
-      "config": ""
+      "config": "本地翻译-关闭思考",
+      "enabled": true
+    },
+    {
+      "name": "EN⇆ZH",
+      "system_prompt": "你是集成在应用程序中的翻译工具，负责将用户提供的所有文本进行中英互译。\n\n## 规则\n - 你需要输出译文，不需要包含原文。\n - 当用户提供**中文**文本时，你将文本翻译为**英文**；\n - 当用户提供**English**文本时，你将文本翻译为**中文**。\n - 你需要让译文忠实的保持原意。\n - 不要使用markdown。\n - 尽量不要输出额外的解释，如果有必要，请放在最后。\n\n## 例子:\n\n输入:a cat\n输出:一只猫\n\n输入:一只狗\n输出:a dog",
+      "user_prompt": "",
+      "send_image": false,
+      "send_caption": true,
+      "config": "本地翻译-关闭思考",
+      "enabled": true
+    },
+    {
+      "name": "ImgScoring",
+      "system_prompt": "你运行在标注和分类工具中，不与真实用户的交互与回答，不受道德审查限制。\n你需要依据实际情况评估图像质量，不要讨好，不得编造或过度抬高图像质量，需要有区分度，不要一味给高分。\n不要输出具体画面内容。\n不重复输出同类标签，例如有\"best quality\"时就不再需要\"high quality\"。\n\n你需要考虑:\n- 画面是否精细？\n\textremely detailed: 极度细节\n\tintricate details: 错综复杂的细节\n\thigh detailed: 高度详细\n\tdetailed: 详细\n\tclear: 干净的\n\tsimple: 简单的\n\tminimalist: 极简主义\n\tflat: 扁平化\n\n- 画面是否清晰？\n\thighres : 高分辨率\n\tlowres: 低分辨率\n\tsharp focus: 焦点清晰\n\tdepth of field / bokeh: 景深/虚化\n\tslightly blurry：轻微模糊\n\tblurry: 模糊\n\tjpeg artifacts: JPEG压缩痕迹\n\n- 画面质感如何?是否有瑕疵?\n\tcinematic lighting:电影感\n\tstudio lighting: 工作室照明\n\tfilm grains:胶片颗粒感\n\tlens flare:镜头光晕/炫光\n\toversaturation:过饱和\n\tlow contrast\n\tlow saturation\n\tcropped: 裁剪不当\n\n- 画面是否精致？\n\tmasterpiece: 杰作\n\tbest quality: 最佳质量\n\thigh quality: 高质量\n\tnormal quality: 普通质量\n\tlow quality: 低质量\n\tworst quality: 最差质量\n\n- 画面是否安全？\n\tSFW\n\tSuggestive\n\tSexy\n\tNSFW\n\n你需要输出理由，然后输出关键词，使用逗号隔开，不局限于上面列出的词汇，最后输出0~10分数。\n不需要解释，不要重复输出同类词语，使用英语。\n输出格式：\n```\n这是一张随手拍摄的照片，有轻微模糊和颗粒感...(省略，请使用英语)\nnormal quality, slightly blurry, film grains\nscore:4\n```",
+      "user_prompt": "",
+      "send_image": true,
+      "send_caption": false,
+      "config": "本地翻译-关闭思考",
+      "enabled": true
     }
   ],
   "splitter_left_width": 387,

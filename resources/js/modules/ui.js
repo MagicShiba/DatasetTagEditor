@@ -4925,8 +4925,18 @@ function updateLlmListItemName(listEl, idx, name) {
     item.title = text;
 }
 
-// 渲染左侧列表（配置 / 功能共用）：条目只用于跳转到右侧对应卡片，不控制显示与隐藏
-function renderLlmSettingsList(listEl, items, onSelect) {
+// 当前拖拽中的 LLM 设置列表项（记录来源列表，避免跨列表误放）
+let llmListDrag = null;
+
+// 清除列表项上的拖拽插入位置提示
+function clearLlmListDropHint(listEl) {
+    listEl.querySelectorAll(".drop-before, .drop-after")
+        .forEach(el => el.classList.remove("drop-before", "drop-after"));
+}
+
+// 渲染左侧列表（配置 / 功能共用）：条目用于跳转到右侧卡片，拖动可调整顺序
+// onReorder(from, to) 中 to 为插入位置；selectedIdx 指定默认高亮项
+function renderLlmSettingsList(listEl, items, onSelect, onReorder, selectedIdx = 0) {
     if (!listEl) return;
     listEl.innerHTML = "";
     items.forEach((item, idx) => {
@@ -4934,12 +4944,52 @@ function renderLlmSettingsList(listEl, items, onSelect) {
         btn.type = "button";
         btn.className = "llm-settings-item";
         btn.textContent = (item.name || "").trim() || t("settings.unnamed");
-        btn.title = btn.textContent;
+        btn.title = onReorder ? `${btn.textContent}（${t("settings.drag_sort_hint")}）` : btn.textContent;
         btn.addEventListener("click", () => onSelect(idx));
+
+        if (onReorder) {
+            btn.draggable = true;
+            btn.addEventListener("dragstart", (e) => {
+                llmListDrag = { listEl, from: idx };
+                btn.classList.add("dragging");
+                e.dataTransfer.effectAllowed = "move";
+                // Firefox 需要设置数据才会触发拖拽
+                e.dataTransfer.setData("text/plain", String(idx));
+            });
+            btn.addEventListener("dragend", () => {
+                btn.classList.remove("dragging");
+                clearLlmListDropHint(listEl);
+                llmListDrag = null;
+            });
+            btn.addEventListener("dragover", (e) => {
+                if (!llmListDrag || llmListDrag.listEl !== listEl) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                const rect = btn.getBoundingClientRect();
+                const after = e.clientY >= rect.top + rect.height / 2;
+                clearLlmListDropHint(listEl);
+                btn.classList.add(after ? "drop-after" : "drop-before");
+            });
+            btn.addEventListener("dragleave", () => {
+                btn.classList.remove("drop-before", "drop-after");
+            });
+            btn.addEventListener("drop", (e) => {
+                if (!llmListDrag || llmListDrag.listEl !== listEl) return;
+                e.preventDefault();
+                const rect = btn.getBoundingClientRect();
+                const after = e.clientY >= rect.top + rect.height / 2;
+                clearLlmListDropHint(listEl);
+                const from = llmListDrag.from;
+                llmListDrag = null;
+                onReorder(from, idx + (after ? 1 : 0));
+            });
+        }
+
         listEl.appendChild(btn);
     });
-    // 默认高亮第一项，明确当前定位
-    if (listEl.firstElementChild) listEl.firstElementChild.classList.add("selected");
+    // 默认高亮指定项（跳转或排序后跟随对应卡片）
+    const selected = listEl.children[selectedIdx] || listEl.firstElementChild;
+    if (selected) selected.classList.add("selected");
 }
 
 // 左侧列表点击：滚动到右侧对应卡片并短暂高亮（其余卡片保持显示）
@@ -4956,6 +5006,42 @@ function jumpToLlmCard(listEl, boxEl, idx) {
     card.classList.add("flash");
     clearTimeout(card._flashTimer);
     card._flashTimer = setTimeout(() => card.classList.remove("flash"), 900);
+}
+
+// 在数组中移动一项：to 为插入位置，返回移动后的下标（未发生移动返回 -1）
+function moveArrayItem(arr, from, to) {
+    if (from < 0 || from >= arr.length) return -1;
+    let target = to;
+    if (from < to) target -= 1;
+    if (target === from || target < 0 || target >= arr.length) return -1;
+    const [moved] = arr.splice(from, 1);
+    arr.splice(target, 0, moved);
+    return target;
+}
+
+// 拖拽调整 LLM 配置顺序：先回写表单，再移动数组并重建配置 / 功能界面
+function reorderLlmConfigs(from, to) {
+    readAllLlmConfigs();
+    readAllLlmFunctions();
+    const configs = getSetting("llm_configs") || [];
+    const target = moveArrayItem(configs, from, to);
+    if (target < 0) return;
+    setSetting("llm_configs", configs);
+    buildLlmConfigs(target);
+    // 配置的顺序会影响"使用的配置"下拉框，功能卡片与提示词下拉同步重建
+    buildLlmFunctions();
+    refreshPromptConfigSelects();
+}
+
+// 拖拽调整 LLM 功能顺序：先回写表单，再移动数组并重建功能界面与编辑区按钮
+function reorderLlmFunctions(from, to) {
+    readAllLlmFunctions();
+    const fns = getSetting("llm_functions") || [];
+    const target = moveArrayItem(fns, from, to);
+    if (target < 0) return;
+    setSetting("llm_functions", fns);
+    buildLlmFunctions(target);
+    buildLlmFunctionButtons();
 }
 
 // 把右侧所有 LLM 配置卡片写回 settings 内存（保存 / 增删前调用）
@@ -5044,8 +5130,8 @@ function readAllLlmFunctions() {
     setSetting("llm_functions", fns);
 }
 
-// 构建 LLM 配置管理界面：右侧一次性渲染全部配置卡片，左侧列表只用于跳转定位
-function buildLlmConfigs() {
+// 构建 LLM 配置管理界面：右侧一次性渲染全部配置卡片，左侧列表用于跳转定位 / 拖拽排序
+function buildLlmConfigs(selectedIdx = 0) {
     const box = document.getElementById("llm-configs-box");
     const list = document.getElementById("llm-configs-list");
     if (!box) return;
@@ -5053,8 +5139,13 @@ function buildLlmConfigs() {
     const configs = getSetting("llm_configs") || [];
     const active = getSetting("llm_active_config");
 
-    // 左侧列表：点击跳转到对应卡片（其余卡片保持显示）
-    renderLlmSettingsList(list, configs, (idx) => jumpToLlmCard(list, box, idx));
+    // 左侧列表：点击跳转到对应卡片（其余卡片保持显示），拖动调整配置顺序
+    renderLlmSettingsList(
+        list, configs,
+        (idx) => jumpToLlmCard(list, box, idx),
+        (from, to) => reorderLlmConfigs(from, to),
+        selectedIdx
+    );
 
     configs.forEach((cfg, idx) => box.appendChild(buildLlmConfigCard(cfg, idx, active, list)));
 }
@@ -5162,16 +5253,21 @@ function readLlmConfigs() {
     setSetting("llm_active_config", active);
 }
 
-// 构建 LLM 自定义功能管理界面：右侧一次性渲染全部功能卡片，左侧列表只用于跳转定位
-function buildLlmFunctions() {
+// 构建 LLM 自定义功能管理界面：右侧一次性渲染全部功能卡片，左侧列表用于跳转定位 / 拖拽排序
+function buildLlmFunctions(selectedIdx = 0) {
     const box = document.getElementById("llm-functions-box");
     const list = document.getElementById("llm-functions-list");
     if (!box) return;
     box.innerHTML = "";
     const fns = getSetting("llm_functions") || [];
 
-    // 左侧列表：点击跳转到对应卡片（其余卡片保持显示）
-    renderLlmSettingsList(list, fns, (idx) => jumpToLlmCard(list, box, idx));
+    // 左侧列表：点击跳转到对应卡片（其余卡片保持显示），拖动调整功能顺序
+    renderLlmSettingsList(
+        list, fns,
+        (idx) => jumpToLlmCard(list, box, idx),
+        (from, to) => reorderLlmFunctions(from, to),
+        selectedIdx
+    );
 
     fns.forEach((fn, idx) => box.appendChild(buildLlmFunctionCard(fn, idx, list)));
 }

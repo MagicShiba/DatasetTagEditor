@@ -390,6 +390,7 @@ input[type="text"], input[type="password"], input[type="number"], textarea, sele
   border-radius: var(--radius);
   font-size: 13px;
   font-family: inherit;
+  tab-size: 4;
 }
 
 input[type="text"]:focus, input[type="password"]:focus, input[type="number"]:focus, textarea:focus, select:focus {
@@ -1256,7 +1257,7 @@ textarea {
 /* 将更改应用于选中图像：占满整行，高度约为标准按钮的 1.5 倍 */
 #btn_apply_changes {
   width: 100%;
-  padding: 11px 12px;
+  padding: 10px;
 }
 
 /* ============ 胶囊式标签编辑 ============ */
@@ -1702,7 +1703,7 @@ textarea {
 .llm-settings-layout {
   display: grid;
   grid-template-columns: 190px minmax(0, 1fr);
-  gap: 6px;
+  gap: 4px;
   align-items: start;
   margin-bottom: 2px;
 }
@@ -1712,7 +1713,7 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding-right: 6px;
+  padding-right: 4px;
   border-right: 2px solid var(--border);
   max-height: 60vh;
   /* 右侧内容较长时，左侧列表保持可见 */
@@ -1751,11 +1752,11 @@ textarea {
   background: transparent;
 }
 
-/* ------------------------------------------------------------------
-   左侧列表项统一样式：
-   .llm-settings-item（设置页左栏导航）与 .llm-history-item（LLM 历史左栏）
-   共用同一套视觉规格（内边距 / 圆角 / 悬停 / 选中），仅内部排版不同。
-   ------------------------------------------------------------------ */
+/* 条目保持自身高度，内容过多时由列表滚动，避免被 flex 压缩显示 */
+.llm-settings-list > .llm-settings-item {
+  flex: none;
+}
+
 .llm-history-item {
   width: 100%;
   border: 1px solid transparent;
@@ -1770,7 +1771,7 @@ textarea {
   color: var(--text);
   text-align: left;
   background: transparent;
-  padding: 6px;
+  padding: 4px;
 }
 .llm-settings-item:hover{
   background: var(--border);
@@ -1778,6 +1779,25 @@ textarea {
 }
 .llm-settings-item.selected{
   background: var(--bg-input);
+}
+/* LLM 配置 / 功能左栏支持拖拽排序：抓手提示 + 拖动与插入位置反馈 */
+.llm-settings-item[draggable="true"] {
+  cursor: grab;
+}
+.llm-settings-item[draggable="true"]::before {
+  content: "⋮⋮";
+  margin-right: 4px;
+  color: var(--text-dim);
+}
+.llm-settings-item.dragging {
+  opacity: 0.45;
+  cursor: grabbing;
+}
+.llm-settings-item.drop-before {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.llm-settings-item.drop-after {
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 .llm-history-item:hover {
   background: var(--bg-input);
@@ -1823,6 +1843,12 @@ textarea {
   background: var(--bg-input);
   padding: 10px;
   margin-bottom: 8px;
+}
+
+/* 鼠标悬停时高亮卡片外边框，与列表跳转的短暂高亮保持一致 */
+.llm-card:hover {
+  border-color: var(--accent);
+  box-shadow: 1px 1px 3px 3px #0006;
 }
 
 /* 名称字段独占一行，作为卡片的标题 */
@@ -1923,7 +1949,6 @@ textarea {
 .llm-prompt-head .lp-select {
   flex: 1 1 120px;
   min-width: 100px;
-  max-width: 220px;
 }
 
 /* 提示词通常较长，放宽显示高度（超出后内部滚动）；
@@ -2473,9 +2498,7 @@ textarea {
 /* 主项有子菜单时在右侧显示箭头提示 */
 .context-menu-item.has-submenu > button::after {
   content: "▸";
-  float: right;
   margin-left: 12px;
-  opacity: 0.7;
 }
 
 .context-submenu {
