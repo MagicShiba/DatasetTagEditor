@@ -718,7 +718,7 @@ textarea {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-panel);
-  padding: 6px;
+  padding: 2px;
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
@@ -740,7 +740,7 @@ textarea {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-panel);
-  padding: 2px 6px;
+  padding: 2px;
   align-items: center;
   white-space: normal;
   word-break: break-word;
@@ -748,8 +748,6 @@ textarea {
 }
 
 .tf-tag-row input {
-  margin-top: 0;
-  flex: none;
 }
 
 /* ============ 画廊 ============ */
@@ -2539,7 +2537,7 @@ textarea {
   color: #f08080;
 }
 
-/* 右侧正文：全部记录纵向排列，点击左侧名称立即滚动定位 */
+/* 右侧正文：分页渲染记录，滚动到顶部/底部时按需加载 */
 .llm-history-detail {
   flex: 1;
   min-width: 0;
@@ -2586,6 +2584,8 @@ textarea {
 
 .llm-history-block {
   margin-bottom: 6px;
+  background: #224444;
+  padding: 2px;
 }
 
 .llm-history-block-title {
@@ -2601,28 +2601,30 @@ textarea {
 .llm-history-block.model .llm-history-block-title { color: #d2a8ff; }
 .llm-history-block.reasoning .llm-history-block-title { color: #e3b341; }
 .llm-history-block.error .llm-history-block-title { color: #f85149; }
-
+.llm-history-block.model{  background: #442244; }
+.llm-history-block.reasoning{  background: #444422;}
+.llm-history-block.reasoning .llm-history-block-text{ max-height: 100px; }
 .llm-history-block-text {
   margin: 0;
-  padding: 4px 6px;
+  padding: 2px;
+  margin: 2px;
   max-height: 150px;
   overflow: auto;
   border-radius: 4px;
   background: var(--bg-input);
   font-family: var(--font-mono);
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.2;
   white-space: pre-wrap;
   word-break: break-word;
 }
+
 
 /* 历史记录中的图像与地址：纵向排列，地址使用完整可用宽度，不跟随缩略图宽度 */
 .llm-history-images {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
-  margin-top: 4px;
 }
 
 /* 用户消息：整体右对齐，标题、正文与图像依内容宽度靠右显示 */
@@ -2631,9 +2633,9 @@ textarea {
   flex-direction: column;
   align-items: flex-end;
   border-right: 2px solid #7EE787;
-  background: var(--bg-panel);
   padding-right: 5px;
   background: #223322;
+  margin-left: 16px;
 }
 
 .llm-history-block.user .llm-history-block-title {
@@ -2653,11 +2655,8 @@ textarea {
 /* 历史记录中只显示缩略图，尺寸固定，避免加载后撑开布局影响跳转定位 */
 .llm-history-image-thumb {
   display: block;
-  width: 128px;
-  height: 128px;
   border: 1px solid var(--border);
   border-radius: 4px;
-  background: #0d0f12;
   object-fit: contain;
 }
 

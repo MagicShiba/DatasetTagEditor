@@ -2349,8 +2349,17 @@ async function runLlmFunctionButton(fn) {
 // LLM 调用历史查看（左侧名称 + 右侧正文）
 // ================================================================
 
+// 历史正文分页：每次只渲染一页，滚动到顶部/底部附近时继续加载
+const HISTORY_PAGE_SIZE = 10;
+const HISTORY_LOAD_THRESHOLD = 80;
+
 // 历史浮窗是否固定（固定后点击窗口外不关闭）
 let llmHistoryPinned = false;
+
+// 查看中的历史记录与已渲染的索引范围（新的记录在前）
+let historyEntries = [];
+let historyFrom = 0;
+let historyTo = 0;
 
 // 历史记录中的图像显示：由图像地址读取生成的对象 URL（重新渲染/关闭浮窗时释放）
 let historyImageUrls = [];
@@ -2506,9 +2515,10 @@ function createHistoryBlock(kind, title, text, images) {
 }
 
 // 创建右侧正文中的一条完整记录
-function createHistoryRecord(entry) {
+function createHistoryRecord(entry, index) {
     const record = document.createElement("section");
     record.className = "llm-history-record";
+    record.dataset.index = String(index);
 
     const head = document.createElement("div");
     head.className = "llm-history-record-head";
@@ -2562,30 +2572,111 @@ function createHistoryRecord(entry) {
     return record;
 }
 
-// 选中左侧名称并把右侧正文滚动到对应记录
-function selectHistoryRecord(item, record) {
+// 将指定索引范围的记录追加到正文
+function appendHistoryRecords(from, to) {
+    const detailEl = document.getElementById("llm_history_detail");
+    if (!detailEl) return;
+    const frag = document.createDocumentFragment();
+    for (let i = from; i < to; i++) {
+        frag.appendChild(createHistoryRecord(historyEntries[i], i));
+    }
+    detailEl.appendChild(frag);
+}
+
+// 在正文底部加载下一页（更旧的记录）
+function loadOlderHistoryPage() {
+    if (historyTo >= historyEntries.length) return false;
+    const to = Math.min(historyEntries.length, historyTo + HISTORY_PAGE_SIZE);
+    appendHistoryRecords(historyTo, to);
+    historyTo = to;
+    return true;
+}
+
+// 在正文顶部加载上一页（更新的记录），并保持当前阅读位置不跳动
+function loadNewerHistoryPage() {
+    if (historyFrom <= 0) return false;
+    const detailEl = document.getElementById("llm_history_detail");
+    if (!detailEl) return false;
+    const from = Math.max(0, historyFrom - HISTORY_PAGE_SIZE);
+    const beforeHeight = detailEl.scrollHeight;
+    const frag = document.createDocumentFragment();
+    for (let i = from; i < historyFrom; i++) {
+        frag.appendChild(createHistoryRecord(historyEntries[i], i));
+    }
+    detailEl.insertBefore(frag, detailEl.firstChild);
+    historyFrom = from;
+    detailEl.scrollTop += detailEl.scrollHeight - beforeHeight;
+    return true;
+}
+
+// 内容不足一屏时继续加载，避免没有滚动条而无法翻页
+function fillHistoryViewport() {
+    const detailEl = document.getElementById("llm_history_detail");
+    // 浮窗隐藏时 clientHeight 为 0，此时不加载，避免一次渲染全部
+    if (!detailEl || !detailEl.clientHeight) return;
+    while (detailEl.scrollHeight <= detailEl.clientHeight + HISTORY_LOAD_THRESHOLD && loadOlderHistoryPage()) {
+        // 继续加载下一页
+    }
+}
+
+// 滚动到顶部/底部附近时自动加载上一页/下一页
+function onHistoryDetailScroll() {
+    const detailEl = document.getElementById("llm_history_detail");
+    if (!detailEl || !historyEntries.length) return;
+    if (detailEl.scrollTop <= HISTORY_LOAD_THRESHOLD) {
+        loadNewerHistoryPage();
+    }
+    if (detailEl.scrollHeight - detailEl.scrollTop - detailEl.clientHeight <= HISTORY_LOAD_THRESHOLD) {
+        loadOlderHistoryPage();
+    }
+}
+
+// 只渲染包含指定索引的一页（用于从左侧列表跳转到未加载的记录）
+function renderHistoryPage(index) {
+    const detailEl = document.getElementById("llm_history_detail");
+    if (!detailEl) return;
+    const from = Math.floor(index / HISTORY_PAGE_SIZE) * HISTORY_PAGE_SIZE;
+    releaseHistoryImages();
+    detailEl.innerHTML = "";
+    detailEl.scrollTop = 0;
+    historyFrom = from;
+    historyTo = Math.min(historyEntries.length, from + HISTORY_PAGE_SIZE);
+    appendHistoryRecords(from, historyTo);
+    fillHistoryViewport();
+}
+
+// 选中左侧名称并把右侧正文滚动到对应记录（记录未渲染时先加载其所在页）
+function selectHistoryRecord(item, index) {
     document.querySelectorAll("#llm_history_list .llm-history-item.selected")
         .forEach(el => el.classList.remove("selected"));
     item.classList.add("selected");
+    if (index < historyFrom || index >= historyTo) {
+        renderHistoryPage(index);
+    }
+    const record = document.querySelector(`#llm_history_detail .llm-history-record[data-index="${index}"]`);
+    if (!record) return;
     record.scrollIntoView({ block: "start", behavior: "auto" });
     record.classList.add("flash");
     clearTimeout(record._flashTimer);
     record._flashTimer = setTimeout(() => record.classList.remove("flash"), 900);
 }
 
-// 渲染历史查看界面（左侧名称列表 + 右侧全部记录正文）
+// 渲染历史查看界面（左侧全部名称 + 右侧按需分页的正文）
 async function renderLlmHistory() {
     const listEl = document.getElementById("llm_history_list");
     const detailEl = document.getElementById("llm_history_detail");
     if (!listEl || !detailEl) return;
 
-    const entries = await llmHistory.loadHistory();
+    // 复制一份，避免查看期间新产生的记录改变数组索引
+    historyEntries = (await llmHistory.loadHistory()).slice();
     // 释放上一次渲染生成的图像 URL 与观察器
     releaseHistoryImages();
     listEl.innerHTML = "";
     detailEl.innerHTML = "";
+    historyFrom = 0;
+    historyTo = 0;
 
-    if (entries.length === 0) {
+    if (historyEntries.length === 0) {
         const empty = document.createElement("div");
         empty.className = "llm-history-empty";
         empty.textContent = t("llm_history.empty");
@@ -2593,10 +2684,7 @@ async function renderLlmHistory() {
         return;
     }
 
-    entries.forEach(entry => {
-        const record = createHistoryRecord(entry);
-        detailEl.appendChild(record);
-
+    historyEntries.forEach((entry, index) => {
         // 左侧名称：点击后右侧跳转到该条记录
         const item = document.createElement("button");
         item.type = "button";
@@ -2612,9 +2700,12 @@ async function renderLlmHistory() {
         time.textContent = formatHistoryTime(entry.time);
         item.appendChild(time);
 
-        item.addEventListener("click", () => selectHistoryRecord(item, record));
+        item.addEventListener("click", () => selectHistoryRecord(item, index));
         listEl.appendChild(item);
     });
+
+    // 右侧先只渲染最新一页，其余在滚动时加载
+    loadOlderHistoryPage();
 }
 
 // 初始化历史浮窗：打开/固定/拖动/缩放
@@ -2622,6 +2713,10 @@ function initLlmHistory() {
     const panel = document.getElementById("llm_history_panel");
     const openBtn = document.getElementById("btn_llm_history");
     if (!panel || !openBtn) return;
+
+    // 正文滚动到顶部/底部附近时自动加载更多
+    const detailEl = document.getElementById("llm_history_detail");
+    if (detailEl) detailEl.addEventListener("scroll", onHistoryDetailScroll, { passive: true });
 
     openBtn.addEventListener("click", async () => {
         // 已打开时点击按钮关闭（与其它浮窗的开关行为一致）
@@ -2631,6 +2726,8 @@ function initLlmHistory() {
         }
         await renderLlmHistory();
         showPopup(panel, 900, 600);
+        // 显示后若一页内容不足一屏，继续加载
+        fillHistoryViewport();
     });
 
     setupPopup(panel, {
