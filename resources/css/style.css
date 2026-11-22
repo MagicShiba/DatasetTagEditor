@@ -445,10 +445,6 @@ textarea {
   position: relative;
 }
 
-.dir-input-wrap input {
-  padding:4px;
-}
-
 .dir-drop-btn {
   position: absolute;
   right: 2px;
@@ -461,7 +457,6 @@ textarea {
   padding: 2px;
   line-height: 1;
   filter: grayscale(1);
-
 }
 
 /* 文件夹选择按钮位于历史按钮左侧，样式与历史按钮一致 */
@@ -635,25 +630,32 @@ textarea {
   flex-wrap: wrap;
 }
 
-.tab-btn {
+/* 标签页按钮（.tab-btn）与页内子标签按钮（.sub-tab-btn）统一风格：
+   相同的内边距、字号、悬停与选中表现，仅由容器决定间距 */
+.tab-btn,
+.sub-tab-btn {
   background: transparent;
   color: var(--text-dim);
   border: none;
   border-bottom: 2px solid transparent;
-  padding: 8px;
+  padding: 6px;
   cursor: pointer;
+  font-family: inherit;
   font-size: 13px;
 }
 
-.tab-btn:hover {
+.tab-btn:hover,
+.sub-tab-btn:hover {
   color: var(--text);
+  background: var(--border);
 }
 
-.tab-btn.active {
+.tab-btn.active,
+.sub-tab-btn.active {
   color: var(--accent);
+  background: var(--bg-input);
   border-bottom-color: var(--accent);
   font-weight: 600;
-  background: var(--bg)
 }
 
 .tab-content {
@@ -673,27 +675,7 @@ textarea {
 .sub-tabs {
   display: flex;
   border-bottom: 1px solid var(--border);
-  margin-bottom: 10px;
-}
-
-.sub-tab-btn {
-  background: transparent;
-  color: var(--text-dim);
-  border: none;
-  border-bottom: 2px solid transparent;
-  padding: 6px 12px;
-  cursor: pointer;
-  font-size: 13px;
-}
-
-.sub-tab-btn:hover {
-  color: var(--text);
-}
-
-.sub-tab-btn.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-  font-weight: 600;
+  flex-wrap: wrap;
 }
 
 .sub-tab-content {
@@ -1576,21 +1558,28 @@ textarea {
 .settings-grid {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin: 12px 0;
+  gap: 12px;
+  margin: 2px 0;
 }
 
 .settings-grid .field {
   margin-bottom: 0;
 }
 
-/* 设置界面分组（分割线分隔，无卡片背景） */
-.settings-group {
+/* 通用设置的一个分组：标题 + 若干设置项，左侧导航按分组跳转 */
+.settings-section {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
+/* 分组之间以细线分隔，避免相邻分组内容混在一起 */
+.settings-section + .settings-section {
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+/* 设置分组标题（无卡片背景，仅作分组标识） */
 .settings-group-title {
   font-weight: 600;
   color: var(--text);
@@ -1660,11 +1649,12 @@ textarea {
 
 /* ============ 设置浮动窗口 ============ */
 
-.settings-modal {
-  min-width: 620px;
-  max-width: 860px;
-  width: 90vw;
-  max-height: 85vh;
+/* 使用 ID 提高优先级，覆盖后续 .modal-wide 的宽度限制 */
+/* 设置窗口需要容纳"左侧导航 + 右侧内容"的双栏布局，适当加宽 */
+#settings_modal .settings-modal {
+  min-width: 650px;
+  max-width: 850px;
+  width: 92vw;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1674,12 +1664,10 @@ textarea {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
-  padding-right: 6px;
 }
 
 /* 设置窗口内的选项卡 */
 .settings-tabs {
-  margin-bottom: 10px;
   flex: none;
 }
 
@@ -1706,8 +1694,126 @@ textarea {
 .settings-note {
   font-size: 12px;
   color: var(--text-dim);
-  margin-bottom: 8px;
+  margin: 4px 0;
   line-height: 1.5;
+}
+
+/* LLM 配置 / 功能的左右布局：左侧列表，右侧详情 */
+.llm-settings-layout {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 6px;
+  align-items: start;
+  margin-bottom: 2px;
+}
+
+/* 左列：列表 + 列表下方的"添加"按钮，整体保持可见 */
+.llm-settings-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-right: 6px;
+  border-right: 2px solid var(--border);
+  max-height: 60vh;
+  /* 右侧内容较长时，左侧列表保持可见 */
+  position: sticky;
+  top: 0;
+  background: var(--bg-panel);
+}
+
+.llm-settings-col > .btn {
+  flex: none;
+  width: 100%;
+}
+
+.llm-settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-right: 6px;
+  border-right: 2px solid var(--border);
+  max-height: 60vh;
+  overflow-y: auto;
+  /* 右侧内容较长时，左侧列表保持可见 */
+  position: sticky;
+  top: 0;
+  background: var(--bg-panel);
+}
+
+/* 位于左列容器内时由容器负责边框与吸附，列表自身滚动即可 */
+.llm-settings-col > .llm-settings-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-right: 0;
+  border-right: none;
+  max-height: none;
+  position: static;
+  background: transparent;
+}
+
+/* ------------------------------------------------------------------
+   左侧列表项统一样式：
+   .llm-settings-item（设置页左栏导航）与 .llm-history-item（LLM 历史左栏）
+   共用同一套视觉规格（内边距 / 圆角 / 悬停 / 选中），仅内部排版不同。
+   ------------------------------------------------------------------ */
+.llm-history-item {
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font-size: 12px;
+  cursor: pointer;
+}
+.llm-settings-item{
+  border: 1px solid transparent;
+  color: var(--text);
+  text-align: left;
+  background: transparent;
+  padding: 6px;
+}
+.llm-settings-item:hover{
+  background: var(--border);
+
+}
+.llm-settings-item.selected{
+  background: var(--bg-input);
+}
+.llm-history-item:hover {
+  background: var(--bg-input);
+}
+.llm-history-item.selected {
+  background: var(--bg);
+  font-weight: 600;
+}
+
+/* 设置页左栏条目为单行文本，超出省略 */
+.llm-settings-item {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* LLM 历史左栏条目为两行（名称 + 时间） */
+.llm-history-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* 右侧详情区域不允许被内容撑破；内容过长时自身滚动，左侧列表保持可见 */
+.llm-settings-detail {
+  min-width: 0;
+  max-height: 62vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* 左侧列表点击跳转后，目标卡片短暂高亮 */
+.llm-card.flash {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
 /* LLM 配置 / 功能卡片 */
@@ -1715,27 +1821,49 @@ textarea {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-input);
-  padding: 4px;
+  padding: 10px;
   margin-bottom: 8px;
 }
 
-.llm-card-header {
+/* 名称字段独占一行，作为卡片的标题 */
+.llm-name-field {
+  margin-bottom: 8px;
+}
+
+/* 卡片标题行：名称字段在左，使用 / 复制 / 删除等操作在右 */
+.llm-card-head {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 8px;
 }
 
-.llm-name-label {
+.llm-card-head .llm-name-field {
+  flex: 1 1 160px;
+  min-width: 0;
   margin-bottom: 0;
-  white-space: nowrap;
+}
+
+/* 标题行内的操作组不再需要底部间距 */
+.llm-card-head .llm-card-actions {
+  margin-bottom: 0;
   flex: none;
 }
 
-.llm-card-header .lc-name,
-.llm-card-header .lf-name {
-  flex: 1;
+.llm-name-field .lc-name,
+.llm-name-field .lf-name {
+  font-size: 15px;
   font-weight: 600;
+}
+
+/* 名称下方的操作行：激活、复制、删除等 */
+.llm-card-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
 }
 
 .llm-active {
@@ -1749,17 +1877,66 @@ textarea {
   padding: 2px 10px;
 }
 
-/* LLM 功能卡片头部的"使用的配置"下拉框 */
+/* LLM 功能卡片操作行中的"使用的配置"下拉框 */
+.llm-inline-label {
+  margin-bottom: 0;
+  white-space: nowrap;
+}
+
 .llm-fn-config {
   flex: none;
   width: auto;
+  min-width: 110px;
+  max-width: 220px;
+}
+
+/* ------------------------------------------------------------------
+   反推 / 翻译提示词编辑块（每块对应一类提示词，可多份并切换）
+   ------------------------------------------------------------------ */
+.llm-prompt-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.llm-prompt-block {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  padding: 10px;
+}
+
+/* 翻译功能关闭时弱化翻译提示词块（内容仍可编辑，只是当前不生效） */
+.llm-prompt-block.disabled {
+  opacity: 0.55;
+}
+
+/* 标题行：标题 + 切换下拉 + 新建 / 复制 / 删除 */
+.llm-prompt-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.llm-prompt-head .lp-select {
+  flex: 1 1 120px;
   min-width: 100px;
-  max-width: 160px;
+  max-width: 220px;
+}
+
+/* 提示词通常较长，放宽显示高度（超出后内部滚动）；
+   提高选择器优先级以覆盖 .modal-wide .modal-body textarea 的高度限制 */
+.modal-body .llm-prompt-block .lp-text {
+  min-height: 7em;
+  max-height: 320px;
 }
 
 .llm-card-row {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
   margin-bottom: 6px;
 }
@@ -1882,7 +2059,7 @@ textarea {
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 16px;
+  padding: 10px;
   min-width: 320px;
   max-width: 480px;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
@@ -2171,8 +2348,6 @@ textarea {
 .modal-body {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-bottom: 16px;
 }
 
 .modal-body input[type="color"] {
@@ -2289,6 +2464,86 @@ textarea {
 .context-menu button[hidden] {
   display: none;
 }
+
+/* 带子菜单的菜单项：主项（默认操作）+ 右侧展开的选项列表 */
+.context-menu-item.has-submenu {
+  position: relative;
+}
+
+/* 主项有子菜单时在右侧显示箭头提示 */
+.context-menu-item.has-submenu > button::after {
+  content: "▸";
+  float: right;
+  margin-left: 12px;
+  opacity: 0.7;
+}
+
+.context-submenu {
+  position: fixed;
+  z-index: 1500001;
+  min-width: 160px;
+  max-width: 280px;
+  max-height: 60vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  padding: 4px;
+}
+
+.context-submenu button {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: 6px 10px;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.context-submenu button:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* 菜单项前的勾选标记（功能开关 / 当前默认项） */
+.context-menu .cm-check {
+  flex: none;
+  display: inline-block;
+  width: 14px;
+  text-align: center;
+  margin-right: 4px;
+  opacity: 0.9;
+}
+
+/* 菜单标题与说明文字（不可点击） */
+.context-menu-title {
+  padding: 4px 10px 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+  white-space: nowrap;
+}
+
+.context-menu-note {
+  padding: 4px 10px 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+  opacity: 0.8;
+}
+
 
 /* ============ 底部提示（Toast） ============ */
 
@@ -2487,38 +2742,16 @@ textarea {
   overflow: hidden;
 }
 
-/* 左侧名称列表：点击后右侧正文跳转到对应记录 */
+/* 左侧名称列表：点击后右侧正文跳转到对应记录
+   （条目 .llm-history-item 的样式与设置页左栏统一，定义见上方"左侧列表项统一样式"） */
 .llm-history-list {
   flex: none;
   width: auto;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  background: #191d22;
-  border-right: 2px solid var(--border);
-}
-
-.llm-history-item {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 4px 6px;
-  border: none;
-  background: transparent;
-  color: var(--text);
-  font-family: inherit;
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.llm-history-item:hover {
-  background: var(--bg-input);
-}
-
-.llm-history-item.selected {
-  background: rgba(255, 255, 255, 0.1);
-  border-left-color: var(--accent);
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
 }
 
 .llm-history-item-name {

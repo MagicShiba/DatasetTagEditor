@@ -403,41 +403,40 @@
                 <button class="sub-tab-btn" data-subtab="st_settings_llmfn" data-i18n="settings.tab_llm_functions">LLM 功能</button>
             </nav>
             <div class="modal-body settings-modal-body">
+                <!-- 通用：左侧按功能分组的导航列表，右侧为全部分组内容，点击左侧跳转 -->
                 <div class="sub-tab-content active" id="st_settings_general">
-                    <div class="settings-grid" id="settings-grid"></div>
+                    <div class="llm-settings-layout">
+                        <div class="llm-settings-list" id="settings-nav-list"></div>
+                        <div class="llm-settings-detail" id="settings-detail">
+                            <div class="settings-grid" id="settings-grid"></div>
+                        </div>
+                    </div>
+                    <!-- 清除缓存按钮由 buildGallerySection 移入画廊分组内 -->
                     <div id="clear-cache-box">
                         <button id="btn_clear_cache" class="btn" data-i18n="settings.clear_cache">清除缩略图缓存</button>
                         <span id="lbl_cache_status" class="cache-status" hidden></span>
                     </div>
                 </div>
                 <div class="sub-tab-content" id="st_settings_llmcfg">
-                    <div class="field">
-                        <label class="field-label" data-i18n="settings.llm_reverse_prompt">反推标注提示词</label>
-                        <textarea id="tb_llm_reverse_prompt" rows="4" data-i18n-placeholder="settings.llm_reverse_prompt_hint" placeholder="该提示词用于加载数据集时，对不存在文本文件的图像进行 LLM 反推标注"></textarea>
-                    </div>
-                    <div class="field">
-                        <label class="field-label" data-i18n="settings.llm_reverse_config">反推标注使用的配置</label>
-                        <select id="tb_llm_reverse_config"></select>
-                    </div>
-                    <div class="field">
-                        <label class="field-label" data-i18n="settings.llm_translate_prompt">翻译提示词</label>
-                        <textarea id="tb_llm_translate_prompt" rows="4" data-i18n-placeholder="settings.llm_translate_prompt_hint" placeholder="该提示词用于编辑框选中文本的 LLM 翻译（译按钮）"></textarea>
-                    </div>
-                    <div class="field">
-                        <label class="field-label" data-i18n="settings.llm_translate_config">翻译使用的配置</label>
-                        <select id="tb_llm_translate_config"></select>
-                    </div>
                     <div class="settings-note" data-i18n="settings.llm_configs_note">可配置多个模型（本地 / 云端），每个配置独立设置 API 地址、Key、模型名与自定义参数。</div>
-                    <div id="llm-configs-box"></div>
-                    <div class="row">
-                        <button id="btn_add_llm_config" class="btn" data-i18n="settings.add_config">+ 添加配置</button>
+                    <!-- 左侧列表仅用于跳转到对应卡片（列表下方为添加按钮），右侧同时显示全部配置卡片 -->
+                    <div class="llm-settings-layout">
+                        <div class="llm-settings-col">
+                            <div class="llm-settings-list" id="llm-configs-list"></div>
+                            <button id="btn_add_llm_config" class="btn compact" data-i18n="settings.add_config">+ 添加配置</button>
+                        </div>
+                        <div class="llm-settings-detail" id="llm-configs-box"></div>
                     </div>
                 </div>
                 <div class="sub-tab-content" id="st_settings_llmfn">
-                    <div class="settings-note" data-i18n="settings.llm_functions_note">自定义基于 LLM 的功能按钮（如翻译、反推提示）。可添加任意数量，在编辑选中图像时会话中动态显示。</div>
-                    <div id="llm-functions-box"></div>
-                    <div class="row">
-                        <button id="btn_add_llm_function" class="btn" data-i18n="settings.add_function">+ 添加功能</button>
+                    <div class="settings-note" data-i18n="settings.llm_functions_note">自定义基于 LLM 的功能按钮（如翻译、反推提示）。可添加任意数量，未启用的功能不会显示在编辑区的按钮中。</div>
+                    <!-- 左侧列表仅用于跳转到对应卡片（列表下方为添加按钮），右侧同时显示全部功能卡片 -->
+                    <div class="llm-settings-layout">
+                        <div class="llm-settings-col">
+                            <div class="llm-settings-list" id="llm-functions-list"></div>
+                            <button id="btn_add_llm_function" class="btn compact" data-i18n="settings.add_function">+ 添加功能</button>
+                        </div>
+                        <div class="llm-settings-detail" id="llm-functions-box"></div>
                     </div>
                 </div>
             </div>
@@ -483,10 +482,17 @@
         <button type="button" data-action="copy_image" data-i18n="gallery.copy_image">复制图像</button>
         <button type="button" data-action="copy_link" data-i18n="gallery.copy_link">复制连接</button>
         <button type="button" data-action="reveal" data-i18n="gallery.reveal_image">定位图像</button>
-        <button type="button" data-action="reverse" data-i18n="gallery.add_to_reverse">加入反推列表</button>
+        <!-- 加入反推列表：直接点击使用默认（当前启用）的反推提示词，悬停时在右侧展开其它提示词 -->
+        <div class="context-menu-item has-submenu" id="gallery_reverse_item">
+            <button type="button" data-action="reverse" data-i18n="gallery.add_to_reverse">加入反推列表</button>
+            <div class="context-submenu hidden" id="gallery_reverse_submenu"></div>
+        </div>
         <button type="button" data-action="add_selection" data-i18n="gallery.add_to_selection">加入选择筛选</button>
         <button type="button" data-action="add_selection_all" data-i18n="gallery.add_all_displayed_to_selection">将所有显示加入选择筛选</button>
     </div>
+
+    <!-- ======================= 编辑操作区右键菜单（快速启用/停用按钮） ======================= -->
+    <div id="actions_context_menu" class="context-menu hidden"></div>
 
     <script src="js/neutralino.js"></script>
     <script type="module" src="js/main.js"></script>

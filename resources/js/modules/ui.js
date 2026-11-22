@@ -1,7 +1,7 @@
 // ui.js - UI 事件绑定与各功能模块初始化
 
 import { app, renderGallery, openFolderDialog, applyColumns, updateGalleryStateDisplay, sortGalleryPaths, invalidateThumbUrlCache, updateThumbBadge, updateThumbCaption } from "./app.js";
-import { config, settings, getSetting, setSetting, SETTINGS_DEFAULT, SETTINGS_DESCRIPTIONS, SETTINGS_HIDDEN, LLM_CONFIG_DEFAULT, LLM_FN_DEFAULT, getActiveProfile, setActiveProfile, saveProfile } from "./config.js";
+import { config, settings, getSetting, setSetting, SETTINGS_DEFAULT, SETTINGS_DESCRIPTIONS, SETTINGS_HIDDEN, LLM_CONFIG_DEFAULT, LLM_FN_DEFAULT, LLM_PROMPT_DEFAULT, PROMPT_KINDS, getActivePrompt, getPromptByName, getActiveProfile, setActiveProfile, saveProfile } from "./config.js";
 import { t, getLang, setLang, applyI18n, discoverLanguages, getAvailableLanguages } from "./i18n.js";
 import { PathFilter, FilterMode, FilterLogic, SortBy, SortOrder, joinTagsWithSepts } from "./dataset.js";
 import { TagFilterState } from "./tagfilter_state.js";
@@ -1004,6 +1004,7 @@ async function doLoadDataset() {
 const llmReverse = {
     paths: [],           // 队列（待处理 / 处理中 / 已完成 / 失败）
     status: new Map(),   // path -> 'pending' | 'processing' | 'done' | 'failed'
+    prompts: new Map(),  // path -> 使用的反推提示词名称（空表示当前启用的提示词）
     rows: new Map(),     // path -> { row, statusEl, cancelBtn }
     running: false,      // 是否正在执行单个反推任务
 };
@@ -1023,6 +1024,7 @@ function resetLlmReverse() {
     llmReverseRunId++;
     llmReverse.paths = [];
     llmReverse.status = new Map();
+    llmReverse.prompts = new Map();
     llmReverse.rows = new Map();
     llmReverse.running = false;
     const listEl = document.getElementById("llm_progress_list");
@@ -1053,11 +1055,19 @@ function startLlmReverseProcess(missingPaths) {
 }
 
 // 将图像加入待反推队列（画廊拖入 / 加载缺失文件）；成功加入返回 true
-function addLlmReverseImage(path) {
-    if (llmReverse.status.has(path)) return false;
+// promptName 指定该图像使用的反推提示词（画廊右键菜单选择），为空时使用当前启用的一份
+function addLlmReverseImage(path, promptName) {
+    if (llmReverse.status.has(path)) {
+        // 已在队列中：允许为尚未开始处理的任务改选反推提示词
+        if (promptName && llmReverse.status.get(path) === "pending") {
+            llmReverse.prompts.set(path, promptName);
+        }
+        return false;
+    }
     if (!app.dte.dataset.getData(path)) return false;
     llmReverse.paths.push(path);
     llmReverse.status.set(path, "pending");
+    if (promptName) llmReverse.prompts.set(path, promptName);
     renderRow(path);
     updateProgress();
     pumpLlmReverse(); // 空闲则开始处理
@@ -1070,6 +1080,7 @@ function removeLlmReverseImage(path) {
     if (info) info.row.remove();
     llmReverse.rows.delete(path);
     llmReverse.status.delete(path);
+    llmReverse.prompts.delete(path);
     const idx = llmReverse.paths.indexOf(path);
     if (idx >= 0) llmReverse.paths.splice(idx, 1);
     updateProgress();
@@ -1772,7 +1783,7 @@ async function pumpLlmReverse() {
     llmReverse.status.set(next, "processing");
     updateRowStatus(next);
     try {
-        const text = await llm.reverseCaption(next);
+        const text = await llm.reverseCaption(next, llmReverse.prompts.get(next));
         if (!llmReverse.status.has(next)) return; // 处理期间被移除（取消）
         const append = getSetting("llm_reverse_append") !== false;
         const captionSplit = splitCaptionWithSepts(text);
@@ -1868,27 +1879,110 @@ function initLlmReverse() {
 }
 
 // ================================================================
+// 右键菜单通用工具（画廊缩略图 / 编辑操作区共用）
+// ================================================================
+
+// 在指定坐标显示右键菜单（显示后测量尺寸，自动限制在窗口内）
+function showContextMenu(menu, x, y) {
+    menu.classList.remove("hidden");
+    menu.style.left = Math.max(4, Math.min(x, window.innerWidth - menu.offsetWidth - 4)) + "px";
+    menu.style.top = Math.max(4, Math.min(y, window.innerHeight - menu.offsetHeight - 4)) + "px";
+}
+
+// 右键菜单通用关闭行为：点击菜单外 / Esc / 窗口失焦
+function bindContextMenuDismiss(menu, onHide) {
+    document.addEventListener("click", (e) => {
+        if (!menu.classList.contains("hidden") && !menu.contains(e.target)) onHide();
+    });
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") onHide();
+    });
+    window.addEventListener("blur", onHide);
+}
+
+// 菜单项前的勾选标记（功能开关 / 当前默认项）
+function checkMark(checked) {
+    const span = document.createElement("span");
+    span.className = "cm-check";
+    span.textContent = checked ? "✓" : "";
+    return span;
+}
+
+// ================================================================
 // 画廊右键菜单 + Ctrl 多选
 // ================================================================
 
 // 右键点击的图像路径（复制图像 / 复制连接 作用于此图）
 let galleryContextPath = "";
 
-// 在指定坐标显示画廊右键菜单（自动限制在窗口内）
-function showGalleryContextMenu(x, y) {
-    const menu = document.getElementById("gallery_context_menu");
-    const mw = menu.offsetWidth || 160;
-    const mh = menu.offsetHeight || 90;
-    const left = Math.max(4, Math.min(x, window.innerWidth - mw - 4));
-    const top = Math.max(4, Math.min(y, window.innerHeight - mh - 4));
-    menu.style.left = left + "px";
-    menu.style.top = top + "px";
-    menu.classList.remove("hidden");
+// 关闭画廊右键菜单（同时收起提示词子菜单）
+function hideGalleryContextMenu() {
+    document.getElementById("gallery_context_menu").classList.add("hidden");
+    hideReverseSubmenu();
 }
 
-function hideGalleryContextMenu() {
-    const menu = document.getElementById("gallery_context_menu");
-    if (menu) menu.classList.add("hidden");
+// ---------- "加入反推列表"的右侧提示词子菜单 ----------
+
+// 子菜单隐藏定时器（鼠标从主项移到子菜单的间隙不立即隐藏，避免闪烁）
+let reverseSubmenuTimer = null;
+
+// 构建子菜单：列出全部反推提示词，当前启用的那一份标记为默认（✓）
+// 只有一份提示词时没有其它可选项，隐藏箭头与子菜单
+function buildReverseSubmenu() {
+    const item = document.getElementById("gallery_reverse_item");
+    const submenu = document.getElementById("gallery_reverse_submenu");
+    submenu.innerHTML = "";
+    hideReverseSubmenu();
+    const list = (getSetting("llm_reverse_prompts") || []).filter(p => p.name);
+    if (list.length <= 1) {
+        item.classList.remove("has-submenu");
+        return;
+    }
+    item.classList.add("has-submenu");
+    const activeName = getActivePrompt("reverse").name;
+    for (const p of list) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.append(checkMark(p.name === activeName), p.name);
+        btn.title = t("gallery.reverse_with_prompt");
+        btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            addSelectedToReverse(p.name);
+            hideGalleryContextMenu();
+        });
+        submenu.appendChild(btn);
+    }
+}
+
+// 在菜单右侧显示子菜单；右侧空间不足时翻转到左侧
+function showReverseSubmenu() {
+    const item = document.getElementById("gallery_reverse_item");
+    const submenu = document.getElementById("gallery_reverse_submenu");
+    if (!item.classList.contains("has-submenu")) return;
+    clearTimeout(reverseSubmenuTimer);
+    submenu.classList.remove("hidden");
+    const menuRect = document.getElementById("gallery_context_menu").getBoundingClientRect();
+    const itemRect = item.getBoundingClientRect();
+    const w = submenu.offsetWidth;
+    const h = submenu.offsetHeight;
+    let left = menuRect.right - 4;
+    if (left + w > window.innerWidth - 4) left = Math.max(4, menuRect.left - w + 4);
+    let top = itemRect.top - 4;
+    if (top + h > window.innerHeight - 4) top = Math.max(4, window.innerHeight - h - 4);
+    submenu.style.left = left + "px";
+    submenu.style.top = top + "px";
+}
+
+// 隐藏子菜单（清除待执行定时器）
+function hideReverseSubmenu() {
+    clearTimeout(reverseSubmenuTimer);
+    document.getElementById("gallery_reverse_submenu").classList.add("hidden");
+}
+
+// 延迟隐藏子菜单：留出鼠标从主项移动到子菜单的时间
+function scheduleHideReverseSubmenu() {
+    clearTimeout(reverseSubmenuTimer);
+    reverseSubmenuTimer = setTimeout(hideReverseSubmenu, 160);
 }
 
 // 复制纯文本到系统剪贴板（优先使用原生 API，失败时回退 navigator.clipboard）
@@ -1947,40 +2041,32 @@ async function copyLinkAction() {
     showToast(ok ? t("gallery.copied_link") : t("gallery.copy_failed"), ok ? "success" : "error");
 }
 
-// 菜单动作：将图像加入反推列表。
-// 若右键目标属于当前选中集合（当前单选或 Ctrl 多选），则加入全部选中图像；
-// 否则只加入右键目标本身
-function addSelectedToReverse() {
-    const ctxInSelection = galleryContextPath
+// 右键菜单作用的目标集合：右键目标属于当前选中集合（单选或 Ctrl 多选）时取全部选中，
+// 否则只取右键目标本身
+function getContextPaths() {
+    const inSelection = galleryContextPath
         && (app.galleryMultiSelected.has(galleryContextPath)
             || galleryContextPath === app.gallerySelectedPath);
-    const paths = new Set();
-    if (ctxInSelection) {
-        for (const p of app.galleryMultiSelected) paths.add(p);
-        if (app.gallerySelectedPath) paths.add(app.gallerySelectedPath);
-    }
+    const paths = inSelection ? getGallerySelectedPaths() : new Set();
     if (galleryContextPath) paths.add(galleryContextPath);
-    const list = [...paths].filter(p => p);
+    return paths;
+}
+
+// 菜单动作：将图像加入反推列表
+// promptName 指定使用的反推提示词（为空表示默认：当前启用的那一份）
+function addSelectedToReverse(promptName) {
+    const list = [...getContextPaths()];
     if (list.length === 0) return;
     // 打开反推管理窗口，便于查看队列
     toggleLlmReversePanel(true);
-    for (const p of list) addLlmReverseImage(p);
-    showToast(`${t("gallery.added_to_reverse")}: ${list.length}`, "success");
+    for (const p of list) addLlmReverseImage(p, promptName);
+    const name = promptName || getActivePrompt("reverse").name;
+    showToast(`${t("gallery.added_to_reverse")}: ${list.length}${name ? ` · ${name}` : ""}`, "success");
 }
 
-// 菜单动作：将右键目标加入选择筛选。
-// 若右键目标属于当前选中集合（当前单选或 Ctrl 多选），则加入全部选中图像；
-// 否则只加入右键目标本身
+// 菜单动作：将右键目标加入选择筛选
 function addContextToSelection() {
-    const ctxInSelection = galleryContextPath
-        && (app.galleryMultiSelected.has(galleryContextPath)
-            || galleryContextPath === app.gallerySelectedPath);
-    const paths = new Set();
-    if (ctxInSelection) {
-        for (const p of app.galleryMultiSelected) paths.add(p);
-        if (app.gallerySelectedPath) paths.add(app.gallerySelectedPath);
-    }
-    if (galleryContextPath) paths.add(galleryContextPath);
+    const paths = getContextPaths();
     if (paths.size === 0) return;
     let added = 0;
     for (const p of paths) {
@@ -2035,8 +2121,19 @@ function initGalleryContextMenu() {
         menu.querySelectorAll('[data-action="add_selection"], [data-action="add_selection_all"]').forEach(b => {
             b.hidden = !selTabActive;
         });
-        showGalleryContextMenu(e.clientX, e.clientY);
+        // 每次打开时按当前提示词列表重建"加入反推列表"子菜单
+        buildReverseSubmenu();
+        showContextMenu(menu, e.clientX, e.clientY);
     });
+
+    // "加入反推列表"主项悬停时在右侧展开其它反推提示词；
+    // 鼠标移出主项后延迟隐藏，进入子菜单时取消隐藏
+    const reverseItem = document.getElementById("gallery_reverse_item");
+    const reverseSubmenu = document.getElementById("gallery_reverse_submenu");
+    reverseItem.addEventListener("mouseenter", showReverseSubmenu);
+    reverseItem.addEventListener("mouseleave", scheduleHideReverseSubmenu);
+    reverseSubmenu.addEventListener("mouseenter", () => clearTimeout(reverseSubmenuTimer));
+    reverseSubmenu.addEventListener("mouseleave", scheduleHideReverseSubmenu);
 
     // 点击菜单项执行对应动作
     menu.addEventListener("click", (e) => {
@@ -2053,15 +2150,100 @@ function initGalleryContextMenu() {
     });
 
     // 点击菜单外 / Esc / 窗口失焦时关闭菜单
-    document.addEventListener("click", (e) => {
-        if (!menu.classList.contains("hidden") && !menu.contains(e.target)) {
-            hideGalleryContextMenu();
-        }
+    bindContextMenuDismiss(menu, hideGalleryContextMenu);
+}
+
+// ================================================================
+// 编辑操作区（.actions-row）右键菜单：快速启用 / 停用该区域的按钮
+// ================================================================
+
+// 切换布尔设置（缺省视为开启）
+function toggleSetting(key) {
+    setSetting(key, getSetting(key) === false);
+}
+
+// 应用"编辑操作区"按钮的显示设置（模式切换按钮可在设置或右键菜单中关闭）
+function applyActionsRowVisibility() {
+    const showMode = getSetting("show_mode_btn") !== false;
+    document.getElementById("btn_toggle_mode").classList.toggle("hidden", !showMode);
+    // 隐藏模式切换按钮时回到文本编辑模式，避免停留在胶囊模式下无法切回
+    if (!showMode && document.getElementById("cb_use_capsule_editor").checked) {
+        setCapsuleEnabled(false);
+    }
+}
+
+// 应用翻译功能开关：关闭时隐藏"译"按钮并关闭翻译浮窗
+function applyTranslateEnabled() {
+    if (getSetting("translate_enabled") !== false) return;
+    hideTranslateTrigger();
+    hidePopup(document.getElementById("translate_popup"));
+}
+
+// 应用与编辑区按钮相关的设置（LLM 功能按钮 / 模式按钮 / 翻译开关）
+function applyEditAreaSettings() {
+    buildLlmFunctionButtons();
+    applyActionsRowVisibility();
+    applyTranslateEnabled();
+}
+
+// 构建编辑操作区菜单内容：标题 + 模式切换 / 替换标点 / 各 LLM 功能的启用开关
+function buildActionsContextMenu() {
+    const menu = document.getElementById("actions_context_menu");
+    menu.innerHTML = "";
+
+    const title = document.createElement("div");
+    title.className = "context-menu-title";
+    title.textContent = t("edit_caption.actions_menu_title");
+    menu.appendChild(title);
+
+    // 每个条目：勾选标记 + 文字，点击后切换开关并立即重建按钮区
+    const addItem = (labelText, checked, onToggle) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.append(checkMark(checked), labelText);
+        btn.title = labelText;
+        btn.addEventListener("click", (e) => {
+            // 阻止冒泡到 document 的"点击外部关闭"，菜单重建后仍能继续勾选
+            e.stopPropagation();
+            onToggle();
+            applyEditAreaSettings();
+            buildActionsContextMenu();
+            settings.save().catch(err => console.warn("保存设置失败", err));
+        });
+        menu.appendChild(btn);
+    };
+
+    // 模式切换按钮（标签编辑 / 文本编辑）
+    addItem(t("edit_caption.mode_btn"), getSetting("show_mode_btn") !== false,
+        () => toggleSetting("show_mode_btn"));
+    // 替换标点按钮
+    addItem(t("edit_caption.replace_punct"), getSetting("replace_punct_enabled") !== false,
+        () => toggleSetting("replace_punct_enabled"));
+    // 各 LLM 功能按钮（名称即按钮文字，可单独启用 / 停用）
+    const fns = (getSetting("llm_functions") || []).filter(fn => fn.name);
+    for (const fn of fns) {
+        addItem(fn.name, fn.enabled !== false, () => { fn.enabled = fn.enabled === false; });
+    }
+    if (fns.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "context-menu-note";
+        empty.textContent = t("edit_caption.no_llm_functions");
+        menu.appendChild(empty);
+    }
+}
+
+// 初始化编辑操作区右键菜单
+function initActionsContextMenu() {
+    const row = document.querySelector(".actions-row");
+    const menu = document.getElementById("actions_context_menu");
+    if (!row || !menu) return;
+
+    row.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        buildActionsContextMenu();
+        showContextMenu(menu, e.clientX, e.clientY);
     });
-    document.addEventListener("keydown", (e) => {
-        if (e.key === "Escape") hideGalleryContextMenu();
-    });
-    window.addEventListener("blur", hideGalleryContextMenu);
+    bindContextMenuDismiss(menu, () => menu.classList.add("hidden"));
 }
 
 // ================================================================
@@ -2085,8 +2267,8 @@ function initEditSelected() {
         setEditCaptionValue([ta.value, cap].filter(Boolean).join(", "));
     });
 
-    // 动态构建编辑选中图像页面的操作按钮（替换标点 + LLM 功能）
-    buildLlmFunctionButtons();
+    // 动态构建编辑选中图像页面的操作按钮，并应用模式按钮 / 翻译开关
+    applyEditAreaSettings();
 
     // 高亮帮助
     document.getElementById("btn_highlight_help").addEventListener("click", () => {
@@ -2209,10 +2391,11 @@ function buildLlmFunctionButtons() {
         box.appendChild(punctBtn);
     }
 
-    // LLM 功能按钮
+    // LLM 功能按钮（设置中未启用的功能不显示）
     const fns = getSetting("llm_functions") || [];
     for (const fn of fns) {
         if (!fn || !fn.name) continue;
+        if (fn.enabled === false) continue;
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "btn compact";
@@ -2778,6 +2961,11 @@ function normalizeTranslateText(text) {
 function onSelectionMouseUp(e) {
     const btn = document.getElementById("translate_trigger");
     if (!btn) return;
+    // 翻译功能关闭时不显示"译"按钮
+    if (getSetting("translate_enabled") === false) {
+        hideTranslateTrigger();
+        return;
+    }
     const target = e.target;
     // 点击"译"按钮/浮窗内部时不重置选中来源（按钮 mouseup 也会冒泡到这里，
     // 若清除 translateSel，后续 click 将因编辑框失焦而无从取到选中文本）
@@ -3928,10 +4116,12 @@ function initSettings() {
     buildSettingsGrid();
     buildLlmConfigs();
     buildLlmFunctions();
+    // 通用设置左栏导航：内容滚动时同步高亮
+    initSettingsNavScrollSpy();
 
     // 打开 / 关闭设置窗口
     document.getElementById("btn_open_settings").addEventListener("click", async () => {
-        // 刷新语言包列表（新增语言文件后自动出现在下拉框中）
+        // 刷新语言包列表（新增语言文件后自动出现在语言单选框里）
         await discoverLanguages().catch(() => {});
         // 同步档案单选框为当前档案
         const rb = document.querySelector(`input[name="settings_profile"][value="${getActiveProfile()}"]`);
@@ -3966,7 +4156,7 @@ function initSettings() {
             buildSettingsGrid();
             buildLlmConfigs();
             buildLlmFunctions();
-            buildLlmFunctionButtons();
+            applyEditAreaSettings();
             setLang(getSetting("language"));
             await applyI18n();
             // 状态栏标签按新语言重绘（键名不变，仅翻译变化）
@@ -3986,6 +4176,9 @@ function initSettings() {
         readLlmConfigs();
         readLlmFunctions();
         await settings.save();
+        // 记录条数上限可能被调小，加载历史后立即裁剪（未加载时会先读取文件）
+        await llmHistory.loadHistory();
+        llmHistory.trimToLimit();
         // 立即应用标签分隔符设置
         setTagSeparators(getSetting("tag_separators"));
         const lang = getSetting("language");
@@ -3997,8 +4190,8 @@ function initSettings() {
         buildSettingsGrid();
         buildLlmConfigs();
         buildLlmFunctions();
-        // 保存后重建编辑区的 LLM 功能按钮
-        buildLlmFunctionButtons();
+        // 保存后重建编辑区的 LLM 功能按钮，并应用模式按钮 / 翻译开关
+        applyEditAreaSettings();
         // 字符统计倍率变化后立即刷新编辑框计数
         updateCaptionCharCount();
         // 坐标范围 / 坐标类型设置可能变化，重绘当前图像的边界框
@@ -4011,7 +4204,7 @@ function initSettings() {
         buildSettingsGrid();
         buildLlmConfigs();
         buildLlmFunctions();
-        buildLlmFunctionButtons();
+        applyEditAreaSettings();
         updateCaptionCharCount();
     });
 
@@ -4024,20 +4217,28 @@ function initSettings() {
             : t("settings.cache_empty");
     });
 
-    // 添加 / 删除 LLM 配置
+    // 添加 LLM 配置：先回写所有卡片，再追加新配置并跳转过去
     document.getElementById("btn_add_llm_config").addEventListener("click", () => {
+        readAllLlmConfigs();
+        readAllLlmFunctions();
         const configs = getSetting("llm_configs") || [];
         configs.push({ ...LLM_CONFIG_DEFAULT, name: `${t("settings.config")}${configs.length + 1}` });
         setSetting("llm_configs", configs);
         buildLlmConfigs();
+        // 让功能页与通用页的"使用的配置"下拉框同步出现新配置
+        buildLlmFunctions();
+        refreshPromptConfigSelects();
+        jumpToLlmCard(document.getElementById("llm-configs-list"), document.getElementById("llm-configs-box"), configs.length - 1);
     });
 
-    // 添加 / 删除 LLM 功能
+    // 添加 LLM 功能：先回写所有卡片，再追加新功能并跳转过去
     document.getElementById("btn_add_llm_function").addEventListener("click", () => {
+        readAllLlmFunctions();
         const fns = getSetting("llm_functions") || [];
         fns.push({ ...LLM_FN_DEFAULT, name: `${t("settings.fn")}${fns.length + 1}` });
         setSetting("llm_functions", fns);
         buildLlmFunctions();
+        jumpToLlmCard(document.getElementById("llm-functions-list"), document.getElementById("llm-functions-box"), fns.length - 1);
     });
 }
 
@@ -4088,69 +4289,352 @@ function createPunctRulesTable() {
 }
 
 // 构建设置表单（通用设置项）
-// 分组布局：语言置顶；画廊与缩略图分组；通用设置区；标点替换分组，各分组间以分割线分隔
+// 布局：左侧为按功能分组的导航列表（点击跳转），右侧一次性显示全部分组内容。
+// 分组顺序：界面语言 / 画廊与缩略图 / 文件名与线程 / 标签与标点 / 边界框 / 反推与翻译
 function buildSettingsGrid() {
     const grid = document.getElementById("settings-grid");
+    const nav = document.getElementById("settings-nav-list");
+    if (!grid) return;
     // 摘除清除缓存按钮容器（避免被 innerHTML 清空），画廊分组内再放回
     const clearBox = document.getElementById("clear-cache-box");
     if (clearBox) clearBox.remove();
     grid.innerHTML = "";
+    if (nav) nav.innerHTML = "";
 
     const seen = new Set();
-    const markSeen = (name) => { seen.add(name); };
-    // 分组之间的分割线
-    const divider = () => {
-        const hr = document.createElement("hr");
-        hr.className = "section-divider";
-        grid.appendChild(hr);
+    const markSeen = (...names) => names.forEach(n => seen.add(n));
+
+    // 追加一个分组：自动生成标题、跳转锚点，并在左侧导航中注册同名条目
+    const addSection = (id, titleKey, nodes) => {
+        const sec = document.createElement("section");
+        sec.className = "settings-section";
+        sec.id = "settings_sec_" + id;
+        const title = document.createElement("div");
+        title.className = "settings-group-title";
+        title.textContent = t(titleKey);
+        sec.appendChild(title);
+        for (const node of nodes) sec.appendChild(node);
+        grid.appendChild(sec);
+        if (nav) nav.appendChild(createSettingsNavItem(sec, t(titleKey)));
     };
 
-    // 语言设置置顶
-    grid.appendChild(renderSettingsField("language"));
+    // 界面（语言以单选框呈现）
     markSeen("language");
+    addSection("interface", "settings.interface_group", [renderSettingsField("language")]);
 
     // 画廊与缩略图分组（含清除缓存按钮）
-    for (const n of ["cleanup_tmpdir", "max_resolution", "gallery_image_width"]) markSeen(n);
-    divider();
-    grid.appendChild(buildGallerySection(clearBox));
+    markSeen("cleanup_tmpdir", "max_resolution", "gallery_image_width");
+    addSection("gallery", "settings.gallery_group", buildGallerySection(clearBox));
 
     // 文件名相关设置
-    divider();
-    for (const name of ["filename_word_regex", "filename_join_string", "num_cpu_worker"]) {
-        if (seen.has(name)) continue;
-        markSeen(name);
-        if (SETTINGS_HIDDEN.has(name)) continue;
-        grid.appendChild(renderSettingsControl(name));
-    }
+    markSeen("filename_word_regex", "filename_join_string", "num_cpu_worker");
+    addSection("filename", "settings.filename_group", [
+        renderSettingsControl("filename_word_regex"),
+        renderSettingsControl("filename_join_string"),
+        renderSettingsControl("num_cpu_worker"),
+    ]);
 
     // 标签与标点分组：从标签分隔符到替换标点（含字符统计）
-    divider();
-    for (const n of ["tag_separators", "auto_compress_json", "auto_switch_next", "replace_punct_enabled", "replace_punct_from", "char_count_ascii_ratio", "char_count_non_ascii_ratio", "char_count_ignore_spaces"]) markSeen(n);
-    grid.appendChild(buildTagPunctGroup());
+    markSeen("tag_separators", "auto_compress_json", "auto_switch_next", "replace_punct_enabled", "show_mode_btn",
+        "replace_punct_from", "char_count_ascii_ratio", "char_count_non_ascii_ratio", "char_count_ignore_spaces");
+    addSection("tag_punct", "settings.tag_punct_group", buildTagPunctGroup());
 
     // 边界框设置（坐标范围、坐标类型在前，0~1000 时小数位数禁用）
-    divider();
-    for (const name of ["bbox_coordinate_range", "bbox_coordinate_order", "bbox_json_decimal_places"]) {
-        if (seen.has(name)) continue;
-        markSeen(name);
-        if (SETTINGS_HIDDEN.has(name)) continue;
-        grid.appendChild(renderSettingsControl(name));
-    }
+    markSeen("bbox_coordinate_range", "bbox_coordinate_order", "bbox_json_decimal_places");
+    addSection("bbox", "settings.bbox_group", [
+        renderSettingsControl("bbox_coordinate_range"),
+        renderSettingsControl("bbox_coordinate_order"),
+        renderSettingsControl("bbox_json_decimal_places"),
+    ]);
     // 初始联动：0~1000 格式使用整数，禁用小数位数设置
     const precInput = document.getElementById("setting_bbox_json_decimal_places");
     if (precInput) precInput.disabled = settings.current.bbox_coordinate_range === "0~1000";
 
+    // 反推标注 / 翻译提示词（可保存多份并切换，原位于 LLM 配置页，现移入通用设置集中管理）
+    markSeen("llm_reverse_prompt", "llm_reverse_config", "llm_translate_prompt", "llm_translate_config",
+        "llm_reverse_prompts", "llm_reverse_prompt_active", "llm_translate_prompts", "llm_translate_prompt_active",
+        "translate_enabled");
+    addSection("llm_prompt", "settings.llm_prompt_group", buildLlmPromptGroup());
+
+    // LLM 调用历史（保留条数 + 清除历史）
+    markSeen("llm_history_max_entries");
+    addSection("llm_history", "settings.llm_history_group", buildLlmHistoryGroup());
+
     // 兜底：SETTINGS_DEFAULT 中其余未显式分组的键
+    const rest = [];
     for (const name of Object.keys(SETTINGS_DEFAULT)) {
         if (seen.has(name)) continue;
         markSeen(name);
         if (SETTINGS_HIDDEN.has(name)) continue;
         if (name === "replace_punct_to") continue;
-        grid.appendChild(renderSettingsControl(name));
+        rest.push(renderSettingsControl(name));
     }
+    if (rest.length) addSection("others", "settings.other_group", rest);
 
     // 兜底：画廊分组未放入时仍显示清除缓存按钮
     if (clearBox && !clearBox.parentNode) grid.appendChild(clearBox);
+
+    // 默认高亮第一个分组
+    if (nav && nav.firstElementChild) nav.firstElementChild.classList.add("selected");
+}
+
+// 创建通用设置左侧导航项：点击后滚动到对应分组（不隐藏其它分组）
+function createSettingsNavItem(section, text) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "llm-settings-item";
+    btn.textContent = text;
+    btn.title = text;
+    btn.dataset.target = section.id;
+    btn.addEventListener("click", () => {
+        const list = btn.parentElement;
+        if (list) list.querySelectorAll(".llm-settings-item.selected").forEach(el => el.classList.remove("selected"));
+        btn.classList.add("selected");
+        section.scrollIntoView({ block: "start", behavior: "smooth" });
+    });
+    return btn;
+}
+
+// 通用设置内容滚动时同步左侧导航高亮（只绑定一次）
+function initSettingsNavScrollSpy() {
+    const detail = document.getElementById("settings-detail");
+    const nav = document.getElementById("settings-nav-list");
+    if (!detail || !nav || detail.dataset.navBound) return;
+    detail.dataset.navBound = "1";
+    detail.addEventListener("scroll", () => {
+        const sections = [...detail.querySelectorAll(".settings-section")];
+        if (!sections.length) return;
+        // 取最后一个已滚动到内容区顶部的分组作为当前分组
+        const top = detail.getBoundingClientRect().top;
+        let current = sections[0];
+        for (const s of sections) {
+            if (s.getBoundingClientRect().top - top <= 12) current = s;
+        }
+        nav.querySelectorAll(".llm-settings-item").forEach(el => {
+            el.classList.toggle("selected", el.dataset.target === current.id);
+        });
+    }, { passive: true });
+}
+
+// ================================================================
+// 反推 / 翻译提示词：均可保存多份，并在设置中切换当前使用的一份
+// ================================================================
+
+// 确保指定类型的提示词列表至少有一项（为空时由旧版单条提示词生成一份）
+function ensurePromptList(kind) {
+    const meta = PROMPT_KINDS[kind];
+    let list = getSetting(meta.listKey);
+    if (!Array.isArray(list)) list = [];
+    if (list.length === 0) {
+        list = [{
+            name: t("settings.prompt_default"),
+            prompt: getSetting(meta.legacyPrompt) || "",
+            config: getSetting(meta.legacyConfig) || "",
+        }];
+        setSetting(meta.listKey, list);
+    }
+    // 当前启用的提示词不存在时回退到第一份
+    if (!list.some(p => p.name === getSetting(meta.activeKey))) setSetting(meta.activeKey, list[0].name);
+    return list;
+}
+
+// 读取界面上的提示词编辑块并写回列表（切换 / 增删 / 保存前调用）
+function readPromptBlock(kind) {
+    const meta = PROMPT_KINDS[kind];
+    const block = document.querySelector(`.llm-prompt-block[data-kind="${kind}"]`);
+    if (!block) return;
+    const list = getSetting(meta.listKey) || [];
+    const item = list.find(p => p.name === getSetting(meta.activeKey)) || list[0];
+    if (!item) return;
+    const name = block.querySelector(".lp-name").value.trim();
+    // 名称为空时保留原名，避免出现无名提示词；与其它提示词重名时自动追加序号
+    if (name) {
+        item.name = list.some(p => p !== item && p.name === name)
+            ? uniquePromptName(list.filter(p => p !== item), name)
+            : name;
+        setSetting(meta.activeKey, item.name);
+    }
+    item.prompt = block.querySelector(".lp-text").value;
+    item.config = block.querySelector(".lp-config").value;
+}
+
+// 读取两种类型的提示词编辑块（保存设置时调用）
+function readAllPrompts() {
+    readPromptBlock("reverse");
+    readPromptBlock("translate");
+}
+
+// 生成不重复的提示词名称（重复时追加序号）
+function uniquePromptName(list, base) {
+    let name = base;
+    let i = 2;
+    while (list.some(p => p.name === name)) {
+        name = `${base} ${i}`;
+        i++;
+    }
+    return name;
+}
+
+// 重建指定类型的提示词编辑块（切换 / 增删后调用）
+function rerenderPromptBlock(kind) {
+    const old = document.querySelector(`.llm-prompt-block[data-kind="${kind}"]`);
+    if (old) old.replaceWith(buildPromptBlock(kind));
+}
+
+// 构建单个提示词编辑块：切换下拉 + 新建 / 复制 / 删除 + 名称 / 提示词 / 使用的配置
+function buildPromptBlock(kind) {
+    const meta = PROMPT_KINDS[kind];
+    const list = ensurePromptList(kind);
+    const cur = list.find(p => p.name === getSetting(meta.activeKey)) || list[0];
+    const isReverse = kind === "reverse";
+
+    const block = document.createElement("div");
+    block.className = "llm-prompt-block";
+    block.dataset.kind = kind;
+
+    // 切换下拉：先保存当前编辑内容，再载入所选提示词
+    const select = document.createElement("select");
+    select.className = "lp-select";
+    for (const p of list) select.add(new Option(p.name, p.name));
+    select.value = cur.name;
+    select.addEventListener("change", () => {
+        readPromptBlock(kind);
+        setSetting(meta.activeKey, select.value);
+        rerenderPromptBlock(kind);
+    });
+
+    // 标题行：标题 + 切换下拉 + 新建 / 复制 / 删除
+    const head = document.createElement("div");
+    head.className = "llm-prompt-head";
+    const title = document.createElement("label");
+    title.className = "field-label llm-inline-label";
+    title.textContent = t(isReverse ? "settings.llm_reverse_prompt" : "settings.llm_translate_prompt");
+    head.append(title, select);
+
+    head.appendChild(makeCardBtn(t("settings.add_prompt"), "btn compact", () => {
+        readPromptBlock(kind);
+        const l = getSetting(meta.listKey);
+        const item = { ...LLM_PROMPT_DEFAULT, name: uniquePromptName(l, t("settings.prompt_new")) };
+        l.push(item);
+        setSetting(meta.activeKey, item.name);
+        rerenderPromptBlock(kind);
+    }));
+
+    head.appendChild(makeCardBtn(t("settings.copy"), "btn compact", () => {
+        readPromptBlock(kind);
+        const l = getSetting(meta.listKey);
+        const idx = l.findIndex(p => p.name === getSetting(meta.activeKey));
+        if (idx < 0) return;
+        const item = { ...l[idx], name: uniquePromptName(l, (l[idx].name || t("settings.unnamed")) + " " + t("settings.copy_suffix")) };
+        l.splice(idx + 1, 0, item);
+        setSetting(meta.activeKey, item.name);
+        rerenderPromptBlock(kind);
+    }));
+
+    head.appendChild(makeCardBtn(t("common.delete"), "btn danger llm-del-btn", async () => {
+        const l = getSetting(meta.listKey) || [];
+        if (l.length <= 1) {
+            showToast(t("settings.min_one_prompt"), "error");
+            return;
+        }
+        const name = block.querySelector(".lp-name").value.trim() || getSetting(meta.activeKey);
+        if (!await confirmDelete("settings.delete_prompt_title", "settings.delete_prompt_msg", name)) return;
+        readPromptBlock(kind);
+        const idx = l.findIndex(p => p.name === getSetting(meta.activeKey));
+        if (idx < 0) return;
+        l.splice(idx, 1);
+        setSetting(meta.activeKey, l[0].name);
+        rerenderPromptBlock(kind);
+    }));
+    block.appendChild(head);
+
+    // 提示词名称（名称变化时同步切换下拉中的条目，避免切换后定位不到）
+    const nameInput = document.createElement("input");
+    nameInput.type = "text";
+    nameInput.className = "lp-name";
+    nameInput.value = cur.name;
+    nameInput.addEventListener("input", () => {
+        const text = nameInput.value.trim();
+        const opt = select.selectedOptions[0];
+        if (opt && text) {
+            opt.value = text;
+            opt.textContent = text;
+        }
+    });
+    block.appendChild(makeLabeledField(t("settings.prompt_name"), nameInput));
+
+    // 提示词内容
+    const hintKey = isReverse ? "settings.llm_reverse_prompt_hint" : "settings.llm_translate_prompt_hint";
+    const promptField = makeAreaField(t("settings.prompt_content"), "lp-text", cur.prompt, 4);
+    const area = promptField.querySelector("textarea");
+    area.placeholder = t(hintKey);
+    area.setAttribute("data-i18n-placeholder", hintKey);
+    block.appendChild(promptField);
+
+    // 该提示词使用的配置
+    const cfgSelect = document.createElement("select");
+    cfgSelect.className = "lp-config";
+    fillConfigSelect(cfgSelect, cur.config);
+    block.appendChild(makeLabeledField(
+        t(isReverse ? "settings.llm_reverse_config" : "settings.llm_translate_config"), cfgSelect));
+    return block;
+}
+
+// 反推与翻译提示词分组（每种类型均可保存多份并切换当前使用的一份）
+function buildLlmPromptGroup() {
+    const wrap = document.createElement("div");
+    wrap.className = "llm-prompt-groups";
+    // 翻译功能总开关：关闭后选中文本不再显示"译"按钮，翻译提示词也随之不生效
+    const translateRow = renderSettingsRow("translate_enabled");
+    const translateBlock = buildPromptBlock("translate");
+    const cb = translateRow.querySelector("input");
+    const syncDisabled = () => translateBlock.classList.toggle("disabled", !cb.checked);
+    cb.addEventListener("change", syncDisabled);
+    syncDisabled();
+    wrap.append(translateRow, buildPromptBlock("reverse"), translateBlock);
+    return [wrap];
+}
+
+// LLM 调用历史分组：保留条数设置 + 清除历史按钮
+function buildLlmHistoryGroup() {
+    // 保留条数（正整数，按 10 递增）
+    const maxField = renderSettingsField("llm_history_max_entries");
+    const maxInput = maxField.querySelector("input");
+    maxInput.min = 1;
+    maxInput.step = 10;
+
+    // 清除按钮与结果提示
+    const row = document.createElement("div");
+    row.className = "row";
+    const status = document.createElement("span");
+    status.className = "cache-status";
+    status.hidden = true;
+    const clearBtn = makeCardBtn(t("settings.clear_llm_history"), "btn", async () => {
+        const key = await showConfirmDialog(
+            t("settings.clear_llm_history"),
+            t("settings.clear_llm_history_msg"),
+            [
+                { key: "clear", label: t("common.clear"), cls: "danger" },
+                { key: "cancel", label: t("common.cancel"), cls: "primary" },
+            ]
+        );
+        if (key !== "clear") return;
+        await llmHistory.clearHistory();
+        status.hidden = false;
+        status.textContent = t("settings.llm_history_cleared");
+    });
+    row.append(clearBtn, status);
+    return [maxField, row];
+}
+
+// 重新填充"使用的配置"下拉框（配置增删或重命名后调用）
+// renameMap 用于把旧配置名映射为新名，保留用户当前的选择；空值表示"默认（激活配置）"
+function refreshPromptConfigSelects(renameMap) {
+    for (const sel of document.querySelectorAll(".llm-prompt-block .lp-config")) {
+        let cur = sel.value;
+        if (renameMap && renameMap.has(cur)) cur = renameMap.get(cur);
+        fillConfigSelect(sel, cur);
+    }
 }
 
 // 生成单个设置控件：布尔设置为 label+复选框同行，其余为 label 在上、控件在下
@@ -4183,26 +4667,52 @@ function createSettingsRadioGroup(name, options, onChange) {
     return wrap;
 }
 
-// 构建设置输入控件（含语言下拉与标点规则表格等特殊分支）
+// 生成语言单选框组（自动 + locales 目录下发现的各语言包）
+// 语言显示名：zh / en 取当前界面语言的名称，其它语言取语言包 meta.name（或代码本身）
+function createLanguageRadioGroup(value) {
+    const wrap = document.createElement("div");
+    wrap.id = "setting_language";
+    wrap.className = "radio-row";
+    const langs = getAvailableLanguages().length > 0
+        ? getAvailableLanguages()
+        : [{ code: "zh", name: t("settings.chinese") }, { code: "en", name: t("settings.english") }];
+    const options = [{ value: "auto", label: t("settings.auto") }];
+    for (const l of langs) {
+        const display = l.code === "zh" ? t("settings.chinese")
+            : l.code === "en" ? t("settings.english")
+            : l.name;
+        options.push({ value: l.code, label: display });
+    }
+
+    let matched = false;
+    for (const o of options) {
+        const label = document.createElement("label");
+        label.className = "checkbox";
+        const r = document.createElement("input");
+        r.type = "radio";
+        r.name = "setting_language";
+        r.value = o.value;
+        r.checked = value === o.value;
+        if (r.checked) matched = true;
+        const span = document.createElement("span");
+        span.textContent = o.label;
+        label.append(r, span);
+        wrap.appendChild(label);
+    }
+    // 保存的语言不在可用列表时（如语言包已被删除），回退为"自动"
+    if (!matched) {
+        const first = wrap.querySelector("input");
+        if (first) first.checked = true;
+    }
+    return wrap;
+}
+
+// 构建设置输入控件（含语言单选框与标点规则表格等特殊分支）
 function createSettingsInput(name, value) {
     let input;
     if (name === "language") {
-        // 动态列出 locales 目录下可用的语言包（发现失败时回退 zh/en）
-        input = document.createElement("select");
-        input.id = "setting_" + name;
-        const langs = getAvailableLanguages().length > 0
-            ? getAvailableLanguages()
-            : [{ code: "zh", name: t("settings.chinese") }, { code: "en", name: t("settings.english") }];
-        const opts = [`<option value="auto">${escapeHtml(t("settings.auto"))}</option>`];
-        for (const l of langs) {
-            // zh / en 使用当前界面语言的名称，其它语言使用语言包 meta.name（或代码本身）
-            const display = l.code === "zh" ? t("settings.chinese")
-                : l.code === "en" ? t("settings.english")
-                : l.name;
-            opts.push(`<option value="${escapeHtml(l.code)}">${escapeHtml(display)}</option>`);
-        }
-        input.innerHTML = opts.join("");
-        input.value = value;
+        // 语言：单选框（自动 + 各语言包）
+        input = createLanguageRadioGroup(value);
     } else if (name === "bbox_coordinate_range") {
         // 边界框坐标范围：单选框（0~1 归一化小数 / 0~1000 整数）
         input = createSettingsRadioGroup(name, [
@@ -4268,21 +4778,16 @@ function renderSettingsRow(name) {
     return row;
 }
 
-// 画廊与缩略图设置分组（分割线分隔，非卡片）：启动清缓存+清除按钮同行，下方为画廊分辨率设置
+// 画廊与缩略图设置项：启动清缓存与清除按钮同行，下方为画廊分辨率设置
+// 返回节点数组，由 buildSettingsGrid 放入对应分组（标题由分组统一生成）
 function buildGallerySection(clearBox) {
-    const group = document.createElement("div");
-    group.className = "settings-group";
-    const title = document.createElement("div");
-    title.className = "settings-group-title";
-    title.textContent = t("settings.gallery_group");
-    group.appendChild(title);
-
     const row = renderSettingsRow("cleanup_tmpdir");
     if (clearBox) row.appendChild(clearBox);
-    group.appendChild(row);
-    group.appendChild(renderSettingsField("max_resolution"));
-    group.appendChild(renderSettingsField("gallery_image_width"));
-    return group;
+    return [
+        row,
+        renderSettingsField("max_resolution"),
+        renderSettingsField("gallery_image_width"),
+    ];
 }
 
 // 字符统计倍率：合并为单个文本框，逗号分隔（ASCII,非ASCII）
@@ -4305,21 +4810,18 @@ function createCharCountField() {
     return field;
 }
 
-// 标签与标点分组：从标签分隔符到替换标点（含字符统计）合并为一组
+// 标签与标点设置项：从标签分隔符到替换标点（含字符统计）
+// 返回节点数组，由 buildSettingsGrid 放入对应分组（标题由分组统一生成）
 function buildTagPunctGroup() {
-    const group = document.createElement("div");
-    group.className = "settings-group";
-    const title = document.createElement("div");
-    title.className = "settings-group-title";
-    title.textContent = t("settings.tag_punct_group");
-    group.appendChild(title);
-    group.appendChild(renderSettingsField("tag_separators"));
-    group.appendChild(renderSettingsRow("auto_compress_json"));
-    group.appendChild(renderSettingsRow("auto_switch_next"));
-    group.appendChild(createCharCountField());
-    group.appendChild(renderSettingsRow("char_count_ignore_spaces"));
-    group.appendChild(buildPunctGroup());
-    return group;
+    return [
+        renderSettingsField("tag_separators"),
+        renderSettingsRow("auto_compress_json"),
+        renderSettingsRow("auto_switch_next"),
+        createCharCountField(),
+        renderSettingsRow("char_count_ignore_spaces"),
+        renderSettingsRow("show_mode_btn"),
+        buildPunctGroup(),
+    ];
 }
 
 // 标点替换分组：使用 details/summary 折叠（折叠三角与 common.settings、dataset.load_settings 一致），
@@ -4354,10 +4856,8 @@ function readSettingsFromGrid() {
         const el = document.getElementById("setting_" + name);
         if (!el) continue;
         const cur = settings.current[name];
-        if (name === "language") {
-            settings.current[name] = el.value;
-        } else if (name === "bbox_coordinate_range" || name === "bbox_coordinate_order") {
-            // 边界框坐标范围 / 坐标类型：从单选框读取选中值
+        if (name === "language" || name === "bbox_coordinate_range" || name === "bbox_coordinate_order") {
+            // 语言与边界框坐标范围 / 坐标类型：从单选框读取选中值
             const checked = el.querySelector("input:checked");
             if (checked) settings.current[name] = checked.value;
         } else if (name === "replace_punct_from") {
@@ -4392,6 +4892,9 @@ function readSettingsFromGrid() {
             settings.current.char_count_non_ascii_ratio = a;
         }
     }
+
+    // LLM 反推 / 翻译提示词（可多份，属于隐藏项需单独读取）
+    readAllPrompts();
 }
 
 // 填充"使用的配置"下拉框选项（值为配置名，空为默认/激活配置）
@@ -4413,261 +4916,330 @@ function fillConfigSelect(sel, value) {
     sel.value = value || "";
 }
 
-// 构建 LLM 多配置管理界面
-function buildLlmConfigs() {
-    const box = document.getElementById("llm-configs-box");
-    if (!box) return;
-    box.innerHTML = "";
-    // 同步独立的反推标注提示词
-    const rp = document.getElementById("tb_llm_reverse_prompt");
-    if (rp) rp.value = getSetting("llm_reverse_prompt") || "";
-    // 同步独立的翻译提示词
-    const tp = document.getElementById("tb_llm_translate_prompt");
-    if (tp) tp.value = getSetting("llm_translate_prompt") || "";
-    // 填充反推 / 翻译使用的配置下拉框
-    fillConfigSelect(document.getElementById("tb_llm_reverse_config"), getSetting("llm_reverse_config"));
-    fillConfigSelect(document.getElementById("tb_llm_translate_config"), getSetting("llm_translate_config"));
-    const configs = getSetting("llm_configs") || [];
-    const active = getSetting("llm_active_config");
-
-    configs.forEach((cfg, idx) => {
-        const card = document.createElement("div");
-        card.className = "llm-card";
-
-        // 卡片头部：名称 + 激活 + 删除
-        const header = document.createElement("div");
-        header.className = "llm-card-header";
-        const nameLabel = document.createElement("label");
-        nameLabel.className = "field-label llm-name-label";
-        nameLabel.textContent = t("settings.config_name");
-        const nameInput = document.createElement("input");
-        nameInput.type = "text";
-        nameInput.className = "lc-name";
-        nameInput.value = cfg.name || "";
-        nameInput.dataset.idx = idx;
-        header.appendChild(nameLabel);
-        header.appendChild(nameInput);
-
-        const activeLabel = document.createElement("label");
-        activeLabel.className = "checkbox llm-active";
-        const activeRadio = document.createElement("input");
-        activeRadio.type = "radio";
-        activeRadio.name = "llm_active";
-        activeRadio.checked = cfg.name === active;
-        activeRadio.dataset.idx = idx;
-        const activeSpan = document.createElement("span");
-        activeSpan.textContent = t("settings.use_this");
-        activeLabel.appendChild(activeRadio);
-        activeLabel.appendChild(activeSpan);
-        header.appendChild(activeLabel);
-
-        // 复制配置按钮：基于当前配置创建副本
-        const copyBtn = document.createElement("button");
-        copyBtn.type = "button";
-        copyBtn.className = "btn llm-copy-btn";
-        copyBtn.textContent = t("settings.copy");
-        copyBtn.addEventListener("click", () => {
-            const cur = getSetting("llm_configs") || [];
-            const copy = { ...cur[idx], name: (cfg.name || t("settings.unnamed")) + " " + t("settings.copy_suffix") };
-            cur.splice(idx + 1, 0, copy);
-            setSetting("llm_configs", cur);
-            buildLlmConfigs();
-        });
-        header.appendChild(copyBtn);
-
-        const delBtn = document.createElement("button");
-        delBtn.type = "button";
-        delBtn.className = "btn btn-danger llm-del-btn";
-        delBtn.textContent = t("common.delete");
-        delBtn.addEventListener("click", () => {
-            const cur = getSetting("llm_configs") || [];
-            if (cur.length <= 1) { showToast(t("settings.min_one_config"), "error"); return; }
-            cur.splice(idx, 1);
-            if (getSetting("llm_active_config") === cfg.name) {
-                setSetting("llm_active_config", cur[0].name);
-            }
-            setSetting("llm_configs", cur);
-            buildLlmConfigs();
-        });
-        header.appendChild(delBtn);
-        card.appendChild(header);
-
-        // 连接信息
-        const row1 = document.createElement("div");
-        row1.className = "llm-card-row";
-        const apiUrlField = makeField(t("settings.api_url"), "text", "lc-api-url", cfg.api_url, idx);
-        // 提示可直接填写 base url，请求时会自动补全 /chat/completions
-        apiUrlField.querySelector("input").placeholder = t("settings.api_url_hint");
-        row1.appendChild(apiUrlField);
-        row1.appendChild(makeSecretField(t("settings.api_key"), "lc-api-key", cfg.api_key, idx));
-        card.appendChild(row1);
-
-        // 模型与图像参数
-        const row2 = document.createElement("div");
-        row2.className = "llm-card-row";
-        row2.appendChild(makeModelField(card, cfg, idx));
-        row2.appendChild(makeNumField(t("settings.max_image_resolution"), "lc-max-res", cfg.max_image_resolution, idx, 1));
-        card.appendChild(row2);
-
-        // 自定义请求参数（文本框，每行一个 key: value）
-        const paramsField = document.createElement("div");
-        paramsField.className = "field";
-        const paramsLabel = document.createElement("label");
-        paramsLabel.className = "field-label";
-        paramsLabel.textContent = t("settings.extra_params");
-        const paramsArea = document.createElement("textarea");
-        paramsArea.className = "lc-extra-params";
-        paramsArea.rows = 3;
-        paramsArea.value = cfg.extra_params || "";
-        paramsArea.placeholder = "temperature: 0.5\nmax_tokens: 512";
-        paramsArea.dataset.idx = idx;
-        paramsField.appendChild(paramsLabel);
-        paramsField.appendChild(paramsArea);
-        card.appendChild(paramsField);
-
-        box.appendChild(card);
-    });
+// 同步更新左侧列表项的名称（编辑名称时实时生效）
+function updateLlmListItemName(listEl, idx, name) {
+    const item = listEl ? listEl.children[idx] : null;
+    if (!item) return;
+    const text = name.trim() || t("settings.unnamed");
+    item.textContent = text;
+    item.title = text;
 }
 
-// 读取 LLM 多配置（从表单回填到 settings）
-function readLlmConfigs() {
-    const cards = document.querySelectorAll("#llm-configs-box .llm-card");
-    const configs = [];
-    let active = getSetting("llm_active_config");
-    cards.forEach(card => {
-        const idx = card.querySelector(".lc-name").dataset.idx;
-        const cfg = { ...LLM_CONFIG_DEFAULT };
+// 渲染左侧列表（配置 / 功能共用）：条目只用于跳转到右侧对应卡片，不控制显示与隐藏
+function renderLlmSettingsList(listEl, items, onSelect) {
+    if (!listEl) return;
+    listEl.innerHTML = "";
+    items.forEach((item, idx) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "llm-settings-item";
+        btn.textContent = (item.name || "").trim() || t("settings.unnamed");
+        btn.title = btn.textContent;
+        btn.addEventListener("click", () => onSelect(idx));
+        listEl.appendChild(btn);
+    });
+    // 默认高亮第一项，明确当前定位
+    if (listEl.firstElementChild) listEl.firstElementChild.classList.add("selected");
+}
+
+// 左侧列表点击：滚动到右侧对应卡片并短暂高亮（其余卡片保持显示）
+function jumpToLlmCard(listEl, boxEl, idx) {
+    if (!boxEl) return;
+    if (listEl) {
+        listEl.querySelectorAll(".llm-settings-item.selected").forEach(el => el.classList.remove("selected"));
+        const item = listEl.children[idx];
+        if (item) item.classList.add("selected");
+    }
+    const card = boxEl.querySelector(`.llm-card[data-idx="${idx}"]`);
+    if (!card) return;
+    card.scrollIntoView({ block: "start", behavior: "smooth" });
+    card.classList.add("flash");
+    clearTimeout(card._flashTimer);
+    card._flashTimer = setTimeout(() => card.classList.remove("flash"), 900);
+}
+
+// 把右侧所有 LLM 配置卡片写回 settings 内存（保存 / 增删前调用）
+function readAllLlmConfigs() {
+    const box = document.getElementById("llm-configs-box");
+    if (!box) return;
+    const configs = getSetting("llm_configs") || [];
+    const renameMap = new Map();  // 旧名称 -> 新名称
+    box.querySelectorAll(".llm-card").forEach(card => {
+        const idx = Number(card.dataset.idx);
+        const old = configs[idx];
+        if (!old) return;
+        // 保留配置中未在表单里出现的字段
+        const cfg = { ...LLM_CONFIG_DEFAULT, ...old };
         cfg.name = card.querySelector(".lc-name").value.trim();
         cfg.api_url = card.querySelector(".lc-api-url").value.trim();
         cfg.api_key = card.querySelector(".lc-api-key").value;
         cfg.model = card.querySelector(".lc-model").value.trim();
         cfg.extra_params = card.querySelector(".lc-extra-params").value;
         cfg.max_image_resolution = parseInt(card.querySelector(".lc-max-res").value, 10) || 0;
-        if (card.querySelector(".llm-active input").checked) active = cfg.name;
-        configs.push(cfg);
+        if (old.name && cfg.name && old.name !== cfg.name) renameMap.set(old.name, cfg.name);
+        configs[idx] = cfg;
     });
-    if (!active || !configs.some(c => c.name === active)) {
-        active = configs[0] ? configs[0].name : "";
-    }
     setSetting("llm_configs", configs);
-    setSetting("llm_active_config", active);
-    // 读取独立的反推标注提示词
-    const rp = document.getElementById("tb_llm_reverse_prompt");
-    if (rp) setSetting("llm_reverse_prompt", rp.value);
-    // 读取反推标注使用的配置
-    const rc = document.getElementById("tb_llm_reverse_config");
-    if (rc) setSetting("llm_reverse_config", rc.value);
-    // 读取独立的翻译提示词
-    const tp = document.getElementById("tb_llm_translate_prompt");
-    if (tp) setSetting("llm_translate_prompt", tp.value);
-    // 读取翻译使用的配置
-    const tc = document.getElementById("tb_llm_translate_config");
-    if (tc) setSetting("llm_translate_config", tc.value);
+    // 名称变更时同步引用该配置的地方，避免下拉框失效
+    if (renameMap.size) {
+        applyConfigRenames(renameMap);
+        refreshPromptConfigSelects(renameMap);
+    }
+    // 勾选"使用"的卡片即激活配置
+    const checked = box.querySelector(".llm-active input:checked");
+    if (checked) {
+        const card = checked.closest(".llm-card");
+        const name = card ? card.querySelector(".lc-name").value.trim() : "";
+        if (name) setSetting("llm_active_config", name);
+    }
 }
 
-// 构建 LLM 自定义功能管理界面
-function buildLlmFunctions() {
+// 配置重命名后同步激活配置、提示词以及各 LLM 功能引用的配置名
+function applyConfigRenames(renameMap) {
+    const remap = (name) => (name && renameMap.has(name)) ? renameMap.get(name) : name;
+    setSetting("llm_active_config", remap(getSetting("llm_active_config") || ""));
+    // 提示词与功能里的 config 是同一批对象的字段，原地改写即可
+    for (const kind of Object.keys(PROMPT_KINDS)) {
+        for (const p of getSetting(PROMPT_KINDS[kind].listKey) || []) p.config = remap(p.config || "");
+    }
+    for (const fn of getSetting("llm_functions") || []) fn.config = remap(fn.config || "");
+    // 同步已渲染的功能卡片下拉框，保留各功能的当前选择
+    document.querySelectorAll("#llm-functions-box .llm-fn-config").forEach(sel => {
+        fillConfigSelect(sel, remap(sel.value));
+    });
+}
+
+// 清除对某个已删除配置的引用（空值表示使用激活配置）
+function clearConfigRefs(name) {
+    for (const kind of Object.keys(PROMPT_KINDS)) {
+        for (const p of getSetting(PROMPT_KINDS[kind].listKey) || []) {
+            if (p.config === name) p.config = "";
+        }
+    }
+    for (const fn of getSetting("llm_functions") || []) {
+        if (fn.config === name) fn.config = "";
+    }
+}
+
+// 把右侧所有 LLM 功能卡片写回 settings 内存（保存 / 增删前调用）
+function readAllLlmFunctions() {
     const box = document.getElementById("llm-functions-box");
     if (!box) return;
-    box.innerHTML = "";
     const fns = getSetting("llm_functions") || [];
-
-    fns.forEach((fn, idx) => {
-        const card = document.createElement("div");
-        card.className = "llm-card";
-
-        // 头部：功能名称 + 删除
-        const header = document.createElement("div");
-        header.className = "llm-card-header";
-        const nameLabel = document.createElement("label");
-        nameLabel.className = "field-label llm-name-label";
-        nameLabel.textContent = t("settings.fn_name");
-        const nameInput = document.createElement("input");
-        nameInput.type = "text";
-        nameInput.className = "lf-name";
-        nameInput.value = fn.name || "";
-        nameInput.dataset.idx = idx;
-        header.appendChild(nameLabel);
-        header.appendChild(nameInput);
-        // 使用的配置下拉框
-        const cfgLabel = document.createElement("label");
-        cfgLabel.className = "field-label llm-name-label";
-        cfgLabel.textContent = t("settings.used_config");
-        const cfgSelect = document.createElement("select");
-        cfgSelect.className = "llm-fn-config";
-        cfgSelect.dataset.idx = idx;
-        fillConfigSelect(cfgSelect, fn.config);
-        header.appendChild(cfgLabel);
-        header.appendChild(cfgSelect);
-        const delBtn = document.createElement("button");
-        delBtn.type = "button";
-        delBtn.className = "btn btn-danger llm-del-btn";
-        delBtn.textContent = t("common.delete");
-        delBtn.addEventListener("click", () => {
-            const cur = getSetting("llm_functions") || [];
-            cur.splice(idx, 1);
-            setSetting("llm_functions", cur);
-            buildLlmFunctions();
-        });
-        header.appendChild(delBtn);
-        card.appendChild(header);
-
-        // 系统提示
-        const sysField = document.createElement("div");
-        sysField.className = "field";
-        const sysLabel = document.createElement("label");
-        sysLabel.className = "field-label";
-        sysLabel.textContent = t("settings.system_prompt");
-        const sysArea = document.createElement("textarea");
-        sysArea.className = "lf-system-prompt";
-        sysArea.rows = 3;
-        sysArea.value = fn.system_prompt || "";
-        sysArea.dataset.idx = idx;
-        sysField.appendChild(sysLabel);
-        sysField.appendChild(sysArea);
-        card.appendChild(sysField);
-
-        // 用户提示
-        const usrField = document.createElement("div");
-        usrField.className = "field";
-        const usrLabel = document.createElement("label");
-        usrLabel.className = "field-label";
-        usrLabel.textContent = t("settings.user_prompt");
-        const usrArea = document.createElement("textarea");
-        usrArea.className = "lf-user-prompt";
-        usrArea.rows = 3;
-        usrArea.value = fn.user_prompt || "";
-        usrArea.dataset.idx = idx;
-        usrField.appendChild(usrLabel);
-        usrField.appendChild(usrArea);
-        card.appendChild(usrField);
-
-        // 复选框：发送图像 / 发送编辑框内容
-        const checks = document.createElement("div");
-        checks.className = "row";
-        checks.appendChild(makeCheckbox(t("settings.send_image"), "lf-send-image", fn.send_image, idx));
-        checks.appendChild(makeCheckbox(t("settings.send_caption"), "lf-send-caption", fn.send_caption, idx));
-        card.appendChild(checks);
-
-        box.appendChild(card);
-    });
-}
-
-// 读取 LLM 自定义功能
-function readLlmFunctions() {
-    const cards = document.querySelectorAll("#llm-functions-box .llm-card");
-    const fns = [];
-    cards.forEach(card => {
-        const fn = { ...LLM_FN_DEFAULT };
+    box.querySelectorAll(".llm-card").forEach(card => {
+        const idx = Number(card.dataset.idx);
+        const old = fns[idx];
+        if (!old) return;
+        // 保留功能中未在表单里出现的字段
+        const fn = { ...LLM_FN_DEFAULT, ...old };
         fn.name = card.querySelector(".lf-name").value.trim();
         fn.system_prompt = card.querySelector(".lf-system-prompt").value;
         fn.user_prompt = card.querySelector(".lf-user-prompt").value;
         fn.send_image = card.querySelector(".lf-send-image").checked;
         fn.send_caption = card.querySelector(".lf-send-caption").checked;
+        fn.enabled = card.querySelector(".lf-enabled").checked;
         fn.config = card.querySelector(".llm-fn-config").value;
-        if (!fn.name) return;
-        fns.push(fn);
+        fns[idx] = fn;
     });
+    setSetting("llm_functions", fns);
+}
+
+// 构建 LLM 配置管理界面：右侧一次性渲染全部配置卡片，左侧列表只用于跳转定位
+function buildLlmConfigs() {
+    const box = document.getElementById("llm-configs-box");
+    const list = document.getElementById("llm-configs-list");
+    if (!box) return;
+    box.innerHTML = "";
+    const configs = getSetting("llm_configs") || [];
+    const active = getSetting("llm_active_config");
+
+    // 左侧列表：点击跳转到对应卡片（其余卡片保持显示）
+    renderLlmSettingsList(list, configs, (idx) => jumpToLlmCard(list, box, idx));
+
+    configs.forEach((cfg, idx) => box.appendChild(buildLlmConfigCard(cfg, idx, active, list)));
+}
+
+// 构建单个 LLM 配置卡片（名称 + 激活 / 复制 / 删除 + 连接信息）
+function buildLlmConfigCard(cfg, idx, active, list) {
+    const card = document.createElement("div");
+    card.className = "llm-card";
+    card.dataset.idx = idx;
+
+    const { head, nameInput, actions } = buildCardHead("settings.config_name", "lc-name", cfg.name, idx, list);
+    card.appendChild(head);
+
+    // 激活配置：勾选后立即更新（保存时也会再同步一次）
+    const activeRadio = document.createElement("input");
+    activeRadio.type = "radio";
+    activeRadio.name = "llm_active";
+    activeRadio.checked = cfg.name === active;
+    activeRadio.addEventListener("change", () => {
+        const name = nameInput.value.trim();
+        if (name) setSetting("llm_active_config", name);
+    });
+    const activeSpan = document.createElement("span");
+    activeSpan.textContent = t("settings.use_this");
+    const activeLabel = document.createElement("label");
+    activeLabel.className = "checkbox llm-active";
+    activeLabel.append(activeRadio, activeSpan);
+    actions.appendChild(activeLabel);
+
+    // 复制配置：先把所有卡片写回内存，再以最新内容创建副本
+    actions.appendChild(makeCardBtn(t("settings.copy"), "btn llm-copy-btn", () => {
+        readAllLlmConfigs();
+        readAllLlmFunctions();
+        const cur = getSetting("llm_configs") || [];
+        const src = cur[idx];
+        if (!src) return;
+        cur.splice(idx + 1, 0, { ...src, name: (src.name || t("settings.unnamed")) + " " + t("settings.copy_suffix") });
+        setSetting("llm_configs", cur);
+        buildLlmConfigs();
+        // 功能页与提示词的"使用的配置"下拉框同步出现新配置
+        buildLlmFunctions();
+        refreshPromptConfigSelects();
+        jumpToLlmCard(document.getElementById("llm-configs-list"), document.getElementById("llm-configs-box"), idx + 1);
+    }));
+
+    // 删除配置：确认后按名称定位（重新渲染后下标可能变化）
+    actions.appendChild(makeCardBtn(t("common.delete"), "btn danger llm-del-btn", async () => {
+        if ((getSetting("llm_configs") || []).length <= 1) {
+            showToast(t("settings.min_one_config"), "error");
+            return;
+        }
+        if (!await confirmDelete("settings.delete_config_title", "settings.delete_config_msg",
+            nameInput.value.trim() || cfg.name)) return;
+        readAllLlmConfigs();
+        readAllLlmFunctions();
+        const cur = getSetting("llm_configs") || [];
+        const realIdx = cur.findIndex(c => c.name === nameInput.value.trim());
+        if (realIdx < 0) return;
+        const [removed] = cur.splice(realIdx, 1);
+        setSetting("llm_configs", cur);
+        if (getSetting("llm_active_config") === removed.name) {
+            setSetting("llm_active_config", cur[0] ? cur[0].name : "");
+        }
+        clearConfigRefs(removed.name);
+        buildLlmConfigs();
+        // 功能页与通用页的"使用的配置"下拉框同步移除已删除配置
+        buildLlmFunctions();
+        refreshPromptConfigSelects();
+    }));
+
+    // 连接信息
+    const row1 = document.createElement("div");
+    row1.className = "llm-card-row";
+    const apiUrlField = makeField(t("settings.api_url"), "text", "lc-api-url", cfg.api_url);
+    // 提示可直接填写 base url，请求时会自动补全 /chat/completions
+    apiUrlField.querySelector("input").placeholder = t("settings.api_url_hint");
+    row1.appendChild(apiUrlField);
+    row1.appendChild(makeSecretField(t("settings.api_key"), "lc-api-key", cfg.api_key));
+    card.appendChild(row1);
+
+    // 模型与图像参数
+    const row2 = document.createElement("div");
+    row2.className = "llm-card-row";
+    row2.appendChild(makeModelField(card, cfg));
+    row2.appendChild(makeNumField(t("settings.max_image_resolution"), "lc-max-res", cfg.max_image_resolution, 1));
+    card.appendChild(row2);
+
+    // 自定义请求参数（每行一个 key: value）
+    const paramsField = makeAreaField(t("settings.extra_params"), "lc-extra-params", cfg.extra_params);
+    paramsField.querySelector("textarea").placeholder = "temperature: 0.5\nmax_tokens: 512";
+    card.appendChild(paramsField);
+
+    return card;
+}
+
+// 读取所有 LLM 配置卡片并回写 settings（保存设置时调用）
+function readLlmConfigs() {
+    readAllLlmConfigs();
+    const configs = getSetting("llm_configs") || [];
+    let active = getSetting("llm_active_config");
+    // 激活配置必须存在，否则回退到第一个
+    if (!active || !configs.some(c => c.name === active)) {
+        active = configs[0] ? configs[0].name : "";
+    }
+    setSetting("llm_active_config", active);
+}
+
+// 构建 LLM 自定义功能管理界面：右侧一次性渲染全部功能卡片，左侧列表只用于跳转定位
+function buildLlmFunctions() {
+    const box = document.getElementById("llm-functions-box");
+    const list = document.getElementById("llm-functions-list");
+    if (!box) return;
+    box.innerHTML = "";
+    const fns = getSetting("llm_functions") || [];
+
+    // 左侧列表：点击跳转到对应卡片（其余卡片保持显示）
+    renderLlmSettingsList(list, fns, (idx) => jumpToLlmCard(list, box, idx));
+
+    fns.forEach((fn, idx) => box.appendChild(buildLlmFunctionCard(fn, idx, list)));
+}
+
+// 构建单个 LLM 功能卡片（名称 + 启用 / 复制 / 删除 + 使用的配置 / 提示词 / 发送选项）
+function buildLlmFunctionCard(fn, idx, list) {
+    const card = document.createElement("div");
+    card.className = "llm-card";
+    card.dataset.idx = idx;
+
+    const { head, nameInput, actions } = buildCardHead("settings.fn_name", "lf-name", fn.name, idx, list);
+    card.appendChild(head);
+
+    // 操作行：启用复选框 + 复制 + 删除
+    actions.appendChild(makeCheckbox(t("settings.enabled"), "lf-enabled", fn.enabled !== false));
+    actions.appendChild(makeCardBtn(t("settings.copy"), "btn llm-copy-btn", () => {
+        readAllLlmFunctions();
+        const cur = getSetting("llm_functions") || [];
+        const src = cur[idx];
+        if (!src) return;
+        cur.splice(idx + 1, 0, { ...src, name: (src.name || t("settings.unnamed")) + " " + t("settings.copy_suffix") });
+        setSetting("llm_functions", cur);
+        buildLlmFunctions();
+        jumpToLlmCard(document.getElementById("llm-functions-list"), document.getElementById("llm-functions-box"), idx + 1);
+    }));
+    actions.appendChild(makeCardBtn(t("common.delete"), "btn danger llm-del-btn", async () => {
+        const name = nameInput.value.trim() || t("settings.unnamed");
+        if (!await confirmDelete("settings.delete_function_title", "settings.delete_function_msg", name)) return;
+        // 先把所有卡片写回内存，再按名称定位删除（避免下标错位）
+        readAllLlmFunctions();
+        const cur = getSetting("llm_functions") || [];
+        const realIdx = cur.findIndex(f => f.name === name);
+        if (realIdx < 0) return;
+        cur.splice(realIdx, 1);
+        setSetting("llm_functions", cur);
+        buildLlmFunctions();
+    }));
+
+    // 使用的配置
+    const cfgRow = document.createElement("div");
+    cfgRow.className = "llm-card-row";
+    const cfgLabel = document.createElement("label");
+    cfgLabel.className = "field-label llm-inline-label";
+    cfgLabel.textContent = t("settings.used_config");
+    const cfgSelect = document.createElement("select");
+    cfgSelect.className = "llm-fn-config";
+    fillConfigSelect(cfgSelect, fn.config);
+    cfgRow.append(cfgLabel, cfgSelect);
+    card.appendChild(cfgRow);
+
+    // 系统提示 / 用户提示
+    card.appendChild(makeAreaField(t("settings.system_prompt"), "lf-system-prompt", fn.system_prompt));
+    card.appendChild(makeAreaField(t("settings.user_prompt"), "lf-user-prompt", fn.user_prompt));
+
+    // 复选框：发送图像 / 发送编辑框内容
+    const checks = document.createElement("div");
+    checks.className = "row";
+    checks.appendChild(makeCheckbox(t("settings.send_image"), "lf-send-image", fn.send_image));
+    checks.appendChild(makeCheckbox(t("settings.send_caption"), "lf-send-caption", fn.send_caption));
+    card.appendChild(checks);
+
+    return card;
+}
+
+// 读取所有 LLM 功能卡片（保存设置时调用；名称为空的功能会被丢弃）
+function readLlmFunctions() {
+    readAllLlmFunctions();
+    const fns = (getSetting("llm_functions") || []).filter(fn => fn.name);
     setSetting("llm_functions", fns);
 }
 
@@ -4679,8 +5251,8 @@ function readLlmFunctions() {
 const EYE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"/><circle cx="12" cy="12" r="3"/><path class="llm-eye-slash" d="M3 3l18 18"/></svg>`;
 
 // 生成带"显示/隐藏"眼睛按钮的密码字段（用于 API Key）
-function makeSecretField(labelText, cls, value, idx) {
-    const wrap = makeField(labelText, "password", cls, value, idx);
+function makeSecretField(labelText, cls, value) {
+    const wrap = makeField(labelText, "password", cls, value);
     const input = wrap.querySelector("input");
     const holder = document.createElement("div");
     holder.className = "llm-input-wrap";
@@ -4756,7 +5328,7 @@ function renderModelMenu(menu, input, models) {
 
 // 生成"模型名"字段：可自定义的文本框 + 查询模型按钮 + 模型列表下拉；
 // 下拉样式复用数据集目录历史（#btn_dir_history）的做法。
-function makeModelField(card, cfg, idx) {
+function makeModelField(card, cfg) {
     const wrap = document.createElement("div");
     wrap.className = "field llm-field";
 
@@ -4779,7 +5351,6 @@ function makeModelField(card, cfg, idx) {
     input.type = "text";
     input.className = "lc-model";
     input.value = cfg.model ?? "";
-    input.dataset.idx = idx;
     input.autocomplete = "off";
 
     // 下拉按钮 + 模型列表菜单（结构与数据集目录历史一致）
@@ -4865,46 +5436,104 @@ async function queryModels(card, btn, input, menu, updateDropBtnVisibility) {
     }
 }
 
-// 生成一个输入字段（label + input），用于 LLM 卡片
-function makeField(labelText, type, cls, value, idx) {
+// 标签在上、控件在下的字段容器
+function makeLabeledField(labelText, control, extraCls = "") {
     const wrap = document.createElement("div");
-    wrap.className = "field llm-field";
+    wrap.className = extraCls ? `field ${extraCls}` : "field";
     const label = document.createElement("label");
     label.className = "field-label";
     label.textContent = labelText;
+    wrap.append(label, control);
+    return wrap;
+}
+
+// 生成一个输入字段（label + input），用于 LLM 卡片
+function makeField(labelText, type, cls, value) {
     const input = document.createElement("input");
     input.type = type;
     input.className = cls;
     input.value = value ?? "";
-    input.dataset.idx = idx;
-    wrap.appendChild(label);
-    wrap.appendChild(input);
-    return wrap;
+    return makeLabeledField(labelText, input, "llm-field");
 }
 
 // 生成一个数字输入字段
-function makeNumField(labelText, cls, value, idx, step) {
-    const wrap = makeField(labelText, "number", cls, value, idx);
+function makeNumField(labelText, cls, value, step) {
+    const wrap = makeField(labelText, "number", cls, value);
     const input = wrap.querySelector("input");
     input.step = step;
     input.min = 0;
     return wrap;
 }
 
+// 生成一个文本域字段（label + textarea）
+function makeAreaField(labelText, cls, value, rows = 3) {
+    const area = document.createElement("textarea");
+    area.className = cls;
+    area.rows = rows;
+    area.value = value ?? "";
+    return makeLabeledField(labelText, area);
+}
+
 // 生成一个复选框
-function makeCheckbox(labelText, cls, checked, idx) {
+function makeCheckbox(labelText, cls, checked) {
     const label = document.createElement("label");
     label.className = "checkbox";
     const input = document.createElement("input");
     input.type = "checkbox";
     input.className = cls;
     input.checked = !!checked;
-    input.dataset.idx = idx;
     const span = document.createElement("span");
     span.textContent = labelText;
-    label.appendChild(input);
-    label.appendChild(span);
+    label.append(input, span);
     return label;
+}
+
+// 卡片标题行：名称字段（占满剩余宽度）+ 右侧操作区
+// 返回 { head, nameInput, actions }，由调用方补充各自的按钮
+function buildCardHead(labelKey, inputCls, value, idx, list) {
+    const head = document.createElement("div");
+    head.className = "llm-card-head";
+
+    const nameField = document.createElement("div");
+    nameField.className = "field llm-name-field";
+    const label = document.createElement("label");
+    label.className = "field-label";
+    label.textContent = t(labelKey);
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = inputCls;
+    input.value = value || "";
+    // 输入名称时同步左侧列表，避免切换后名称不一致
+    input.addEventListener("input", () => updateLlmListItemName(list, idx, input.value));
+    nameField.append(label, input);
+
+    const actions = document.createElement("div");
+    actions.className = "llm-card-actions";
+    head.append(nameField, actions);
+    return { head, nameInput: input, actions };
+}
+
+// 卡片上的操作按钮（复制 / 删除等）
+function makeCardBtn(labelText, cls, onClick) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = cls;
+    btn.textContent = labelText;
+    btn.addEventListener("click", onClick);
+    return btn;
+}
+
+// 删除确认对话框：用户确认删除时返回 true
+async function confirmDelete(titleKey, msgKey, name) {
+    const key = await showConfirmDialog(
+        t(titleKey),
+        t(msgKey).replace("{name}", name || ""),
+        [
+            { key: "delete", label: t("common.delete"), cls: "danger" },
+            { key: "cancel", label: t("common.cancel"), cls: "primary" },
+        ]
+    );
+    return key === "delete";
 }
 
 // ================================================================
@@ -5054,6 +5683,7 @@ export async function setupUI() {
     initPreviewReadme();
     initPreviewZoom();
     initGalleryContextMenu();
+    initActionsContextMenu();
     initExtraTools();
     // 边界框：初始化画布并注入写回回调（拖拽结束后更新编辑框文本）
     initBbox();
@@ -5082,4 +5712,6 @@ export async function setupUI() {
     refreshAll();
     // 自动加载 config.json 中保存的设置
     applyConfigToUI();
+    // config 中的编辑模式可能重新启用胶囊模式，最后再按设置应用模式按钮的显示状态
+    applyActionsRowVisibility();
 }

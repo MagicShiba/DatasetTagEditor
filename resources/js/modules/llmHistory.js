@@ -4,12 +4,13 @@
 
 import * as api from "./api.js";
 import { normalizePath } from "./utils.js";
+import { getSetting } from "./config.js";
 
 // 历史文件路径（cache 目录，与应用缓存一起管理）
 const HISTORY_DIR = normalizePath(`${NL_PATH}/cache`);
 const HISTORY_PATH = normalizePath(`${HISTORY_DIR}/llm_history.json`);
-// 最多保留的记录条数，超出时丢弃最旧的记录
-const MAX_ENTRIES = 300;
+// 默认最多保留的记录条数（可在设置中调整，见 settings.llm_history_max_entries）
+const DEFAULT_MAX_ENTRIES = 300;
 
 // 内存中的历史记录（新的在前）
 let entries = [];
@@ -17,6 +18,12 @@ let entries = [];
 let loading = null;
 // 保存防抖定时器
 let saveTimer = null;
+
+// 读取设置中的记录条数上限（设置无效时使用默认值）
+function getMaxEntries() {
+    const n = parseInt(getSetting("llm_history_max_entries"), 10);
+    return Number.isFinite(n) && n > 0 ? n : DEFAULT_MAX_ENTRIES;
+}
 
 // 从文件加载历史（首次加载时读取，之后直接返回内存数据）
 export function loadHistory() {
@@ -56,8 +63,30 @@ export async function addHistoryEntry(entry) {
         error: "",
         ...entry,
     });
-    if (entries.length > MAX_ENTRIES) entries.length = MAX_ENTRIES;
+    trimToLimit();
     scheduleSave();
+}
+
+// 按设置的条数上限裁剪（超出时丢弃最旧的记录）
+export function trimToLimit() {
+    const max = getMaxEntries();
+    if (entries.length <= max) return;
+    entries.length = max;
+    // 裁剪结果需要落盘，避免重启后旧记录重新出现
+    scheduleSave();
+}
+
+// 清空全部历史记录（内存 + 文件）
+export async function clearHistory() {
+    await loadHistory();
+    // 原地清空，保持 loadHistory 返回的数组引用有效
+    entries.length = 0;
+    if (saveTimer) {
+        clearTimeout(saveTimer);
+        saveTimer = null;
+    }
+    await api.createDirectory(HISTORY_DIR);
+    await api.writeTextFile(HISTORY_PATH, "[]");
 }
 
 // 保存到文件（防抖，避免流式调用结束后频繁写盘）

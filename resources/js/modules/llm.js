@@ -1,7 +1,7 @@
 // llm.js - LLM API 调用（兼容 OpenAI API 格式，流式）
 // 支持多配置（API URL / Key / 模型 / 自定义参数）、自定义 LLM 功能、图片压缩
 
-import { getSetting } from "./config.js";
+import { getSetting, getActivePrompt, getPromptByName } from "./config.js";
 import { readBinaryFile } from "./api.js";
 import { getImageMime } from "./utils.js";
 import { addHistoryEntry } from "./llmHistory.js";
@@ -218,10 +218,12 @@ export async function runLlmFunction(fn, input, onChunk, onReasoning, onStats) {
 }
 
 // 反推标注：将图片发送给 LLM，返回逗号分隔的标签文本
-// 使用设置中独立的反推提示词（llm_reverse_prompt），与「LLM 功能」区分开
+// 使用设置中的反推提示词（支持多份，默认取当前启用的那一份）
+// promptName 指定使用哪一份提示词（画廊右键菜单选择），为空时使用当前启用的一份
 // 加载数据集时对不存在文本文件的图像自动调用
-export async function reverseCaption(imagePath) {
-    const config = resolveLlmConfig(getSetting("llm_reverse_config"));
+export async function reverseCaption(imagePath, promptName) {
+    const preset = getPromptByName("reverse", promptName);
+    const config = resolveLlmConfig(preset.config);
     if (!config) throw new Error("未配置 LLM，请先在设置中配置模型");
     if (!config.api_url) throw new Error("LLM API URL 未配置");
 
@@ -229,7 +231,7 @@ export async function reverseCaption(imagePath) {
     const imageDataUrl = await prepareImage(imagePath, maxRes);
     if (!imageDataUrl) throw new Error("图片加载失败");
 
-    const prompt = getSetting("llm_reverse_prompt") || "";
+    const prompt = preset.prompt || "";
     const payload = {
         model: config.model,
         messages: [
@@ -245,13 +247,14 @@ export async function reverseCaption(imagePath) {
 }
 
 // 翻译文本：将选中文本发送给 LLM，返回译文（流式）
-// 使用设置中独立的翻译提示词（llm_translate_prompt），与「LLM 功能」区分开
+// 使用设置中的翻译提示词（支持多份，取当前启用的那一份），与「LLM 功能」区分开
 export async function translateText(text, onChunk) {
-    const config = resolveLlmConfig(getSetting("llm_translate_config"));
+    const preset = getActivePrompt("translate");
+    const config = resolveLlmConfig(preset.config);
     if (!config) throw new Error("未配置 LLM，请先在设置中配置模型");
     if (!config.api_url) throw new Error("LLM API URL 未配置");
 
-    const prompt = getSetting("llm_translate_prompt") || "";
+    const prompt = preset.prompt || "";
     const payload = {
         model: config.model,
         messages: [
