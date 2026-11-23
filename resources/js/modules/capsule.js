@@ -23,7 +23,7 @@ let dragFrom = -1;
 const ta = () => document.getElementById("dte_edit_caption");
 const box = () => document.getElementById("dte_capsule_editor");
 const cb = () => document.getElementById("cb_use_capsule_editor");
-const wrap = () => document.getElementById("dte_caption_textarea_wrap");
+const overlay = () => document.getElementById("dte_caption_overlay");
 const modeBtn = () => document.getElementById("btn_toggle_mode");
 const modeCapsuleIcon = () => document.getElementById("mode_icon_capsule");
 const modeTextIcon = () => document.getElementById("mode_icon_text");
@@ -70,11 +70,12 @@ function syncModeButton() {
     if (txtIcon) txtIcon.classList.toggle("hidden", active);
 }
 
-// 应用当前模式：显示/隐藏文本编辑框与胶囊编辑区
+// 应用当前模式：显示/隐藏文本编辑框（含高亮层）与胶囊编辑区
 function applyMode() {
-    if (!box() || !wrap()) return;
+    if (!box() || !ta()) return;
     box().classList.toggle("hidden", !active);
-    wrap().classList.toggle("hidden", active);
+    ta().classList.toggle("hidden", active);
+    overlay()?.classList.toggle("hidden", active);
     if (active) render();
 }
 

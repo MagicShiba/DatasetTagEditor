@@ -2376,19 +2376,25 @@ function replacePunctuation() {
 }
 
 // 动态构建编辑选中图像页面的操作按钮（替换标点 + LLM 功能），均使用紧凑样式
+// 按钮直接作为 .actions-row 的子节点参与排列；只清理上次动态生成的按钮，保留静态标签和模式切换按钮
 function buildLlmFunctionButtons() {
-    const box = document.getElementById("llm-fn-buttons");
-    if (!box) return;
-    box.innerHTML = "";
+    const row = document.querySelector(".actions-row");
+    if (!row) return;
+    row.querySelectorAll("[data-llm-fn-btn]").forEach(btn => btn.remove());
+
+    const addButton = (labelText, onClick) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn compact";
+        btn.dataset.llmFnBtn = "1";
+        btn.textContent = labelText;
+        btn.addEventListener("click", onClick);
+        row.appendChild(btn);
+    };
 
     // 替换标点按钮（可在设置中关闭，置于最前，随语言切换重建）
     if (getSetting("replace_punct_enabled")) {
-        const punctBtn = document.createElement("button");
-        punctBtn.type = "button";
-        punctBtn.className = "btn compact";
-        punctBtn.textContent = t("edit_caption.replace_punct");
-        punctBtn.addEventListener("click", replacePunctuation);
-        box.appendChild(punctBtn);
+        addButton(t("edit_caption.replace_punct"), replacePunctuation);
     }
 
     // LLM 功能按钮（设置中未启用的功能不显示）
@@ -2396,12 +2402,7 @@ function buildLlmFunctionButtons() {
     for (const fn of fns) {
         if (!fn || !fn.name) continue;
         if (fn.enabled === false) continue;
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "btn compact";
-        btn.textContent = fn.name;
-        btn.addEventListener("click", () => runLlmFunctionButton(fn));
-        box.appendChild(btn);
+        addButton(fn.name, () => runLlmFunctionButton(fn));
     }
 }
 
@@ -4244,8 +4245,6 @@ function initSettings() {
 
 // 构建设置中的标点替换规则表格（每行：原字符 / 替换字符，可编辑、删除、添加行）
 function createPunctRulesTable() {
-    const wrap = document.createElement("div");
-    wrap.className = "punct-rules-editor";
     const grid = document.createElement("div");
     grid.id = "setting_replace_punct_from";
     grid.className = "punct-rules-table";
@@ -4284,13 +4283,15 @@ function createPunctRulesTable() {
     addBtn.className = "btn compact";
     addBtn.textContent = t("settings.add_rule");
     addBtn.addEventListener("click", () => addRow("", ""));
-    wrap.append(grid, addBtn);
-    return wrap;
+    // 返回片段，由外层 .field 直接容纳表格与按钮，省去一层包装 div
+    const fragment = document.createDocumentFragment();
+    fragment.append(grid, addBtn);
+    return fragment;
 }
 
 // 构建设置表单（通用设置项）
 // 布局：左侧为按功能分组的导航列表（点击跳转），右侧一次性显示全部分组内容。
-// 分组顺序：界面语言 / 画廊与缩略图 / 文件名与线程 / 标签与标点 / 边界框 / 反推与翻译
+// 分组顺序：界面 / 数据集加载 / 画廊与缩略图 / 标注编辑与统计 / 边界框 / LLM 提示词 / LLM 调用历史
 function buildSettingsGrid() {
     const grid = document.getElementById("settings-grid");
     const nav = document.getElementById("settings-nav-list");
@@ -4301,11 +4302,8 @@ function buildSettingsGrid() {
     grid.innerHTML = "";
     if (nav) nav.innerHTML = "";
 
-    const seen = new Set();
-    const markSeen = (...names) => names.forEach(n => seen.add(n));
-
     // 追加一个分组：自动生成标题、跳转锚点，并在左侧导航中注册同名条目
-    const addSection = (id, titleKey, nodes) => {
+    const addSection = (id, titleKey, ...nodes) => {
         const sec = document.createElement("section");
         sec.className = "settings-section";
         sec.id = "settings_sec_" + id;
@@ -4319,57 +4317,35 @@ function buildSettingsGrid() {
     };
 
     // 界面（语言以单选框呈现）
-    markSeen("language");
-    addSection("interface", "settings.interface_group", [renderSettingsField("language")]);
+    addSection("interface", "settings.interface_group", renderSettingsField("language"));
 
-    // 画廊与缩略图分组（含清除缓存按钮）
-    markSeen("cleanup_tmpdir", "max_resolution", "gallery_image_width");
-    addSection("gallery", "settings.gallery_group", buildGallerySection(clearBox));
-
-    // 文件名相关设置
-    markSeen("filename_word_regex", "filename_join_string", "num_cpu_worker");
-    addSection("filename", "settings.filename_group", [
+    // 数据集加载：文件名解析与预处理线程数，三项都作用于数据集加载阶段
+    addSection("filename", "settings.filename_group",
         renderSettingsControl("filename_word_regex"),
         renderSettingsControl("filename_join_string"),
-        renderSettingsControl("num_cpu_worker"),
-    ]);
+        renderSettingsControl("num_cpu_worker"));
 
-    // 标签与标点分组：从标签分隔符到替换标点（含字符统计）
-    markSeen("tag_separators", "auto_compress_json", "auto_switch_next", "replace_punct_enabled", "show_mode_btn",
-        "replace_punct_from", "char_count_ascii_ratio", "char_count_non_ascii_ratio", "char_count_ignore_spaces");
-    addSection("tag_punct", "settings.tag_punct_group", buildTagPunctGroup());
+    // 画廊与缩略图分组（含清除缓存按钮）
+    addSection("gallery", "settings.gallery_group", ...buildGallerySection(clearBox));
 
-    // 边界框设置（坐标范围、坐标类型在前，0~1000 时小数位数禁用）
-    markSeen("bbox_coordinate_range", "bbox_coordinate_order", "bbox_json_decimal_places");
-    addSection("bbox", "settings.bbox_group", [
+    // 标注编辑与统计：标签分隔符、字符统计、编辑区按钮与保存后行为
+    addSection("tag_punct", "settings.tag_punct_group", ...buildTagPunctGroup());
+
+    // 边界框设置（坐标范围、坐标类型在前，0~1000 时小数位数禁用；JSON 压缩放最后）
+    addSection("bbox", "settings.bbox_group",
         renderSettingsControl("bbox_coordinate_range"),
         renderSettingsControl("bbox_coordinate_order"),
         renderSettingsControl("bbox_json_decimal_places"),
-    ]);
+        renderSettingsControl("auto_compress_json"));
     // 初始联动：0~1000 格式使用整数，禁用小数位数设置
     const precInput = document.getElementById("setting_bbox_json_decimal_places");
     if (precInput) precInput.disabled = settings.current.bbox_coordinate_range === "0~1000";
 
-    // 反推标注 / 翻译提示词（可保存多份并切换，原位于 LLM 配置页，现移入通用设置集中管理）
-    markSeen("llm_reverse_prompt", "llm_reverse_config", "llm_translate_prompt", "llm_translate_config",
-        "llm_reverse_prompts", "llm_reverse_prompt_active", "llm_translate_prompts", "llm_translate_prompt_active",
-        "translate_enabled");
-    addSection("llm_prompt", "settings.llm_prompt_group", buildLlmPromptGroup());
+    // 反推 / 翻译提示词（翻译开关紧邻翻译提示词块）
+    addSection("llm_prompt", "settings.llm_prompt_group", ...buildLlmPromptGroup());
 
     // LLM 调用历史（保留条数 + 清除历史）
-    markSeen("llm_history_max_entries");
-    addSection("llm_history", "settings.llm_history_group", buildLlmHistoryGroup());
-
-    // 兜底：SETTINGS_DEFAULT 中其余未显式分组的键
-    const rest = [];
-    for (const name of Object.keys(SETTINGS_DEFAULT)) {
-        if (seen.has(name)) continue;
-        markSeen(name);
-        if (SETTINGS_HIDDEN.has(name)) continue;
-        if (name === "replace_punct_to") continue;
-        rest.push(renderSettingsControl(name));
-    }
-    if (rest.length) addSection("others", "settings.other_group", rest);
+    addSection("llm_history", "settings.llm_history_group", ...buildLlmHistoryGroup());
 
     // 兜底：画廊分组未放入时仍显示清除缓存按钮
     if (clearBox && !clearBox.parentNode) grid.appendChild(clearBox);
@@ -4503,15 +4479,22 @@ function buildPromptBlock(kind) {
         rerenderPromptBlock(kind);
     });
 
-    // 标题行：标题 + 切换下拉 + 新建 / 复制 / 删除
+    // 标题行：左侧「类别 + 提示词选择」字段，右侧新建 / 复制 / 删除，与 LLM 卡片标题行结构一致
     const head = document.createElement("div");
     head.className = "llm-prompt-head";
-    const title = document.createElement("label");
-    title.className = "field-label llm-inline-label";
-    title.textContent = t(isReverse ? "settings.llm_reverse_prompt" : "settings.llm_translate_prompt");
-    head.append(title, select);
 
-    head.appendChild(makeCardBtn(t("settings.add_prompt"), "btn compact", () => {
+    select.id = `lp-select-${kind}`;
+    const field = makeLabeledField(
+        t(isReverse ? "settings.llm_reverse_prompt" : "settings.llm_translate_prompt"),
+        select,
+        "llm-name-field"
+    );
+    field.querySelector("label").htmlFor = select.id;
+    head.appendChild(field);
+
+    const actions = document.createElement("div");
+    actions.className = "llm-card-actions";
+    actions.appendChild(makeCardBtn(t("settings.add_prompt"), "btn compact", () => {
         readPromptBlock(kind);
         const l = getSetting(meta.listKey);
         const item = { ...LLM_PROMPT_DEFAULT, name: uniquePromptName(l, t("settings.prompt_new")) };
@@ -4520,7 +4503,7 @@ function buildPromptBlock(kind) {
         rerenderPromptBlock(kind);
     }));
 
-    head.appendChild(makeCardBtn(t("settings.copy"), "btn compact", () => {
+    actions.appendChild(makeCardBtn(t("settings.copy"), "btn compact", () => {
         readPromptBlock(kind);
         const l = getSetting(meta.listKey);
         const idx = l.findIndex(p => p.name === getSetting(meta.activeKey));
@@ -4531,7 +4514,7 @@ function buildPromptBlock(kind) {
         rerenderPromptBlock(kind);
     }));
 
-    head.appendChild(makeCardBtn(t("common.delete"), "btn danger llm-del-btn", async () => {
+    actions.appendChild(makeCardBtn(t("common.delete"), "btn danger llm-del-btn", async () => {
         const l = getSetting(meta.listKey) || [];
         if (l.length <= 1) {
             showToast(t("settings.min_one_prompt"), "error");
@@ -4546,6 +4529,7 @@ function buildPromptBlock(kind) {
         setSetting(meta.activeKey, l[0].name);
         rerenderPromptBlock(kind);
     }));
+    head.appendChild(actions);
     block.appendChild(head);
 
     // 提示词名称（名称变化时同步切换下拉中的条目，避免切换后定位不到）
@@ -4580,10 +4564,10 @@ function buildPromptBlock(kind) {
     return block;
 }
 
-// 反推与翻译提示词分组（每种类型均可保存多份并切换当前使用的一份）
+// LLM 提示词分组（每种类型均可保存多份并切换当前使用的一份）
+// 顺序：反推提示词 → 翻译开关 → 翻译提示词，避免翻译开关被误认为控制反推
+// 直接返回节点数组，由 .settings-section 自身的 flex/gap 负责间距，不再多包一层容器
 function buildLlmPromptGroup() {
-    const wrap = document.createElement("div");
-    wrap.className = "llm-prompt-groups";
     // 翻译功能总开关：关闭后选中文本不再显示"译"按钮，翻译提示词也随之不生效
     const translateRow = renderSettingsRow("translate_enabled");
     const translateBlock = buildPromptBlock("translate");
@@ -4591,8 +4575,7 @@ function buildLlmPromptGroup() {
     const syncDisabled = () => translateBlock.classList.toggle("disabled", !cb.checked);
     cb.addEventListener("change", syncDisabled);
     syncDisabled();
-    wrap.append(translateRow, buildPromptBlock("reverse"), translateBlock);
-    return [wrap];
+    return [buildPromptBlock("reverse"), translateRow, translateBlock];
 }
 
 // LLM 调用历史分组：保留条数设置 + 清除历史按钮
@@ -4810,12 +4793,11 @@ function createCharCountField() {
     return field;
 }
 
-// 标签与标点设置项：从标签分隔符到替换标点（含字符统计）
-// 返回节点数组，由 buildSettingsGrid 放入对应分组（标题由分组统一生成）
+// 标注编辑与统计设置项：从标签分隔符到替换标点（含字符统计）
+// JSON 压缩已移入边界框分组；返回节点数组，由 buildSettingsGrid 放入对应分组
 function buildTagPunctGroup() {
     return [
         renderSettingsField("tag_separators"),
-        renderSettingsRow("auto_compress_json"),
         renderSettingsRow("auto_switch_next"),
         createCharCountField(),
         renderSettingsRow("char_count_ignore_spaces"),
@@ -5590,18 +5572,13 @@ function buildCardHead(labelKey, inputCls, value, idx, list) {
     const head = document.createElement("div");
     head.className = "llm-card-head";
 
-    const nameField = document.createElement("div");
-    nameField.className = "field llm-name-field";
-    const label = document.createElement("label");
-    label.className = "field-label";
-    label.textContent = t(labelKey);
     const input = document.createElement("input");
     input.type = "text";
     input.className = inputCls;
     input.value = value || "";
     // 输入名称时同步左侧列表，避免切换后名称不一致
     input.addEventListener("input", () => updateLlmListItemName(list, idx, input.value));
-    nameField.append(label, input);
+    const nameField = makeLabeledField(t(labelKey), input, "llm-name-field");
 
     const actions = document.createElement("div");
     actions.className = "llm-card-actions";
