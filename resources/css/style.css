@@ -10,8 +10,69 @@
   --accent-hover: #0b5ed7;
   --danger: #dc3545;
   --danger-hover: #bb2d3b;
+  --danger-soft: rgba(220, 53, 69, 0.15);
+  --success: #3fb950;
   --font-mono: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
   --radius: 6px;
+  /* 主题派生的辅助色：--accent 系列由 JS 根据自定义高亮色实时写入 */
+  --on-accent: #fff;
+  --accent-soft: rgba(13, 110, 253, 0.18);
+  --selection-bg: rgba(13, 110, 253, 0.42);
+  --hover-bg: #2a313a;
+  --hover-overlay: rgba(255, 255, 255, 0.12);
+  --divider: #444;
+  --scrollbar-thumb: #3a424c;
+  --scrollbar-thumb-hover: #4a545f;
+  --caption-text: #ccc;
+  --popup-bg: #1c2127dd;
+  --popup-header-bg: #252b33;
+  --toast-success-text: #cfe8d8;
+  --toast-error-text: #f0c4c4;
+  --history-system-bg: #224444;
+  --history-user-bg: #223322;
+  --history-model-bg: #442244;
+  --history-reasoning-bg: #444422;
+  --history-system-title: #79c0ff;
+  --history-user-title: #7ee787;
+  --history-model-title: #d2a8ff;
+  --history-reasoning-title: #e3b341;
+  --history-error-title: #f85149;
+  --bbox-preview-bg: #4a4a4a;
+  /* 图像预览/缩略图的画布底色：暗色用黑，亮色用中性灰 */
+  --image-stage-bg: #000;
+}
+
+/* 亮色主题：只覆盖颜色变量，布局与交互规则完全复用 */
+[data-theme="light"] {
+  --bg: #f5f6f8;
+  --bg-panel: #ffffff;
+  --bg-input: #eeeeee;
+  --border: #d0d7de;
+  --text: #1f2328;
+  --text-dim: #57606a;
+  --hover-bg: #eaeef2;
+  --hover-overlay: rgba(0, 0, 0, 0.08);
+  --divider: #d8dee4;
+  --scrollbar-thumb: #c6cdd4;
+  --scrollbar-thumb-hover: #aab3bd;
+  --caption-text: #1f2328;
+  --popup-bg: rgba(255, 255, 255, 0.96);
+  --popup-header-bg: #f0f3f6;
+  --toast-success-text: #0a7a3d;
+  --toast-error-text: #c0392b;
+  --history-system-bg: #e7f3ff;
+  --history-user-bg: #eaf7ea;
+  --history-model-bg: #f3eafa;
+  --history-reasoning-bg: #faf4da;
+  --history-system-title: #0969da;
+  --history-user-title: #1a7f37;
+  --history-model-title: #8250df;
+  --history-reasoning-title: #9a6700;
+  --history-error-title: #cf222e;
+  --bbox-preview-bg: #e6e8eb;
+  --image-stage-bg: #d0d5da;
+  --success: #1a7f37;
+  --danger-soft: rgba(220, 53, 69, 0.1);
 }
 
 * {
@@ -143,7 +204,7 @@ input[type="number"].crop-res-input {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #000;
+  background: var(--image-stage-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
@@ -347,13 +408,13 @@ textarea.bbox-label-input {
 }
 
 .btn:hover {
-  background: #2a313a;
+  background: var(--hover-bg);
 }
 
 .btn.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
 }
 
@@ -410,9 +471,15 @@ textarea {
   font-size: 13px;
 }
 
+/* 所有原生复选框 / 单选框统一跟随主题高亮色，
+   包括不包在 .checkbox 标签里的 .settings-row 设置项 */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--accent);
+}
+
 .checkbox input {
   margin-top: 2px;
-  accent-color: var(--accent);
 }
 
 /* 单选框行（水平排列，宽度不足时自动换行） */
@@ -421,6 +488,44 @@ textarea {
   flex-wrap: wrap;
   gap: 2px 14px;
   align-items: center;
+}
+
+/* 高亮色选择：取色器 + 预设色块 + 恢复默认 */
+.accent-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.accent-presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.accent-swatch {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.12s;
+}
+
+.accent-swatch:hover {
+  transform: scale(1.12);
+}
+
+.accent-swatch.active {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+.accent-reset {
+  flex: none;
 }
 
 /* 合并区域之间的分隔线 */
@@ -494,12 +599,12 @@ textarea {
   cursor: pointer;
   font-size: 12px;
   color: var(--text);
-  border-bottom: 1px solid #444;
+  border-bottom: 1px solid var(--divider);
 }
 
 .dir-history-item:hover {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .dir-history-path {
@@ -587,7 +692,7 @@ textarea {
 #load-panel.drag-over {
   outline: 2px dashed var(--accent);
   outline-offset: -2px;
-  background: var(--bg-hover);
+  background: var(--hover-bg);
 }
 .grow-panel {
   flex: 1;
@@ -836,12 +941,12 @@ textarea {
 }
 
 .gallery-grid::-webkit-scrollbar-thumb {
-  background: #3a424c;
+  background: var(--scrollbar-thumb);
   border-radius: 3px;
 }
 
 .gallery-grid::-webkit-scrollbar-thumb:hover {
-  background: #4a545f;
+  background: var(--scrollbar-thumb-hover);
 }
 
 .thumb-item {
@@ -851,7 +956,7 @@ textarea {
   min-width: 0;
   border: 2px solid var(--border);
   cursor: pointer;
-  background: #000;
+  background: var(--image-stage-bg);
   border-radius: 2px;
 }
 
@@ -867,7 +972,7 @@ textarea {
 }
 
 .thumb-item:hover {
-  border-color: #4d86f7;
+  border-color: var(--accent);
 }
 
 /* 选择筛选画廊：仅高亮当前选中项，悬停不再高亮未选中项，避免误判选中 */
@@ -1032,14 +1137,14 @@ textarea {
   word-break: break-all;
   max-height: 300px;
   overflow-y: auto;
-  color:#ccc;
+  color: var(--caption-text);
   user-select: text;
 }
 
 .actions-row {
   margin-bottom: 4px;
   flex-wrap: wrap;
-  max-height: 46px;
+  max-height: 54px;
   overflow-y: auto;
 }
 
@@ -1073,14 +1178,14 @@ textarea {
 }
 
 #btn_toggle_mode.mode-btn:hover {
-  background: #2a313a;
+  background: var(--hover-bg);
   color: var(--text);
 }
 
 #btn_toggle_mode.mode-btn.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 /* 文本编辑框、高亮层和字符计数共用该定位上下文 */
@@ -1138,9 +1243,9 @@ textarea {
 }
 
 #dte_edit_caption::selection {
-  color: #000 !important;
-  -webkit-text-fill-color: #000 !important;
-  background: #7ab3ff !important;
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+  background: var(--selection-bg) !important;
 }
 
 #dte_caption_overlay {
@@ -1320,7 +1425,7 @@ textarea {
 
 .capsule-x:hover {
   color: var(--danger);
-  background: rgba(220, 53, 69, 0.15);
+  background: var(--danger-soft);
   font-weight: bold;
 }
 
@@ -1339,7 +1444,7 @@ textarea {
 }
 
 .capsule-insert:hover {
-  color: var(--text);
+  color: var(--on-accent);
   background: var(--accent-hover);
   border-color: var(--border);
   width: 18px;
@@ -1489,7 +1594,7 @@ textarea {
 
 /* 与左侧画廊选中图像对应的行 */
 .rename-table tr.selected {
-  background: rgba(13, 110, 253, 0.18);
+  background: var(--accent-soft);
 }
 
 .rename-table tr.selected td:first-child {
@@ -1537,7 +1642,7 @@ textarea {
 
 .rename-table input[type="checkbox"].rename-del-cb:checked {
   border-color: var(--danger);
-  background: rgba(255, 0, 0, 0.1);
+  background: var(--danger-soft);
 }
 
 .rename-table input[type="checkbox"].rename-del-cb:checked::after {
@@ -2029,12 +2134,12 @@ textarea {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #3a424c;
+  background: var(--scrollbar-thumb);
   border-radius: 5px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #4a545f;
+  background: var(--scrollbar-thumb-hover);
 }
 
 .hidden {
@@ -2108,7 +2213,7 @@ textarea {
   z-index: 1200000;
   display: flex;
   flex-direction: column;
-  background: #1c2127dd;
+  background: var(--popup-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
@@ -2125,7 +2230,7 @@ textarea {
 }
 
 .popup-window.focused .translate-popup-title {
-  color: #fff;
+  color: var(--on-accent);
 }
 
 /* 尺寸预设：列表型浮窗（反推 / json / 换行）稍宽 */
@@ -2198,7 +2303,7 @@ textarea {
   height: 100%;
   width: 0;
   /* 与"反推管理"按钮底部进度条保持一致，统一使用绿色 */
-  background: #3fb950;
+  background: var(--success);
   transition: width 0.2s ease;
 }
 
@@ -2243,11 +2348,11 @@ textarea {
 }
 
 .llm-progress-status.processing {
-  color: #4d86f7;
+  color: var(--accent);
 }
 
 .llm-progress-status.done {
-  color: #3fb950;
+  color: var(--success);
 }
 
 .llm-progress-status.failed {
@@ -2336,7 +2441,7 @@ textarea {
   bottom: 0;
   height: 3px;
   width: var(--llm-open-progress, 0%);
-  background: #3fb950;
+  background: var(--success);
   transition: width 0.25s ease;
 }
 
@@ -2349,12 +2454,11 @@ textarea {
 }
 
 .modal-body input[type="color"] {
-  width: 60px;
+  width: 24px;
   height: 28px;
   padding: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-input);
+  border: unset;
+  background: unset;
 }
 
 /* 高亮规则编辑对话框中的颜色选择行：复选框 + 颜色选择器挨在一起，纵向居中对齐 */
@@ -2456,7 +2560,7 @@ textarea {
 
 .context-menu button:hover {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .context-menu button[hidden] {
@@ -2510,7 +2614,7 @@ textarea {
 
 .context-submenu button:hover {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 /* 菜单项前的勾选标记（功能开关 / 当前默认项） */
@@ -2558,7 +2662,7 @@ textarea {
 }
 
 .toast {
-  background: #2a313a;
+  background: var(--hover-bg);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -2580,12 +2684,12 @@ textarea {
 
 .toast.toast-success {
   border-color: var(--accent);
-  color: #cfe8d8;
+  color: var(--toast-success-text);
 }
 
 .toast.toast-error {
   border-color: var(--danger);
-  color: #f0c4c4;
+  color: var(--toast-error-text);
 }
 
 /* ============ 选中文本翻译（译按钮 + 浮窗） ============ */
@@ -2594,18 +2698,18 @@ textarea {
 .translate-trigger {
   position: fixed;
   z-index: 1200001;
-  width: 28px;
-  height: 28px;
+  width: 22px;
+  height: 22px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--accent);
-  color: #fff;
-  font-size: 15px;
+  color: var(--on-accent);
+  font-size: 14px;
   font-weight: 600;
   border-radius: var(--radius);
   cursor: pointer;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+  box-shadow: 1px 1px 5px 5px #00000080;
   user-select: none;
 }
 
@@ -2620,7 +2724,7 @@ textarea {
   align-items: center;
   gap: 4px;
   padding: 2px 4px;
-  background: #252b33;
+  background: var(--popup-header-bg);
   cursor: move;
   user-select: none;
 }
@@ -2671,7 +2775,7 @@ textarea {
 .translate-pin-btn:hover,
 .translate-close-btn:hover,
 .translate-refresh-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--hover-overlay);
   color: var(--text);
 }
 
@@ -2763,7 +2867,7 @@ textarea {
 
 /* 调用失败的记录用红色名称提示 */
 .llm-history-item.error .llm-history-item-name {
-  color: #f08080;
+  color: var(--history-error-title);
 }
 
 /* 右侧正文：分页渲染记录，滚动到顶部/底部时按需加载 */
@@ -2813,7 +2917,7 @@ textarea {
 
 .llm-history-block {
   margin-bottom: 6px;
-  background: #224444;
+  background: var(--history-system-bg);
   padding: 2px;
 }
 
@@ -2825,13 +2929,13 @@ textarea {
 }
 
 /* 系统 / 用户 / 模型 / 思考过程 / 错误 使用不同颜色区分 */
-.llm-history-block.system .llm-history-block-title { color: #79c0ff;text-align: center; }
-.llm-history-block.user .llm-history-block-title { color: #7ee787; }
-.llm-history-block.model .llm-history-block-title { color: #d2a8ff; }
-.llm-history-block.reasoning .llm-history-block-title { color: #e3b341; }
-.llm-history-block.error .llm-history-block-title { color: #f85149; }
-.llm-history-block.model{  background: #442244; }
-.llm-history-block.reasoning{  background: #444422;}
+.llm-history-block.system .llm-history-block-title { color: var(--history-system-title); text-align: center; }
+.llm-history-block.user .llm-history-block-title { color: var(--history-user-title); }
+.llm-history-block.model .llm-history-block-title { color: var(--history-model-title); }
+.llm-history-block.reasoning .llm-history-block-title { color: var(--history-reasoning-title); }
+.llm-history-block.error .llm-history-block-title { color: var(--history-error-title); }
+.llm-history-block.model { background: var(--history-model-bg); }
+.llm-history-block.reasoning { background: var(--history-reasoning-bg); }
 .llm-history-block.reasoning .llm-history-block-text{ max-height: 100px; }
 .llm-history-block-text {
   margin: 0;
@@ -2861,9 +2965,9 @@ textarea {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  border-right: 2px solid #7EE787;
+  border-right: 2px solid var(--history-user-title);
   padding-right: 5px;
-  background: #223322;
+  background: var(--history-user-bg);
   margin-left: 16px;
 }
 
@@ -2997,7 +3101,7 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #4a4a4a;
+  background: var(--bbox-preview-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
@@ -3111,9 +3215,9 @@ textarea {
   border-radius: var(--radius);
 }
 #bbox_studio_text::selection {
-  color: #000 !important;
-  -webkit-text-fill-color: #000 !important;
-  background: #7ab3ff !important;
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+  background: var(--selection-bg) !important;
 }
 #bbox_studio_overlay {
   position: absolute;
@@ -3192,7 +3296,7 @@ body.bbox-studio-standalone {
   background: linear-gradient(135deg, transparent 50%, var(--border) 50%, var(--border) 65%, transparent 65%);
   border-radius: 0 0 0 0;
 }
-.bbox-resize-handle:hover { background-color: rgba(13,110,253,0.15); }
+.bbox-resize-handle:hover { background-color: var(--accent-soft); }
 .bbox-resize-handle.se:hover { background: linear-gradient(135deg, transparent 50%, var(--accent) 50%, var(--accent) 65%, transparent 65%); }
 .bbox-studio-body { min-width: 0; min-height: 0; }
 .bbox-studio-left { min-width: 0; min-height: 0; }

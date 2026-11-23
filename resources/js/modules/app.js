@@ -8,6 +8,7 @@ import * as thumbs from "./thumbnails.js";
 import { config, settings, getSetting } from "./config.js";
 import { t } from "./i18n.js";
 import { normalizePath, getStem, getExtension, getBasename, withSuffix, setTagSeparators } from "./utils.js";
+import { applyThemeFromSettings } from "./theme.js";
 
 class App {
     constructor() {
@@ -100,6 +101,8 @@ export async function initApp() {
     await settings.load();
     // 应用标签分隔符设置（加载标注时按此拆分标签）
     setTagSeparators(getSetting("tag_separators"));
+    // 应用外观主题（主窗口与独立画板窗口共用同一份设置）
+    applyThemeFromSettings();
 
     // 应用语言：先加载语言包（settings.load 已调用 setLang 设置当前语言）
     const { applyI18n, discoverLanguages } = await import("./i18n.js");

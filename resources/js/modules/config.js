@@ -162,6 +162,10 @@ export const SETTINGS_DEFAULT = {
     replace_punct_to: [",", ".", "!", "?", ":", ";", "(", ")", '"', '"'],
     // 界面语言：auto 表示跟随系统语言（中文系统用中文，其它用英文）
     language: "auto",
+    // 界面主题：dark / light
+    theme: "dark",
+    // 主题高亮色（按钮、选中边框与文本选区），十六进制颜色
+    accent_color: "#0d6efd",
     // 加载数据集时对无文本文件的图像使用 LLM 反推标注的提示词
     // 与「LLM 功能」中的反推提示区分开：这里是独立设置，用于加载时的自动反推
     llm_reverse_prompt: 'You are a professional image tagging program. Generate a comma-separated list of relevant tags for the given image. Output only the tags.',
@@ -226,6 +230,8 @@ export const SETTINGS_DESCRIPTIONS = {
     translate_enabled: "settings.translate_enabled",
     replace_punct_from: "settings.replace_punct_from",
     language: "settings.language",
+    theme: "settings.theme",
+    accent_color: "settings.accent_color",
     char_count_ratio: "settings.char_count_ratio",
     char_count_ignore_spaces: "settings.char_count_ignore_spaces",
     llm_history_max_entries: "settings.llm_history_max_entries",

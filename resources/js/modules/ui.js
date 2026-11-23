@@ -17,6 +17,31 @@ import { initCropPreview, updateCropPreview, setOnCropPreviewChange, getBucketFo
 import { init as initCapsule, setOnChange as setCapsuleOnChange, refresh as capsuleRefresh, setEnabled as setCapsuleEnabled } from "./capsule.js";
 import { setupPopup, showPopup, hidePopup, focusPopup } from "./popup.js";
 import { initPopups } from "./popups.js";
+import { applyTheme, applyThemeFromSettings, normalizeHexColor, ACCENT_DEFAULT, ACCENT_PRESETS } from "./theme.js";
+
+// ================================================================
+// 0. 外观主题（设置页即时预览，主题应用逻辑见 theme.js）
+// ================================================================
+
+// 同步预设色块的选中状态（root 缺省时为整个文档）
+function syncAccentPresets(color, root = document) {
+    const normalized = normalizeHexColor(color);
+    root.querySelectorAll(".accent-swatch").forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.color === normalized);
+    });
+}
+
+// 设置页调整主题 / 高亮色时即时预览，无需先保存
+function applyThemeFromControls() {
+    const theme = document.querySelector('input[name="setting_theme"]:checked')?.value;
+    const color = normalizeHexColor(document.getElementById("setting_accent_color")?.value);
+    if (theme) setSetting("theme", theme);
+    if (color) {
+        setSetting("accent_color", color);
+        syncAccentPresets(color);
+    }
+    applyTheme(getSetting("theme"), getSetting("accent_color"));
+}
 
 // ================================================================
 // 1. 标签筛选（正向/反向/移除）
@@ -4153,6 +4178,7 @@ function initSettings() {
             await config.load();
             await settings.load();
             setTagSeparators(getSetting("tag_separators"));
+            applyThemeFromSettings();
             applyConfigToUI();
             buildSettingsGrid();
             buildLlmConfigs();
@@ -4182,6 +4208,7 @@ function initSettings() {
         llmHistory.trimToLimit();
         // 立即应用标签分隔符设置
         setTagSeparators(getSetting("tag_separators"));
+        applyThemeFromSettings();
         const lang = getSetting("language");
         setLang(lang);
         await applyI18n();
@@ -4202,6 +4229,7 @@ function initSettings() {
 
     document.getElementById("btn_restore_default_settings").addEventListener("click", async () => {
         settings.restoreDefaults();
+        applyThemeFromSettings();
         buildSettingsGrid();
         buildLlmConfigs();
         buildLlmFunctions();
@@ -4316,8 +4344,11 @@ function buildSettingsGrid() {
         if (nav) nav.appendChild(createSettingsNavItem(sec, t(titleKey)));
     };
 
-    // 界面（语言以单选框呈现）
-    addSection("interface", "settings.interface_group", renderSettingsField("language"));
+    // 界面（语言与主题以单选框呈现，高亮色用颜色选择器）
+    addSection("interface", "settings.interface_group",
+        renderSettingsField("language"),
+        renderSettingsField("theme"),
+        renderSettingsField("accent_color"));
 
     // 数据集加载：文件名解析与预处理线程数，三项都作用于数据集加载阶段
     addSection("filename", "settings.filename_group",
@@ -4690,12 +4721,62 @@ function createLanguageRadioGroup(value) {
     return wrap;
 }
 
+// 高亮色控件：取色器 + 预设色块 + 恢复默认
+// 取色器保留 id="setting_accent_color"，readSettingsFromGrid 仍按原逻辑读取
+function createAccentColorPicker(value) {
+    const wrap = document.createElement("div");
+    wrap.className = "accent-picker";
+
+    const input = document.createElement("input");
+    input.type = "color";
+    input.id = "setting_accent_color";
+    input.value = normalizeHexColor(value) || ACCENT_DEFAULT;
+    input.addEventListener("input", applyThemeFromControls);
+    input.addEventListener("change", applyThemeFromControls);
+    wrap.appendChild(input);
+
+    const presets = document.createElement("div");
+    presets.className = "accent-presets";
+    for (const color of ACCENT_PRESETS) {
+        const swatch = document.createElement("button");
+        swatch.type = "button";
+        swatch.className = "accent-swatch";
+        swatch.dataset.color = color;
+        swatch.style.backgroundColor = color;
+        swatch.title = color;
+        swatch.setAttribute("aria-label", color);
+        swatch.addEventListener("click", () => {
+            input.value = color;
+            applyThemeFromControls();
+        });
+        presets.appendChild(swatch);
+    }
+    wrap.appendChild(presets);
+
+    wrap.appendChild(makeCardBtn(t("settings.accent_reset"), "btn compact accent-reset", () => {
+        input.value = ACCENT_DEFAULT;
+        applyThemeFromControls();
+    }));
+
+    syncAccentPresets(input.value, wrap);
+    return wrap;
+}
+
 // 构建设置输入控件（含语言单选框与标点规则表格等特殊分支）
 function createSettingsInput(name, value) {
     let input;
     if (name === "language") {
         // 语言：单选框（自动 + 各语言包）
         input = createLanguageRadioGroup(value);
+    } else if (name === "theme") {
+        // 主题：暗色 / 亮色，切换时即时预览
+        input = createSettingsRadioGroup(name, [
+            ["dark", "settings.theme_dark"],
+            ["light", "settings.theme_light"],
+        ], applyThemeFromControls);
+    } else if (name === "accent_color") {
+        // 主题高亮色：取色器 + 预设色块 + 恢复默认，调整时即时预览
+        input = createAccentColorPicker(value);
     } else if (name === "bbox_coordinate_range") {
         // 边界框坐标范围：单选框（0~1 归一化小数 / 0~1000 整数）
         input = createSettingsRadioGroup(name, [
@@ -4838,7 +4919,7 @@ function readSettingsFromGrid() {
         const el = document.getElementById("setting_" + name);
         if (!el) continue;
         const cur = settings.current[name];
-        if (name === "language" || name === "bbox_coordinate_range" || name === "bbox_coordinate_order") {
+        if (name === "language" || name === "theme" || name === "bbox_coordinate_range" || name === "bbox_coordinate_order") {
             // 语言与边界框坐标范围 / 坐标类型：从单选框读取选中值
             const checked = el.querySelector("input:checked");
             if (checked) settings.current[name] = checked.value;
