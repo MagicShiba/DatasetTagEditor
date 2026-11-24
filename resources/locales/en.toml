@@ -187,7 +187,7 @@ Examples:
 edit_caption = "Edit Caption"
 replace_punct = "Replace Punctuation"
 mode_btn = "Mode switch"
-actions_menu_title = "Action row buttons (check to enable)"
+actions_menu_title = "Action row buttons"
 no_llm_functions = "No LLM function configured yet"
 apply_changes = "Apply changes to selected image"
 not_saved_note = "Changes are not applied to the text files until the \"Save all changes\" button is pressed."

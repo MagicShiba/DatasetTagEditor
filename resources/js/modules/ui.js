@@ -2211,8 +2211,51 @@ function applyEditAreaSettings() {
     applyTranslateEnabled();
 }
 
-// 构建编辑操作区菜单内容：标题 + 模式切换 / 替换标点 / 各 LLM 功能的启用开关
+// 二级菜单定时器：鼠标在主项与子菜单之间移动时留出缓冲
+let actionsSubmenuTimer = null;
+
+// 在功能项右侧显示"使用的配置"子菜单；右侧空间不足时翻转到左侧
+function showActionsSubmenu(item, submenu) {
+    const menu = document.getElementById("actions_context_menu");
+    if (!menu || !item.classList.contains("has-submenu")) return;
+    clearTimeout(actionsSubmenuTimer);
+    menu.querySelectorAll(".context-submenu").forEach(s => { if (s !== submenu) s.classList.add("hidden"); });
+    submenu.classList.remove("hidden");
+    const menuRect = menu.getBoundingClientRect();
+    const itemRect = item.getBoundingClientRect();
+    const w = submenu.offsetWidth;
+    const h = submenu.offsetHeight;
+    let left = menuRect.right - 4;
+    if (left + w > window.innerWidth - 4) left = Math.max(4, menuRect.left - w + 4);
+    let top = itemRect.top - 4;
+    if (top + h > window.innerHeight - 4) top = Math.max(4, window.innerHeight - h - 4);
+    submenu.style.left = left + "px";
+    submenu.style.top = top + "px";
+}
+
+// 隐藏子菜单（不传参数时隐藏当前菜单里所有子菜单）
+function hideActionsSubmenu(submenu) {
+    clearTimeout(actionsSubmenuTimer);
+    if (submenu) submenu.classList.add("hidden");
+    else document.querySelectorAll("#actions_context_menu .context-submenu").forEach(s => s.classList.add("hidden"));
+}
+
+// 延迟隐藏，避免鼠标从主项移到子菜单的途中闪退
+function scheduleHideActionsSubmenu(submenu) {
+    clearTimeout(actionsSubmenuTimer);
+    actionsSubmenuTimer = setTimeout(() => hideActionsSubmenu(submenu), 160);
+}
+
+// 右键菜单改动后统一刷新按钮区与菜单，并持久化设置
+function commitActionsMenuChange() {
+    applyEditAreaSettings();
+    buildActionsContextMenu();
+    settings.save().catch(err => console.warn("保存设置失败", err));
+}
+
+// 构建编辑操作区菜单内容：标题 + 模式切换 / 替换标点 / 各 LLM 功能的启用开关与模型配置子菜单
 function buildActionsContextMenu() {
+    hideActionsSubmenu();
     const menu = document.getElementById("actions_context_menu");
     menu.innerHTML = "";
 
@@ -2221,7 +2264,7 @@ function buildActionsContextMenu() {
     title.textContent = t("edit_caption.actions_menu_title");
     menu.appendChild(title);
 
-    // 每个条目：勾选标记 + 文字，点击后切换开关并立即重建按钮区
+    // 普通条目：勾选标记 + 文字，点击后切换开关并立即重建按钮区
     const addItem = (labelText, checked, onToggle) => {
         const btn = document.createElement("button");
         btn.type = "button";
@@ -2231,9 +2274,7 @@ function buildActionsContextMenu() {
             // 阻止冒泡到 document 的"点击外部关闭"，菜单重建后仍能继续勾选
             e.stopPropagation();
             onToggle();
-            applyEditAreaSettings();
-            buildActionsContextMenu();
-            settings.save().catch(err => console.warn("保存设置失败", err));
+            commitActionsMenuChange();
         });
         menu.appendChild(btn);
     };
@@ -2244,10 +2285,57 @@ function buildActionsContextMenu() {
     // 替换标点按钮
     addItem(t("edit_caption.replace_punct"), getSetting("replace_punct_enabled") !== false,
         () => toggleSetting("replace_punct_enabled"));
-    // 各 LLM 功能按钮（名称即按钮文字，可单独启用 / 停用）
+
+    // 各 LLM 功能：主项切换启用，右侧子菜单直接选择该功能使用的模型配置
     const fns = (getSetting("llm_functions") || []).filter(fn => fn.name);
     for (const fn of fns) {
-        addItem(fn.name, fn.enabled !== false, () => { fn.enabled = fn.enabled === false; });
+        const item = document.createElement("div");
+        item.className = "context-menu-item has-submenu";
+
+        const mainBtn = document.createElement("button");
+        mainBtn.type = "button";
+        mainBtn.append(checkMark(fn.enabled !== false), fn.name);
+        mainBtn.title = fn.name;
+        mainBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            fn.enabled = fn.enabled === false;
+            commitActionsMenuChange();
+        });
+
+        const submenu = document.createElement("div");
+        submenu.className = "context-submenu hidden";
+        const subTitle = document.createElement("div");
+        subTitle.className = "context-menu-title";
+        subTitle.textContent = t("settings.used_config");
+        submenu.appendChild(subTitle);
+
+        // configName 为空表示跟随默认（激活配置），与设置页下拉框的空选项一致
+        const addConfigItem = (labelText, configName, active) => {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.dataset.llmFnConfig = configName;
+            btn.append(checkMark(active), labelText);
+            btn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                fn.config = configName;
+                settings.save().catch(err => console.warn("保存设置失败", err));
+                hideActionsSubmenu(submenu);
+                menu.classList.add("hidden");
+            });
+            submenu.appendChild(btn);
+        };
+        addConfigItem(t("settings.default_active_config"), "", !fn.config);
+        for (const cfg of getSetting("llm_configs") || []) {
+            if (!cfg.name) continue;
+            addConfigItem(cfg.name, cfg.name, fn.config === cfg.name);
+        }
+
+        item.append(mainBtn, submenu);
+        menu.appendChild(item);
+        item.addEventListener("mouseenter", () => showActionsSubmenu(item, submenu));
+        item.addEventListener("mouseleave", () => scheduleHideActionsSubmenu(submenu));
+        submenu.addEventListener("mouseenter", () => clearTimeout(actionsSubmenuTimer));
+        submenu.addEventListener("mouseleave", () => scheduleHideActionsSubmenu(submenu));
     }
     if (fns.length === 0) {
         const empty = document.createElement("div");
@@ -2265,10 +2353,14 @@ function initActionsContextMenu() {
 
     row.addEventListener("contextmenu", (e) => {
         e.preventDefault();
+        hideActionsSubmenu();
         buildActionsContextMenu();
         showContextMenu(menu, e.clientX, e.clientY);
     });
-    bindContextMenuDismiss(menu, () => menu.classList.add("hidden"));
+    bindContextMenuDismiss(menu, () => {
+        menu.classList.add("hidden");
+        hideActionsSubmenu();
+    });
 }
 
 // ================================================================
