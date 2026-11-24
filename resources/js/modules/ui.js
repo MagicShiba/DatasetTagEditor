@@ -757,9 +757,24 @@ function renderDirHistory() {
     }
 }
 
+// 让历史下拉右边缘对齐 #load-panel 内侧，宽度从输入框左缘一直填满到面板右侧
+function syncDirHistoryMenuWidth() {
+    const menu = document.getElementById("dir_history_menu");
+    const panel = menu && menu.closest("#load-panel");
+    const wrap = menu && menu.parentElement;
+    if (!menu || !panel || !wrap) return;
+    const panelStyle = getComputedStyle(panel);
+    const panelRight = panel.getBoundingClientRect().right - (parseFloat(panelStyle.borderRightWidth) || 0);
+    const wrapLeft = wrap.getBoundingClientRect().left;
+    menu.style.right = "auto";
+    menu.style.width = Math.max(wrap.offsetWidth, Math.round(panelRight - wrapLeft)) + "px";
+}
+
 function openDirHistory() {
     renderDirHistory();
-    document.getElementById("dir_history_menu").classList.remove("hidden");
+    const menu = document.getElementById("dir_history_menu");
+    menu.classList.remove("hidden");
+    syncDirHistoryMenuWidth();
 }
 
 function closeDirHistory() {
@@ -809,6 +824,14 @@ function initDirHistoryDropdown() {
 
     // 输入时关闭下拉
     input.addEventListener("input", closeDirHistory);
+
+    // 面板宽度变化（窗口缩放 / 分割条拖动）时保持下拉右边缘贴合面板
+    const historyPanel = menu.closest("#load-panel");
+    if (historyPanel && typeof ResizeObserver !== "undefined") {
+        new ResizeObserver(() => {
+            if (!menu.classList.contains("hidden")) syncDirHistoryMenuWidth();
+        }).observe(historyPanel);
+    }
 
     // 点击外部关闭
     document.addEventListener("click", (e) => {

@@ -586,7 +586,7 @@ input[type="radio"] {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
-  max-height: 220px;
+  max-height: 260px;
   overflow-y: auto;
   margin-top: 2px;
 }
