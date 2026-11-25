@@ -1,6 +1,6 @@
 // bbox_studio_main.js - 独立窗口入口（新应用程序级窗口）
 
-import { initStudio, updateBboxesFromText, loadImageByPath } from "./modules/bboxStudio.js";
+import { initStudio, loadImageByPath } from "./modules/bboxStudio.js";
 import { initApp } from "./modules/app.js";
 import { applyI18n } from "./modules/i18n.js";
 import { loadAutocompleteData } from "./modules/autocomplete.js";
@@ -17,17 +17,11 @@ async function start() {
         // 加载自动补全数据
         try { await loadAutocompleteData("/data/autocomplete.txt"); } catch (e) {}
 
-        // 允许 F12 打开开发者工具（需窗口 enableInspector:true）
-        document.addEventListener("keydown", (e) => {
-            if (e.key === "F12" || (e.ctrlKey && e.shiftKey && e.code === "KeyI")) return;
-        }, true);
-
         // 无边框窗口：让顶栏可系统层拖动
         const isNeutralino = typeof Neutralino !== "undefined" && Neutralino.window;
         if (isNeutralino) {
             try {
                 const region = await Neutralino.window.setDraggableRegion("bbox-studio-header");
-                try { region.exclusions.add(["bbox_studio_close"]); } catch (e) {}
                 try { region.exclusions.add(["bbox_studio_close"]); } catch (e) {}
             } catch (e) {}
             try {
@@ -99,7 +93,6 @@ async function start() {
             await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
             if (typeof Neutralino !== "undefined" && Neutralino.window) {
                 try { await Neutralino.window.show(); } catch(e) {}
-                try { const v = await Neutralino.window.isVisible(); if (!v) await Neutralino.window.show(); } catch(e){}
             }
         } catch(e) {}
 

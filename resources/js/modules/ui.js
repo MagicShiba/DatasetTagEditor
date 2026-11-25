@@ -1,8 +1,8 @@
 // ui.js - UI 事件绑定与各功能模块初始化
 
-import { app, renderGallery, openFolderDialog, applyColumns, updateGalleryStateDisplay, sortGalleryPaths, invalidateThumbUrlCache, updateThumbBadge, updateThumbCaption } from "./app.js";
-import { config, settings, getSetting, setSetting, SETTINGS_DEFAULT, SETTINGS_DESCRIPTIONS, SETTINGS_HIDDEN, LLM_CONFIG_DEFAULT, LLM_FN_DEFAULT, LLM_PROMPT_DEFAULT, PROMPT_KINDS, getActivePrompt, getPromptByName, getActiveProfile, setActiveProfile, saveProfile } from "./config.js";
-import { t, getLang, setLang, applyI18n, discoverLanguages, getAvailableLanguages } from "./i18n.js";
+import { app, renderGallery, applyColumns, updateGalleryStateDisplay, sortGalleryPaths, invalidateThumbUrlCache, resetThumbImages, updateThumbBadge, updateThumbCaption } from "./app.js";
+import { config, settings, getSetting, setSetting, SETTINGS_DEFAULT, SETTINGS_DESCRIPTIONS, SETTINGS_HIDDEN, LLM_CONFIG_DEFAULT, LLM_FN_DEFAULT, LLM_PROMPT_DEFAULT, PROMPT_KINDS, getActivePrompt, getActiveProfile, setActiveProfile, saveProfile, parseImageSize } from "./config.js";
+import { t, setLang, applyI18n, discoverLanguages, getAvailableLanguages } from "./i18n.js";
 import { PathFilter, FilterMode, FilterLogic, SortBy, SortOrder, joinTagsWithSepts } from "./dataset.js";
 import { TagFilterState } from "./tagfilter_state.js";
 import * as api from "./api.js";
@@ -12,12 +12,13 @@ import { parseRules, applyHighlight, escapeHtml } from "./highlight.js";
 import { initAutocomplete, loadAutocompleteData, bindAutocomplete } from "./autocomplete.js";
 import * as llm from "./llm.js";
 import * as llmHistory from "./llmHistory.js";
-import { initBbox, updateBboxes, setOnBboxChange, getCoordRange, serializeBboxes, findBalancedObject, coordsToXY } from "./bbox.js";
+import { initBbox, updateBboxes, setOnBboxChange, getCoordRange, serializeBboxes, coordsToXY, mapBboxBlocks } from "./bbox.js";
 import { initCropPreview, updateCropPreview, setOnCropPreviewChange, getBucketForSize } from "./cropPreview.js";
 import { init as initCapsule, setOnChange as setCapsuleOnChange, refresh as capsuleRefresh, setEnabled as setCapsuleEnabled } from "./capsule.js";
 import { setupPopup, showPopup, hidePopup, focusPopup } from "./popup.js";
 import { initPopups } from "./popups.js";
 import { applyTheme, applyThemeFromSettings, normalizeHexColor, ACCENT_DEFAULT, ACCENT_PRESETS } from "./theme.js";
+import { initImageTool, openImageTool, renderCommonSizes } from "./imageTool.js";
 
 // ================================================================
 // 0. 外观主题（设置页即时预览，主题应用逻辑见 theme.js）
@@ -81,16 +82,21 @@ function initTagFilters() {
     document.getElementById("btn_clear_all_filters").addEventListener("click", () => {
         app.filterP.clearFilter();
         app.filterN.clearFilter();
-        app.tmpSelection.clear();
-        app.pathFilter = new PathFilter();
-        app.gallerySelectedIndex = -1;
-        app.gallerySelectedPath = "";
-        app.galleryMultiSelected.clear();
-        syncRenameSelectionHighlight();
+        resetSelection();
         const gl = document.getElementById("filter_gallery");
         gl.innerHTML = "";
         refreshAll();
     });
+}
+
+// 清空选中、路径筛选与多选状态（切换/卸载数据集、清除筛选时复用）
+function resetSelection() {
+    app.tmpSelection.clear();
+    app.pathFilter = new PathFilter();
+    app.gallerySelectedIndex = -1;
+    app.gallerySelectedPath = "";
+    app.galleryMultiSelected.clear();
+    syncRenameSelectionHighlight();
 }
 
 // ================================================================
@@ -115,6 +121,20 @@ function refreshTagPanels() {
     if (app.removeTagSelect) app.removeTagSelect.update();
     if (app.filterP) app.filterP.update();
     if (app.filterN) app.filterN.update();
+}
+
+// 重建数据集的下标索引（路径引用变动后调用）
+function rebuildDatasetIndex() {
+    app.dte.img_idx.clear();
+    [...app.dte.dataset.datas.keys()].sort().forEach((k, i) => app.dte.img_idx.set(k, i));
+    app.dte.constructTagInfos();
+}
+
+// 数据集内迁移单条路径的标注（重命名、分辨率调整等改变文件路径的场景共用）
+function migrateDatasetPath(oldPath, newPath) {
+    const tags = app.dte.dataset.getDataTags(oldPath) || [];
+    app.dte.dataset.removeByPath(oldPath);
+    app.dte.setTagsByImagePath(newPath, tags);
 }
 
 async function updateGallery(imgs) {
@@ -206,12 +226,23 @@ function updatePreview(path) {
     if (!img) return;
     // 切换图像时重置缩放与背景
     resetPreviewZoom();
-    if (path) {
-        const url = thumbs.getOriginalImageUrl(path);
-        img.src = url || "";
-        img.onerror = () => { img.removeAttribute("src"); updateBboxes(); updateCropPreview(); };
+    const url = path ? thumbs.getOriginalImageUrl(path) : "";
+    if (url) {
+        img.onerror = () => {
+            // 只处理「当前地址」的失败：上一张图像/上一个数据集的迟到错误事件
+            // 不能把刚刚设置好的新预览清空
+            if (img.getAttribute("src") !== url) return;
+            console.warn("preview image load failed:", url);
+            img.removeAttribute("src");
+            updateBboxes();
+            updateCropPreview();
+        };
+        img.src = url;
     } else {
+        // 空字符串会被解析成当前页面地址，触发一次无谓请求与解码错误，直接移除属性
+        img.onerror = null;
         img.removeAttribute("src");
+        if (path) console.warn("preview skipped: image path not in mounted dataset", path);
     }
     // 依据编辑框文本同步边界框（图像加载完成后会自动重绘）
     updateBboxes();
@@ -312,6 +343,19 @@ let previewPan = { x: 0, y: 0 };   // 图像中心的像素偏移（平移量）
 let previewDragging = false;
 let previewDragStart = { x: 0, y: 0, panX: 0, panY: 0 };
 
+// 放大上限：显示尺寸（未缩放布局尺寸 × zoom）不超过该像素数。
+// 避免放大出超大图层导致显存暴涨、画面卡住
+const PREVIEW_MAX_LAYER_PX = 8192;
+
+function previewMaxZoom() {
+    const img = document.getElementById("preview_img");
+    if (!img || !img.naturalWidth) return 20;
+    // clientWidth/Height 为 transform 之前的布局尺寸（max-width/height:100% 适配后的尺寸）
+    const base = Math.max(img.clientWidth || 0, img.clientHeight || 0);
+    if (base <= 0) return 20;
+    return Math.min(20, Math.max(1, PREVIEW_MAX_LAYER_PX / base));
+}
+
 function applyPreviewTransform() {
     const img = document.getElementById("preview_img");
     if (img) img.style.transform = `translate(${previewPan.x}px, ${previewPan.y}px) scale(${previewZoom})`;
@@ -352,7 +396,8 @@ function initPreviewZoom() {
         const Cx = rect.width / 2;          // 图像中心（transform-origin 为默认 center）
         const Cy = rect.height / 2;
         const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-        const newZoom = Math.min(20, Math.max(1, previewZoom * factor));
+        const newZoom = Math.min(previewMaxZoom(), Math.max(1, previewZoom * factor));
+        if (newZoom === previewZoom) return;
         // 锚点公式：新平移量 = 鼠标位置 - 缩放后的(鼠标相对图像中心)距离
         previewPan.x = (mx - Cx) - (mx - Cx - previewPan.x) * (newZoom / previewZoom);
         previewPan.y = (my - Cy) - (my - Cy - previewPan.y) * (newZoom / previewZoom);
@@ -950,12 +995,7 @@ function initLoadDataset() {
         resetLlmReverse();
         app.dte.clear();
         app.clearGalleryState();
-        app.tmpSelection.clear();
-        app.pathFilter = new PathFilter();
-        app.gallerySelectedIndex = -1;
-        app.gallerySelectedPath = "";
-        app.galleryMultiSelected.clear();
-        syncRenameSelectionHighlight();
+        resetSelection();
         document.getElementById("dataset_gallery").innerHTML = "";
         document.getElementById("filter_gallery").innerHTML = "";
         document.getElementById("tb_common_tags").value = "";
@@ -1023,6 +1063,8 @@ async function doLoadDataset() {
     } catch (e) {
         console.error("load failed", e);
         showToast("加载失败: " + (e.message || e), "error");
+        // 挂载/读取失败：保留原数据集状态，不再刷新画廊（否则会用无效前缀渲染图片）
+        return;
     } finally {
         btn.textContent = oldText;
         btn.disabled = false;
@@ -1031,6 +1073,11 @@ async function doLoadDataset() {
     // 新数据集与磁盘一致
     app.changeIsSaved = true;
     app.datasetDirty = false;
+    // 上一张选中图像不在新数据集内时清空选中，避免用旧路径拼出无效的预览地址
+    if (app.gallerySelectedPath && !app.dte.dataset.datas.has(app.gallerySelectedPath)) {
+        app.gallerySelectedPath = "";
+        app.gallerySelectedIndex = -1;
+    }
     refreshAll();
     populateRename();
     // 依据数据集目录下是否存在 readme.md 决定是否显示"数据集说明"按钮
@@ -1233,6 +1280,35 @@ function scrollGalleryToPath(path) {
     if (item) item.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
+// 额外工具结果列表：显示文件名与原因，悬停预览图像、点击跳转到画廊
+function renderIssueRows(listEl, items, emptyText) {
+    listEl.innerHTML = "";
+    if (items.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "extra-tools-empty";
+        empty.textContent = emptyText;
+        listEl.appendChild(empty);
+        return;
+    }
+    for (const item of items) {
+        const row = document.createElement("div");
+        row.className = "llm-progress-row extra-tools-row";
+        const name = document.createElement("span");
+        name.className = "llm-progress-name";
+        name.textContent = getBasename(item.path);
+        name.title = item.path;
+        const reason = document.createElement("span");
+        reason.className = "extra-tools-reason";
+        reason.textContent = item.details;
+        reason.title = item.details;
+        row.appendChild(name);
+        row.appendChild(reason);
+        bindRowPreview(row, item.path);
+        row.addEventListener("click", () => jumpToGalleryImage(item.path));
+        listEl.appendChild(row);
+    }
+}
+
 // ================================================================
 // 额外工具：JSON 坐标合规检查（结果在独立浮窗中显示，默认固定）
 // ================================================================
@@ -1240,62 +1316,26 @@ function scrollGalleryToPath(path) {
 // 浮窗是否固定（固定后点击窗口外不关闭；默认固定）
 let jsonCheckPinned = true;
 
-// 从 start（指向 '{'）扫描到配对的 '}'，返回结束下标；找不到返回 -1
-function scanJsonObjectEnd(s, start) {
-    if (s[start] !== "{") return -1;
-    let depth = 0;
-    let inStr = false;
-    let esc = false;
-    for (let i = start; i < s.length; i++) {
-        const ch = s[i];
-        if (inStr) {
-            if (esc) esc = false;
-            else if (ch === "\\") esc = true;
-            else if (ch === '"') inStr = false;
-            continue;
-        }
-        if (ch === '"') { inStr = true; continue; }
-        if (ch === "{") depth++;
-        else if (ch === "}") {
-            depth--;
-            if (depth === 0) return i;
-        }
-    }
-    return -1;
-}
-
 // 从文本中提取 object/objects 格式的边界框坐标。
 // 返回 { boxes: [{label,x1,y1,x2,y2}], emptyIssues: [{kind,label?,key?}] }
 // emptyIssues.kind: container(容器为空) / empty_label(空标签) / empty_coords(坐标为[]或null) / invalid_coords(坐标无效) / invalid_item(数组元素无效)
 function extractJsonCoordinates(text) {
     const boxes = [];
     const emptyIssues = [];
-    const s = String(text || "");
-    const re = /\{\s*"(object|objects)"\s*:/g;
-    let m;
-    while ((m = re.exec(s))) {
-        const start = m.index;
-        const end = scanJsonObjectEnd(s, start);
-        if (end < 0) continue;
-        let json;
-        try { json = JSON.parse(s.slice(start, end + 1)); } catch (e) { continue; }
-        const key = m[1];
+    mapBboxBlocks(text, ({ key, json }) => {
         const raw = json[key];
         const pushCoords = (label, coords) => {
             if (!label) { emptyIssues.push({ kind: "empty_label" }); return; }
             if (coords == null) { emptyIssues.push({ kind: "empty_coords", label: String(label) }); return; }
-            if (Array.isArray(coords)) {
-                if (coords.length === 0) { emptyIssues.push({ kind: "empty_coords", label: String(label) }); return; }
-                const nums = coords.slice(0, 4).map(Number);
-                if (nums.length < 4 || !nums.every(n => Number.isFinite(n))) {
-                    emptyIssues.push({ kind: "invalid_coords", label: String(label) });
-                    return;
-                }
-                // 数值顺序由坐标类型设置决定，统一转换为内部 x/y 后再校验
-                boxes.push({ label: String(label), ...coordsToXY(nums) });
-            } else {
+            if (!Array.isArray(coords)) { emptyIssues.push({ kind: "invalid_coords", label: String(label) }); return; }
+            if (coords.length === 0) { emptyIssues.push({ kind: "empty_coords", label: String(label) }); return; }
+            const nums = coords.slice(0, 4).map(Number);
+            if (nums.length < 4 || !nums.every(n => Number.isFinite(n))) {
                 emptyIssues.push({ kind: "invalid_coords", label: String(label) });
+                return;
             }
+            // 数值顺序由坐标类型设置决定，统一转换为内部 x/y 后再校验
+            boxes.push({ label: String(label), ...coordsToXY(nums) });
         };
         if (Array.isArray(raw)) {
             if (raw.length === 0) emptyIssues.push({ kind: "container", key });
@@ -1312,11 +1352,10 @@ function extractJsonCoordinates(text) {
         } else {
             emptyIssues.push({ kind: "container", key });
         }
-        re.lastIndex = end + 1;
-    }
+        return null;
+    });
     return { boxes, emptyIssues };
 }
-
 // 生成具体的不合规描述（含标签名与具体坐标值），返回字符串数组。
 // 合法范围由坐标范围设置决定：0~1 或 0~1000。
 function boxIssueDetails(box) {
@@ -1393,7 +1432,7 @@ function runJsonCheck() {
             for (const box of res.boxes) details.push(...boxIssueDetails(box));
         }
         if (hasJson) withJson++;
-        if (details.length > 0) badPaths.push({ path, details });
+        if (details.length > 0) badPaths.push({ path, details: details.join("; ") });
     }
     // 统计
     summaryEl.innerHTML =
@@ -1402,34 +1441,7 @@ function runJsonCheck() {
         t("extra_tools.summary_bad").replace("{n}", String(badPaths.length));
     // 列表（重建前先隐藏悬浮预览，避免旧行被移除后预览残留）
     hideLlmPreview();
-    listEl.innerHTML = "";
-    if (badPaths.length === 0) {
-        const empty = document.createElement("div");
-        empty.className = "extra-tools-empty";
-        empty.textContent = t("extra_tools.empty");
-        listEl.appendChild(empty);
-    } else {
-        for (const item of badPaths) {
-            const row = document.createElement("div");
-            row.className = "llm-progress-row extra-tools-row";
-            const name = document.createElement("span");
-            name.className = "llm-progress-name";
-            name.textContent = getBasename(item.path);
-            name.title = item.path;
-            const reason = document.createElement("span");
-            reason.className = "extra-tools-reason";
-            reason.textContent = item.details.join("; ");
-            reason.title = reason.textContent;
-            row.appendChild(name);
-            row.appendChild(reason);
-            // 悬停显示图像预览，点击跳转到画廊中对应的图像
-            bindRowPreview(row, item.path);
-            row.addEventListener("click", () => {
-                jumpToGalleryImage(item.path);
-            });
-            listEl.appendChild(row);
-        }
-    }
+    renderIssueRows(listEl, badPaths, t("extra_tools.empty"));
     toggleJsonCheckPanel(true);
 }
 
@@ -1461,48 +1473,17 @@ function runNewlineCheck() {
     const badPaths = [];
     for (const [path, data] of app.dte.dataset.datas) {
         total++;
-        let caption = "";
-        try { caption = joinTagsWithSepts(data.tags, data.septs); } catch(e) { caption = (data.tags||[]).join(", "); }
-        let hasNewline = caption.includes("\n") || caption.includes("\r");
-        if (!hasNewline) {
-            for (const t of data.tags) if (t.includes("\n") || t.includes("\r")) { hasNewline = true; break; }
+        // 标签与间隔文本原样拼接，换行出现在其中任何一处都会保留在结果里
+        const caption = joinTagsWithSepts(data.tags, data.septs);
+        if (caption.includes("\n") || caption.includes("\r")) {
+            badPaths.push({ path, details: t("extra_tools.newline_reason") });
         }
-        if (!hasNewline && data.septs) {
-            for (const s of data.septs) if (s && (s.includes("\n") || s.includes("\r"))) { hasNewline = true; break; }
-        }
-        if (hasNewline) badPaths.push({ path, details: t("extra_tools.newline_reason") });
     }
     summaryEl.innerHTML =
         t("extra_tools.summary_total").replace("{n}", String(total)) + "<br>" +
         t("extra_tools.summary_newline_bad").replace("{n}", String(badPaths.length));
     hideLlmPreview();
-    listEl.innerHTML = "";
-    if (badPaths.length === 0) {
-        const empty = document.createElement("div");
-        empty.className = "extra-tools-empty";
-        empty.textContent = t("extra_tools.newline_empty");
-        listEl.appendChild(empty);
-    } else {
-        for (const item of badPaths) {
-            const row = document.createElement("div");
-            row.className = "llm-progress-row extra-tools-row";
-            const name = document.createElement("span");
-            name.className = "llm-progress-name";
-            name.textContent = getBasename(item.path);
-            name.title = item.path;
-            const reason = document.createElement("span");
-            reason.className = "extra-tools-reason";
-            reason.textContent = item.details;
-            reason.title = reason.textContent;
-            row.appendChild(name);
-            row.appendChild(reason);
-            bindRowPreview(row, item.path);
-            row.addEventListener("click", () => {
-                jumpToGalleryImage(item.path);
-            });
-            listEl.appendChild(row);
-        }
-    }
+    renderIssueRows(listEl, badPaths, t("extra_tools.newline_empty"));
     toggleNewlineCheckPanel(true);
 }
 
@@ -1511,19 +1492,8 @@ function runNewlineCheck() {
 // 已是目标格式的块保持原样。返回 { text, converted }（converted 为实际转换的块数）。
 function convertBboxRangeInText(text, target) {
     const s = String(text || "");
-    const re = /\{\s*"(object|objects)"\s*:/g;
-    let m;
-    let out = "";
-    let last = 0;
     let converted = 0;
-    while ((m = re.exec(s))) {
-        const start = m.index;
-        const bal = findBalancedObject(s, start);
-        if (!bal) continue;
-        const end = bal.end;
-        let json;
-        try { json = JSON.parse(s.slice(start, end + 1)); } catch (e) { continue; }
-        const key = m[1];
+    const out = mapBboxBlocks(s, ({ key, json }) => {
         const raw = json[key];
         // 收集原始坐标数值（不 clamp，保留真实范围用于格式识别与换算）
         const items = [];
@@ -1550,59 +1520,39 @@ function convertBboxRangeInText(text, target) {
         } else {
             ok = false;
         }
-        re.lastIndex = end + 1;
-        // 结构不合规的块不处理
-        if (!ok || items.length === 0) continue;
-        // 识别源格式并跳过已符合目标的块
+        // 结构不合规或已是目标格式的块保持原样
+        if (!ok || items.length === 0) return null;
         const maxV = Math.max(...items.flatMap(b => [Math.abs(b.x1), Math.abs(b.y1), Math.abs(b.x2), Math.abs(b.y2)]));
         const src = maxV > 1 ? "0~1000" : "0~1";
-        if (src === target) continue;
+        if (src === target) return null;
         // 换算为内部 0~1 后按目标范围序列化（复用统一的格式化逻辑）
         const k = src === "0~1000" ? 1000 : 1;
         const internal = items.map(b => ({ label: b.label, x1: b.x1 / k, y1: b.y1 / k, x2: b.x2 / k, y2: b.y2 / k }));
-        out += s.slice(last, start) + serializeBboxes(internal, key, isMap, target);
-        last = end + 1;
         converted++;
-    }
-    if (converted === 0) return { text: s, converted };
-    return { text: out + s.slice(last), converted };
+        return serializeBboxes(internal, key, isMap, target);
+    });
+    return { text: converted ? out : s, converted };
 }
-
 // 将文本中边界框 JSON 块的坐标类型互换：
 // [x_min, y_min, x_max, y_max] ↔ [y_min, x_min, y_max, x_max]。
 // 仅调整块内四数字数组的排列顺序，数值本身原样保留（不重新格式化/换算），
 // 避免精度变化。返回 { text, converted }（converted 为实际互换的坐标数组数）。
 function convertBboxOrderInText(text) {
     const s = String(text || "");
-    const re = /\{\s*"(object|objects)"\s*:/g;
     const reCoords = /\[\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\]/g;
-    let m;
-    let out = "";
-    let last = 0;
     let converted = 0;
-    while ((m = re.exec(s))) {
-        const start = m.index;
-        const bal = findBalancedObject(s, start);
-        if (!bal || bal.end < start) continue;
-        const end = bal.end;
-        // 只处理当前 JSON 块内部的坐标数组
-        const block = s.slice(start, end + 1);
+    const out = mapBboxBlocks(s, ({ start, end }) => {
         let changed = 0;
-        const swapped = block.replace(reCoords, (all, a, b, c, d) => {
+        const swapped = s.slice(start, end + 1).replace(reCoords, (all, a, b, c, d) => {
             changed++;
             return `[${b},${a},${d},${c}]`;
         });
-        if (changed > 0) {
-            out += s.slice(last, start) + swapped;
-            last = end + 1;
-            converted += changed;
-        }
-        re.lastIndex = end + 1;
-    }
-    if (converted === 0) return { text: s, converted };
-    return { text: out + s.slice(last), converted };
+        if (changed === 0) return null;
+        converted += changed;
+        return swapped;
+    });
+    return { text: converted ? out : s, converted };
 }
-
 // 批量互换边界框坐标类型（两种类型互为目标）；
 // 修改仅作用于内存中的标注，需点击"保存所有更改"写入文件
 async function runConvertBboxOrder() {
@@ -1720,6 +1670,9 @@ function initExtraTools() {
             window.open("bbox_studio.html", "_blank", "width=1280,height=800");
         }
     });
+    // 图像分辨率调整：页面内浮窗，载入当前画廊选中的图像
+    const imageToolBtn = document.getElementById("btn_open_image_tool");
+    if (imageToolBtn) imageToolBtn.addEventListener("click", () => openImageTool(app.gallerySelectedPath || ""));
 
     const panel = document.getElementById("json_check_panel");
     if (panel) {
@@ -2002,6 +1955,18 @@ function buildReverseSubmenu() {
     }
 }
 
+// 将子菜单摆在主项右侧；右侧空间不足时翻到左侧，下方不足时上移
+function placeSubmenu(menu, item, submenu) {
+    const menuRect = menu.getBoundingClientRect();
+    const itemRect = item.getBoundingClientRect();
+    const w = submenu.offsetWidth, h = submenu.offsetHeight;
+    let left = menuRect.right - 4;
+    if (left + w > window.innerWidth - 4) left = Math.max(4, menuRect.left - w + 4);
+    let top = itemRect.top - 4;
+    if (top + h > window.innerHeight - 4) top = Math.max(4, window.innerHeight - h - 4);
+    submenu.style.left = left + "px";
+    submenu.style.top = top + "px";
+}
 // 在菜单右侧显示子菜单；右侧空间不足时翻转到左侧
 function showReverseSubmenu() {
     const item = document.getElementById("gallery_reverse_item");
@@ -2009,16 +1974,7 @@ function showReverseSubmenu() {
     if (!item.classList.contains("has-submenu")) return;
     clearTimeout(reverseSubmenuTimer);
     submenu.classList.remove("hidden");
-    const menuRect = document.getElementById("gallery_context_menu").getBoundingClientRect();
-    const itemRect = item.getBoundingClientRect();
-    const w = submenu.offsetWidth;
-    const h = submenu.offsetHeight;
-    let left = menuRect.right - 4;
-    if (left + w > window.innerWidth - 4) left = Math.max(4, menuRect.left - w + 4);
-    let top = itemRect.top - 4;
-    if (top + h > window.innerHeight - 4) top = Math.max(4, window.innerHeight - h - 4);
-    submenu.style.left = left + "px";
-    submenu.style.top = top + "px";
+    placeSubmenu(document.getElementById("gallery_context_menu"), item, submenu);
 }
 
 // 隐藏子菜单（清除待执行定时器）
@@ -2191,6 +2147,7 @@ function initGalleryContextMenu() {
         if (action === "copy_image") copyImageAction();
         else if (action === "copy_link") copyLinkAction();
         else if (action === "reveal") revealImageAction();
+        else if (action === "image_tool") openImageTool(galleryContextPath || "");
         else if (action === "reverse") addSelectedToReverse();
         else if (action === "add_selection") addContextToSelection();
         else if (action === "add_selection_all") addAllDisplayedToSelection();
@@ -2244,16 +2201,7 @@ function showActionsSubmenu(item, submenu) {
     clearTimeout(actionsSubmenuTimer);
     menu.querySelectorAll(".context-submenu").forEach(s => { if (s !== submenu) s.classList.add("hidden"); });
     submenu.classList.remove("hidden");
-    const menuRect = menu.getBoundingClientRect();
-    const itemRect = item.getBoundingClientRect();
-    const w = submenu.offsetWidth;
-    const h = submenu.offsetHeight;
-    let left = menuRect.right - 4;
-    if (left + w > window.innerWidth - 4) left = Math.max(4, menuRect.left - w + 4);
-    let top = itemRect.top - 4;
-    if (top + h > window.innerHeight - 4) top = Math.max(4, window.innerHeight - h - 4);
-    submenu.style.left = left + "px";
-    submenu.style.top = top + "px";
+    placeSubmenu(menu, item, submenu);
 }
 
 // 隐藏子菜单（不传参数时隐藏当前菜单里所有子菜单）
@@ -2755,8 +2703,8 @@ async function loadHistoryImage(img, path) {
     // 数据集已挂载时生成并缓存缩略图（已有缓存会直接返回）；失败则读取本地文件缩放
     const key = await thumbs.generateThumbnail(path, maxRes, mtime).catch(() => "");
     if (key && img.isConnected) {
-        img.src = thumbs.getThumbCacheUrl(key);
-        return;
+        const url = thumbs.getThumbCacheUrl(key);
+        if (url) { img.src = url; return; }
     }
     await loadHistoryImageFromFile(img, path);
 }
@@ -3759,12 +3707,13 @@ async function loadRenameThumb(img, path) {
         if (st && st.modifiedAt) mtime = st.modifiedAt;
         const key = thumbs.md5Key(path, maxRes, mtime);
         if (await thumbs.thumbCacheExists(key)) {
-            img.src = thumbs.getThumbCacheUrl(key);
-            return;
+            const url = thumbs.getThumbCacheUrl(key);
+            if (url) { img.src = url; return; }
         }
         img.src = thumbs.getOriginalImageUrl(path);
         thumbs.generateThumbnail(path, maxRes, mtime).then(k => {
-            if (k && img.isConnected) img.src = thumbs.getThumbCacheUrl(k);
+            const url = k && thumbs.getThumbCacheUrl(k);
+            if (url && img.isConnected) img.src = url;
         }).catch(() => {});
     } catch (e) { /* 忽略加载失败 */ }
 }
@@ -3928,7 +3877,6 @@ async function applyRename() {
         const newPath = `${dir}/${newStem}${ext}`;
 
         try {
-            const tags = app.dte.dataset.getDataTags(oldPath) || [];
             if (await api.pathExists(oldPath)) {
                 await api.moveFile(oldPath, newPath);
             }
@@ -3938,17 +3886,13 @@ async function applyRename() {
             if (await api.pathExists(oldTxt)) {
                 await api.moveFile(oldTxt, newTxt);
             }
-            app.dte.dataset.removeByPath(oldPath);
-            app.dte.setTagsByImagePath(newPath, tags);
+            migrateDatasetPath(oldPath, newPath);
         } catch (e) {
             console.warn("rename failed:", oldPath, e);
         }
     }
 
-    app.dte.img_idx.clear();
-    const keys = [...app.dte.dataset.datas.keys()].sort();
-    for (let i = 0; i < keys.length; i++) app.dte.img_idx.set(keys[i], i);
-    app.dte.constructTagInfos();
+    rebuildDatasetIndex();
 
     invalidateThumbUrlCache();
     refreshAll();
@@ -4292,6 +4236,7 @@ function initSettings() {
             // 重新加载新档案的 config / settings 并刷新界面
             await config.load();
             await settings.load();
+            renderCommonSizes();
             setTagSeparators(getSetting("tag_separators"));
             applyThemeFromSettings();
             applyConfigToUI();
@@ -4318,6 +4263,8 @@ function initSettings() {
         readLlmConfigs();
         readLlmFunctions();
         await settings.save();
+        // 常用尺寸预设可能被修改，同步刷新图像工具窗口里的尺寸列表
+        renderCommonSizes();
         // 记录条数上限可能被调小，加载历史后立即裁剪（未加载时会先读取文件）
         await llmHistory.loadHistory();
         llmHistory.trimToLimit();
@@ -4345,6 +4292,7 @@ function initSettings() {
     document.getElementById("btn_restore_default_settings").addEventListener("click", async () => {
         settings.restoreDefaults();
         applyThemeFromSettings();
+        renderCommonSizes();
         buildSettingsGrid();
         buildLlmConfigs();
         buildLlmFunctions();
@@ -4432,9 +4380,128 @@ function createPunctRulesTable() {
     return fragment;
 }
 
+// 当前正在拖动的尺寸格子（拖动排序期间有效）
+let sizePresetDragEl = null;
+
+// 构建设置中的常用尺寸预设网格：每行 3 个，可拖动排序、改数值、删除
+// 数据存放在设置文件的 image_tool_common_sizes 中，图像分辨率调整窗口按此顺序显示
+// 尺寸文本的解析统一走 config.js 的 parseImageSize（与图像工具共用同一套规则）
+function createSizePresetTable() {
+    const grid = document.createElement("div");
+    grid.id = "setting_image_tool_common_sizes";
+    grid.className = "size-preset-grid";
+
+    // 清除格子上的插入位置提示
+    const clearDropHint = () => {
+        grid.querySelectorAll(".drop-before, .drop-after")
+            .forEach(el => el.classList.remove("drop-before", "drop-after"));
+    };
+
+    // 追加一个尺寸格子（宽高为空表示新增待填写）
+    const addItem = (w = "", h = "") => {
+        const item = document.createElement("span");
+        item.className = "size-preset-item";
+
+        // 拖动手柄：只有从这里按下才启动拖动，输入框内仍可正常选中文字
+        const handle = document.createElement("span");
+        handle.className = "size-preset-handle";
+        handle.textContent = "⠿";
+        handle.draggable = true;
+        handle.title = t("settings.drag_sort_hint");
+        handle.addEventListener("dragstart", (e) => {
+            sizePresetDragEl = item;
+            item.classList.add("dragging");
+            e.dataTransfer.effectAllowed = "move";
+            e.dataTransfer.setData("text/plain", "size"); // Firefox 需要设置数据才会拖动
+        });
+        handle.addEventListener("dragend", () => {
+            item.classList.remove("dragging");
+            clearDropHint();
+            sizePresetDragEl = null;
+        });
+
+        const val = document.createElement("input");
+        val.type = "text";
+        val.className = "size-preset-val";
+        val.value = (w && h) ? `${w}x${h}` : "";
+        val.placeholder = "WxH";
+        // 失焦时规范写法；无法解析的内容标红（保存时跳过该行）
+        val.addEventListener("blur", () => {
+            const size = parseImageSize(val.value);
+            val.classList.toggle("invalid", !size && val.value.trim() !== "");
+            if (size) val.value = `${size[0]}x${size[1]}`;
+        });
+
+        const del = document.createElement("button");
+        del.type = "button";
+        del.className = "size-preset-del";
+        del.textContent = "×";
+        del.title = t("image_tool.delete_size");
+        del.dataset.i18nTitle = "image_tool.delete_size";
+        del.addEventListener("click", () => item.remove());
+
+        item.append(handle, val, del);
+
+        // 拖动经过其他格子时提示插入位置（按左右中线判断放在前面还是后面）
+        item.addEventListener("dragover", (e) => {
+            if (!sizePresetDragEl || sizePresetDragEl === item) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            const rect = item.getBoundingClientRect();
+            clearDropHint();
+            item.classList.add(e.clientX >= rect.left + rect.width / 2 ? "drop-after" : "drop-before");
+        });
+        item.addEventListener("dragleave", (e) => {
+            // 移到格子内部的子元素时不取消提示，避免竖线闪烁
+            if (item.contains(e.relatedTarget)) return;
+            item.classList.remove("drop-before", "drop-after");
+        });
+        item.addEventListener("drop", (e) => {
+            if (!sizePresetDragEl || sizePresetDragEl === item) return;
+            e.preventDefault();
+            const rect = item.getBoundingClientRect();
+            const after = e.clientX >= rect.left + rect.width / 2;
+            clearDropHint();
+            // 直接移动节点而非重建，保留各格已输入但尚未保存的内容
+            grid.insertBefore(sizePresetDragEl, after ? item.nextSibling : item);
+            sizePresetDragEl = null;
+        });
+
+        grid.appendChild(item);
+    };
+
+    // 设置里存的是 "宽x高" 字符串，解析后逐个建格子（非法项跳过）
+    for (const item of getSetting("image_tool_common_sizes") || []) {
+        const size = parseImageSize(item);
+        if (size) addItem(size[0], size[1]);
+    }
+
+    // 拖到网格空白处时移到末尾
+    grid.addEventListener("dragover", (e) => {
+        if (sizePresetDragEl) e.preventDefault();
+    });
+    grid.addEventListener("drop", (e) => {
+        if (!sizePresetDragEl || e.target !== grid) return;
+        e.preventDefault();
+        clearDropHint();
+        grid.appendChild(sizePresetDragEl);
+        sizePresetDragEl = null;
+    });
+
+    const addBtn = document.createElement("button");
+    addBtn.type = "button";
+    addBtn.className = "btn compact";
+    addBtn.textContent = t("settings.add_size");
+    addBtn.addEventListener("click", () => addItem());
+    // 返回片段，由外层 .field 直接容纳网格与按钮
+    const fragment = document.createDocumentFragment();
+    fragment.append(grid, addBtn);
+    return fragment;
+}
+
 // 构建设置表单（通用设置项）
 // 布局：左侧为按功能分组的导航列表（点击跳转），右侧一次性显示全部分组内容。
-// 分组顺序：界面 / 数据集加载 / 画廊与缩略图 / 标注编辑与统计 / 边界框 / LLM 提示词 / LLM 调用历史
+// 分组顺序：界面 / 数据集加载 / 画廊与缩略图 / 标注编辑与统计 / 边界框 / LLM 提示词 / LLM 调用历史 / 图像工具
 function buildSettingsGrid() {
     const grid = document.getElementById("settings-grid");
     const nav = document.getElementById("settings-nav-list");
@@ -4492,6 +4559,10 @@ function buildSettingsGrid() {
 
     // LLM 调用历史（保留条数 + 清除历史）
     addSection("llm_history", "settings.llm_history_group", ...buildLlmHistoryGroup());
+
+    // 图像工具：分辨率调整窗口的常用尺寸预设（优先级不高，放在最后）
+    addSection("image_tool", "settings.image_tool_group",
+        renderSettingsControl("image_tool_common_sizes"));
 
     // 兜底：画廊分组未放入时仍显示清除缓存按钮
     if (clearBox && !clearBox.parentNode) grid.appendChild(clearBox);
@@ -4911,6 +4982,9 @@ function createSettingsInput(name, value) {
     } else if (name === "replace_punct_from") {
         // 标点替换规则：表格显示，每行两列（原字符 / 替换字符），可编辑、删除、添加
         input = createPunctRulesTable();
+    } else if (name === "image_tool_common_sizes") {
+        // 图像工具的常用尺寸预设：网格显示，每格一个「宽x高」，可拖动排序、改值、删除、添加
+        input = createSizePresetTable();
     } else if (typeof value === "boolean") {
         input = document.createElement("input");
         input.type = "checkbox";
@@ -5048,6 +5122,18 @@ function readSettingsFromGrid() {
             });
             settings.current.replace_punct_from = from;
             settings.current.replace_punct_to = to;
+        } else if (name === "image_tool_common_sizes") {
+            // 从网格按显示顺序读取预设尺寸：跳过空行、非法值与重复项
+            // 存盘形式是 "1024x1024" 字符串，每个尺寸在设置文件里只占一行
+            const list = [];
+            el.querySelectorAll(".size-preset-item .size-preset-val").forEach(input => {
+                const size = parseImageSize(input.value);
+                if (!size) return;
+                const text = `${size[0]}x${size[1]}`;
+                if (list.includes(text)) return;
+                list.push(text);
+            });
+            settings.current.image_tool_common_sizes = list;
         } else if (typeof cur === "boolean") {
             settings.current[name] = el.checked;
         } else if (typeof cur === "number") {
@@ -5954,6 +6040,32 @@ export async function setupUI() {
     initGalleryContextMenu();
     initActionsContextMenu();
     initExtraTools();
+    // 图像分辨率调整浮窗：保存并应用后刷新缩略图与画廊（格式变更时迁移路径引用）
+    initImageTool({
+        onApplied: async (oldPath, newPath) => {
+            if (newPath && newPath !== oldPath) {
+                const captionExt = document.getElementById("tb_caption_file_ext")?.value.trim() || ".txt";
+                const oldTxt = app.dte.resolveCaptionPath(oldPath, captionExt);
+                const newTxt = withSuffix(newPath, captionExt);
+                // 标注文件跟随改扩展名；原图不在数据集中时无需迁移路径引用
+                if (await api.pathExists(oldTxt)) await api.moveFile(oldTxt, newTxt);
+                if (app.dte.dataset.getData(oldPath)) {
+                    migrateDatasetPath(oldPath, newPath);
+                    rebuildDatasetIndex();
+                }
+                app.galleryPaths = app.galleryPaths.map(p => p === oldPath ? newPath : p);
+                if (app.gallerySelectedPath === oldPath) app.gallerySelectedPath = newPath;
+                for (const set of [app.galleryMultiSelected, app.tmpSelection]) {
+                    if (set.delete(oldPath)) set.add(newPath);
+                }
+            }
+            // 图像内容被覆盖后缩略图需重新取图：清掉缓存与 <img> 的加载标记
+            invalidateThumbUrlCache();
+            resetThumbImages();
+            refreshAll();
+        },
+        notify: showToast,
+    });
     // 边界框：初始化画布并注入写回回调（拖拽结束后更新编辑框文本）
     initBbox();
     // 分桶裁剪预览：初始化画布与控件（OneTrainer 等面积分桶策略演示）

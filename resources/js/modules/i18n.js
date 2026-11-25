@@ -97,10 +97,6 @@ export function setLang(lang) {
     _lang = resolveLang(lang);
 }
 
-export function getLang() {
-    return _lang;
-}
-
 // 发现 locales 目录下可用的语言包（按 .toml 文件，按基础语言代码去重），
 // 语言显示名优先取语言包内 [meta] name，否则回退为代码本身
 export async function discoverLanguages() {

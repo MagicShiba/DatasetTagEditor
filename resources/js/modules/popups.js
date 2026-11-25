@@ -79,6 +79,121 @@ const POPUP_DEFS = [
             <div id="translate_output" class="translate-output"></div>`,
     },
     {
+        id: "image_tool_popup", size: "history",
+        titleKey: "image_tool.title", titleText: "图像分辨率调整",
+        buttons: [
+            { type: "pin", id: "it_pin", titleKey: "translate.pin" },
+            { type: "close", id: "it_close", titleKey: "common.close" },
+        ],
+        bodyClass: "image-tool-popup-body",
+        bodyHTML: `
+            <div class="image-tool-workspace">
+                <div class="image-tool-left">
+                    <div class="image-tool-toolbar">
+                        <button type="button" id="it_pick_image" data-i18n="image_tool.pick_image">选择图像</button>
+                        <input type="file" id="it_file_input" accept="image/png,image/jpeg" hidden>
+                        <button type="button" id="it_save_as" data-i18n="image_tool.save_as">另存为...</button>
+                    </div>
+                    <div id="it_preview" class="image-tool-preview">
+                        <canvas id="it_canvas" class="image-tool-canvas"></canvas>
+                        <canvas id="it_overlay" class="image-tool-overlay"></canvas>
+                        <div id="it_no_image" class="image-tool-empty" data-i18n="image_tool.no_image">未检测到图像，请先在画廊中选择图像，或在此窗口手动选择。</div>
+                    </div>
+                    <div class="image-tool-footer">
+                        <span id="it_source_info" class="small-note"></span>
+                        <span id="it_zoom_info" class="small-note it-zoom-info"></span>
+                    </div>
+                </div>
+                <div class="image-tool-right">
+                    <div class="field">
+                        <label class="field-label" data-i18n="image_tool.mode">模式</label>
+                        <div class="row">
+                            <button type="button" id="it_mode_scale" class="btn compact active" data-i18n="image_tool.mode_scale">缩放</button>
+                            <button type="button" id="it_mode_crop" class="btn compact" data-i18n="image_tool.mode_crop">裁剪</button>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <div class="it-field-head">
+                            <span class="field-label" data-i18n="image_tool.size">尺寸（像素）</span>
+                            <button type="button" id="it_reset" class="btn compact" data-i18n="image_tool.reset">重置</button>
+                        </div>
+                        <div class="image-tool-size-row">
+                            <div class="it-number">
+                                <span class="it-number-label">W</span>
+                                <input type="number" id="it_width" min="1" max="10000" step="1" value="1">
+                                <span class="it-number-preset-wrap"><select id="it_w_preset" class="it-number-preset" title="尺寸档位" aria-label="宽度档位"></select></span>
+                                <span class="it-number-arrows">
+                                    <button type="button" id="it_w_inc" title="+64">▲</button>
+                                    <button type="button" id="it_w_dec" title="-64">▼</button>
+                                </span>
+                            </div>
+                            <span class="it-times">×</span>
+                            <div class="it-number">
+                                <span class="it-number-label">H</span>
+                                <input type="number" id="it_height" min="1" max="10000" step="1" value="1">
+                                <span class="it-number-preset-wrap"><select id="it_h_preset" class="it-number-preset" title="尺寸档位" aria-label="高度档位"></select></span>
+                                <span class="it-number-arrows">
+                                    <button type="button" id="it_h_inc" title="+64">▲</button>
+                                    <button type="button" id="it_h_dec" title="-64">▼</button>
+                                </span>
+                            </div>
+                        </div>
+                        <div class="image-tool-size-row image-tool-pos-row hidden" id="it_pos_field">
+                            <div class="it-number">
+                                <span class="it-number-label">X</span>
+                                <input type="number" id="it_x" value="0">
+                                <span class="it-number-arrows">
+                                    <button type="button" id="it_x_inc" title="+64">▲</button>
+                                    <button type="button" id="it_x_dec" title="-64">▼</button>
+                                </span>
+                            </div>
+                            <span class="it-times">,</span>
+                            <div class="it-number">
+                                <span class="it-number-label">Y</span>
+                                <input type="number" id="it_y" value="0">
+                                <span class="it-number-arrows">
+                                    <button type="button" id="it_y_inc" title="+64">▲</button>
+                                    <button type="button" id="it_y_dec" title="-64">▼</button>
+                                </span>
+                            </div>
+                        </div>
+                        <label class="checkbox">
+                            <input type="checkbox" id="it_lock_ratio" checked>
+                            <span data-i18n="image_tool.lock_ratio">保持纵横比</span>
+                        </label>
+                        <div class="it-common-heading">
+                            <span class="small-note" data-i18n="image_tool.common_sizes">常见尺寸</span>
+                            <button type="button" id="it_swap_wh" class="it-swap-btn"
+                                title="交换宽高" data-i18n-title="image_tool.swap_wh">⇄</button>
+                        </div>
+                        <div id="it_common_sizes" class="it-common-sizes"></div>
+                    </div>
+                    <div class="field" id="it_scale_options">
+                        <label class="field-label" for="it_algorithm" data-i18n="image_tool.algorithm">缩放算法</label>
+                        <select id="it_algorithm">
+                            <option value="nearest" data-i18n="image_tool.algo_nearest">Nearest（最近邻）</option>
+                            <option value="bicubic" data-i18n="image_tool.algo_bicubic">Bicubic（双三次）</option>
+                            <option value="mitchell" data-i18n="image_tool.algo_mitchell">Mitchell</option>
+                            <option value="lanczos" selected data-i18n="image_tool.algo_lanczos">Lanczos</option>
+                            <option value="lanczos3" data-i18n="image_tool.algo_lanczos3">Lanczos3</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <span class="field-label" data-i18n="image_tool.format">保存格式</span>
+                        <div class="it-format-options">
+                            <label><input type="radio" name="it_format" value="follow" checked><span data-i18n="image_tool.format_follow">跟随原图</span></label>
+                            <label><input type="radio" name="it_format" value="jpg"><span data-i18n="image_tool.format_jpg">JPG（质量 100）</span></label>
+                            <label><input type="radio" name="it_format" value="png"><span data-i18n="image_tool.format_png">PNG</span></label>
+                        </div>
+                    </div>
+                    <div class="field image-tool-actions">
+                        <button type="button" id="it_save" class="btn primary" data-i18n="image_tool.save_apply">保存并应用</button>
+                    </div>
+                    <div id="it_crop_hint" class="small-note hidden" data-i18n="image_tool.crop_hint">拖动边界调整裁剪框；滚轮微调并缩放预览。</div>
+                </div>
+            </div>`,
+    },
+    {
         id: "info_popup", size: "text",
         titleId: "info_popup_title", titleText: "信息",
         buttons: [

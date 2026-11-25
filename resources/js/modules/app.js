@@ -1,13 +1,11 @@
 // app.js - 全局应用状态与共享更新逻辑
 
-import { DatasetTagEditor } from "./dataset.js";
-import { PathFilter, FilterMode } from "./dataset.js";
-import { joinTagsWithSepts } from "./dataset.js";
+import { DatasetTagEditor, PathFilter, joinTagsWithSepts } from "./dataset.js";
 import * as api from "./api.js";
 import * as thumbs from "./thumbnails.js";
 import { config, settings, getSetting } from "./config.js";
 import { t } from "./i18n.js";
-import { normalizePath, getStem, getExtension, getBasename, withSuffix, setTagSeparators } from "./utils.js";
+import { getBasename, withSuffix, setTagSeparators } from "./utils.js";
 import { applyThemeFromSettings } from "./theme.js";
 
 class App {
@@ -109,6 +107,10 @@ export async function initApp() {
     await applyI18n();
     // 预发现可用语言包（设置界面的语言下拉框使用）
     discoverLanguages().catch(() => {});
+
+    // 清理上次页面会话遗留的目录挂载：页面刷新后服务器端挂载仍在，
+    // 会占用 /dte-mnt-* 前缀并指向旧数据集，导致新挂载失败、图片 404
+    await api.clearStaleMounts();
 
     // 初始化缩略图系统
     await thumbs.initThumbnails();
@@ -256,6 +258,16 @@ function thumbCacheKey(path, maxRes) {
 }
 export function invalidateThumbUrlCache() {
     thumbUrlCache.clear();
+}
+
+// 清除已有缩略图 <img> 的加载状态，使 renderGallery 复用节点时重新取图
+// （图像文件被覆盖但路径不变时使用，配合 invalidateThumbUrlCache）
+export function resetThumbImages() {
+    document.querySelectorAll(".thumb-item img").forEach(img => {
+        delete img.dataset.loaded;
+        delete img.dataset.scheduled;
+        img.removeAttribute("src");
+    });
 }
 
 const PLACEHOLDER_SRC = "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
@@ -489,12 +501,13 @@ async function loadThumbInto(img, path, maxRes) {
         if (maxRes > 0) {
             const key = thumbs.md5Key(path, maxRes, mtime);
             if (await thumbs.thumbCacheExists(key)) {
-                url = thumbs.getThumbCacheUrl(key);
+                url = thumbs.getThumbCacheUrl(key) || thumbs.getOriginalImageUrl(path);
             } else {
                 url = thumbs.getOriginalImageUrl(path);
                 thumbs.generateThumbnail(path, maxRes, mtime).then(k => {
                     if (k) {
                         const newUrl = thumbs.getThumbCacheUrl(k);
+                        if (!newUrl) return;
                         thumbUrlCache.set(ck, newUrl);
                         if (img.isConnected) {
                             img.src = newUrl;
@@ -507,7 +520,7 @@ async function loadThumbInto(img, path, maxRes) {
             url = thumbs.getOriginalImageUrl(path);
         }
         if (url) thumbUrlCache.set(ck, url);
-        if (img.isConnected) {
+        if (url && img.isConnected) {
             img.src = url;
             img.dataset.loaded = "1";
             img.onerror = () => { img.src = ERROR_SRC; };
@@ -545,12 +558,3 @@ function currentFilterText() {
     if (n) txt += n;
     return txt;
 }
-
-// 打开目录对话框
-export async function openFolderDialog() {
-    const dir = await api.showFolderDialog("选择数据集目录");
-    return dir || "";
-}
-
-// 工具函数导出（供其他模块使用）
-export { thumbs, api, config, settings, getSetting, t, normalizePath, getStem, getExtension };

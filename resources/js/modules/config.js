@@ -2,62 +2,7 @@
 
 import * as api from "./api.js";
 import { normalizePath, clone } from "./utils.js";
-import { SortBy, SortOrder } from "./dataset.js";
-import { setLang, getLang } from "./i18n.js";
-
-// ================================================================
-// config.json 默认值（与 Python 版一致）
-// ================================================================
-
-export const CFG_GENERAL_DEFAULT = {
-    backup: true,
-    remove_newlines: false,
-    dataset_dir: "",
-    caption_ext: ".txt",
-    load_recursive: false,
-    load_caption_from_filename: true,
-    load_caption_llm_reverse: false,
-    replace_new_line: false,
-};
-
-export const CFG_FILTER_P_DEFAULT = {
-    sw_prefix: false,
-    sw_suffix: false,
-    sw_regex: false,
-    sort_by: SortBy.FREQ,
-    sort_order: SortOrder.DESC,
-    list_display: false,
-    logic: "AND",
-};
-
-export const CFG_FILTER_N_DEFAULT = {
-    sw_prefix: false,
-    sw_suffix: false,
-    sw_regex: false,
-    sort_by: SortBy.FREQ,
-    sort_order: SortOrder.DESC,
-    list_display: false,
-    logic: "OR",
-};
-
-export const CFG_BATCH_EDIT_DEFAULT = {
-    show_only_selected: true,
-    prepend: false,
-    use_regex: false,
-    target: "Only Selected Tags",
-    sw_prefix: false,
-    sw_suffix: false,
-    sw_regex: false,
-    sort_by: SortBy.FREQ,
-    sort_order: SortOrder.DESC,
-    list_display: false,
-};
-
-export const CFG_EDIT_SELECTED_DEFAULT = {
-    auto_copy: false,
-    warn_change_not_saved: true,
-    highlight_rules: "",
-};
+import { setLang } from "./i18n.js";
 
 // ================================================================
 // settings.json 默认值
@@ -128,6 +73,39 @@ export function defaultLlmConfigs() {
             max_image_resolution: 1024,
         },
     ];
+}
+
+// 图像工具「常见尺寸」预设的出厂默认值，全部可在设置页增删改
+// 设置文件里存成 "宽x高" 字符串数组：每个尺寸只占一行，也方便直接手改
+export const DEFAULT_IMAGE_SIZES = ["512x512", "768x768", "1024x1024", "1280x1280", "1536x1536", "2048x2048"];
+
+// 尺寸取值范围（与图像工具可调范围一致）
+const IMAGE_SIZE_MIN = 1;
+const IMAGE_SIZE_MAX = 10000;
+
+// 数值夹到尺寸合法范围
+function clampSizeValue(v) {
+    return Math.max(IMAGE_SIZE_MIN, Math.min(IMAGE_SIZE_MAX, Number(v)));
+}
+
+// 解析 "1024x1024" / "1024×1024" 形式的尺寸，返回 [宽, 高]；无法解析返回 null
+export function parseImageSize(text) {
+    const m = String(text ?? "").trim().toLowerCase().match(/^(\d+)\s*[x×]\s*(\d+)$/);
+    if (!m) return null;
+    return [clampSizeValue(m[1]), clampSizeValue(m[2])];
+}
+
+// 规范化尺寸列表：逐个解析、夹范围、去重，输出设置文件里保存的字符串形式 "宽x高"
+export function normalizeImageSizes(raw) {
+    if (!Array.isArray(raw)) return [];
+    const out = [];
+    for (const item of raw) {
+        const size = parseImageSize(item);
+        if (!size) continue;
+        const text = `${size[0]}x${size[1]}`;
+        if (!out.includes(text)) out.push(text);
+    }
+    return out;
 }
 
 export const SETTINGS_DEFAULT = {
@@ -203,6 +181,9 @@ export const SETTINGS_DEFAULT = {
     char_count_non_ascii_ratio: 1,
     // 字符统计时忽略空格（启用时先清除空格再计算）
     char_count_ignore_spaces: true,
+    // 图像工具「常见尺寸」预设，字符串数组 ["1024x1024", ...]：
+    // 每项只占一行，比嵌套数组省行；全部尺寸都可在设置页增删改，图像工具窗口直接读取这里
+    image_tool_common_sizes: [...DEFAULT_IMAGE_SIZES],
 };
 
 // 不显示在通用设置列表中的内部设置项（LLM 相关走独立管理界面）
@@ -235,6 +216,7 @@ export const SETTINGS_DESCRIPTIONS = {
     char_count_ratio: "settings.char_count_ratio",
     char_count_ignore_spaces: "settings.char_count_ignore_spaces",
     llm_history_max_entries: "settings.llm_history_max_entries",
+    image_tool_common_sizes: "settings.image_tool_common_sizes",
 };
 
 // ================================================================
@@ -398,6 +380,10 @@ class Settings {
         if (!loaded.llm_active_config && loaded.llm_configs.length > 0) {
             loaded.llm_active_config = loaded.llm_configs[0].name;
         }
+        // 规范化常见尺寸预设：过滤非法项、统一成 "宽x高"；缺失或损坏时退回出厂默认
+        loaded.image_tool_common_sizes = Array.isArray(loaded.image_tool_common_sizes)
+            ? normalizeImageSizes(loaded.image_tool_common_sizes)
+            : [...DEFAULT_IMAGE_SIZES];
         // 仅保留合法字段
         const filtered = {};
         for (const key of Object.keys(SETTINGS_DEFAULT)) {

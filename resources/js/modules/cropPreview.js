@@ -124,6 +124,8 @@ function draw() {
     const borderTop = parseFloat(cs.borderTopWidth) || 0;
     const padLeft = parseFloat(cs.paddingLeft) || 0;
     const padTop = parseFloat(cs.paddingTop) || 0;
+    const padRight = parseFloat(cs.paddingRight) || 0;
+    const padBottom = parseFloat(cs.paddingBottom) || 0;
     const dpr = window.devicePixelRatio || 1;
     const w = imgRect.width;
     const h = imgRect.height;
@@ -131,18 +133,33 @@ function draw() {
     // 防止 preview 容器滚动导致画布与图像错位
     previewBox.scrollTop = 0;
     previewBox.scrollLeft = 0;
+
+    // 图像左上角在预览区内容盒中的位置
+    const baseX = imgRect.left - prevRect.left - borderLeft - padLeft;
+    const baseY = imgRect.top - prevRect.top - borderTop - padTop;
+    const boxW = Math.max(1, previewBox.clientWidth - padLeft - padRight);
+    const boxH = Math.max(1, previewBox.clientHeight - padTop - padBottom);
+
+    // 画布只覆盖「图像 × 预览可视区」的交集：放大到任意倍数，位图大小都不超过预览区，
+    // 避免按缩放后的尺寸分配画布导致显存暴涨/卡死
+    const visL = Math.max(0, baseX), visT = Math.max(0, baseY);
+    const visR = Math.min(boxW, baseX + w), visB = Math.min(boxH, baseY + h);
+    if (visR <= visL || visB <= visT) { clearCanvas(); return; }
+    const visW = visR - visL, visH = visB - visT;
+
     canvas.style.display = "block";
-    canvas.style.left = (imgRect.left - prevRect.left - borderLeft - padLeft) + "px";
-    canvas.style.top = (imgRect.top - prevRect.top - borderTop - padTop) + "px";
-    canvas.style.width = w + "px";
-    canvas.style.height = h + "px";
-    const bw = Math.max(1, Math.round(w * dpr));
-    const bh = Math.max(1, Math.round(h * dpr));
+    canvas.style.left = visL + "px";
+    canvas.style.top = visT + "px";
+    canvas.style.width = visW + "px";
+    canvas.style.height = visH + "px";
+    const bw = Math.max(1, Math.round(visW * dpr));
+    const bh = Math.max(1, Math.round(visH * dpr));
     if (canvas.width !== bw) canvas.width = bw;
     if (canvas.height !== bh) canvas.height = bh;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // 用平移把「图像局部坐标」映射到可视区域，后续绘制逻辑保持不变
+    ctx.setTransform(dpr, 0, 0, dpr, -(visL - baseX) * dpr, -(visT - baseY) * dpr);
 
     // 计算裁剪区域（原图像素坐标 → 显示坐标按 w/iw 缩放）
     const rect = computeCropRect(img.naturalWidth, img.naturalHeight, getTargetResolution());

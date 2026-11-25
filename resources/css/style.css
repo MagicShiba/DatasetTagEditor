@@ -1,5 +1,6 @@
 /* Dataset Tag Editor - NeutralinoJS 版 */
 :root {
+  color-scheme: dark;
   --bg: #111418;
   --bg-panel: #1c2127;
   --bg-input: #0f1115;
@@ -44,6 +45,7 @@
 
 /* 亮色主题：只覆盖颜色变量，布局与交互规则完全复用 */
 [data-theme="light"] {
+  color-scheme: light;
   --bg: #f5f6f8;
   --bg-panel: #ffffff;
   --bg-input: #eeeeee;
@@ -557,7 +559,7 @@ input[type="radio"] {
   top: 50%;
   transform: translateY(-50%);
   border: none;
-  background: var(--bg);
+  background: transparent;
   color: var(--text);
   cursor: pointer;
   padding: 2px;
@@ -868,7 +870,6 @@ input[type="radio"] {
 .gallery-sort {
   display: flex;
   align-items: center;
-  gap: 4px;
   flex: none;
 }
 
@@ -1739,6 +1740,112 @@ input[type="radio"] {
   color: var(--danger);
 }
 
+/* 常用尺寸预设（图像工具）：每行 3 个，可拖动排序、改数值、删除 */
+.size-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px 6px;
+  width: 100%;
+  max-width: 460px;
+  margin-bottom: 6px;
+}
+
+.size-preset-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 1px 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+}
+
+/* 拖动手柄：只有从这里按下才会启动拖动，避免与输入框选字冲突 */
+.size-preset-handle {
+  flex: none;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1;
+  cursor: grab;
+  user-select: none;
+}
+
+.size-preset-handle:active {
+  cursor: grabbing;
+}
+
+/* 正在拖动的格子淡化显示，与插入位置竖线配合 */
+.size-preset-item.dragging {
+  opacity: .55;
+}
+
+/* 数值输入框：去掉全局输入框的边框与背景，直接融进格子 */
+.size-preset-item .size-preset-val {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 1px 2px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  text-align: center;
+}
+
+.size-preset-item .size-preset-val:focus {
+  border: none;
+}
+
+/* 输入内容无法解析时标红提示（保存时该行会被跳过） */
+.size-preset-item .size-preset-val.invalid {
+  color: var(--danger);
+}
+
+.size-preset-del {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: .5;
+  transition: opacity .12s ease, background .12s ease;
+}
+
+.size-preset-item:hover .size-preset-del,
+.size-preset-del:focus-visible {
+  opacity: 1;
+}
+
+.size-preset-del:hover {
+  background: var(--hover-bg);
+  color: var(--danger);
+}
+
+/* 拖动排序时的插入位置提示：目标格左侧 / 右侧一条强调色竖线 */
+.size-preset-item.drop-before::before,
+.size-preset-item.drop-after::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+}
+
+.size-preset-item.drop-before::before {
+  left: -4px;
+}
+
+.size-preset-item.drop-after::after {
+  right: -4px;
+}
+
 /* ============ 设置浮动窗口 ============ */
 
 /* 使用 ID 提高优先级，覆盖后续 .modal-wide 的宽度限制 */
@@ -1848,7 +1955,11 @@ input[type="radio"] {
   flex: none;
 }
 
+/* LLM 历史左栏条目为两行（名称 + 时间） */
 .llm-history-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
   width: 100%;
   border: 1px solid transparent;
   background: transparent;
@@ -1857,7 +1968,12 @@ input[type="radio"] {
   font-size: 12px;
   cursor: pointer;
 }
-.llm-settings-item{
+/* 设置页左栏条目为单行文本，超出省略 */
+.llm-settings-item {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   border: 1px solid transparent;
   color: var(--text);
   text-align: left;
@@ -1896,21 +2012,6 @@ input[type="radio"] {
 .llm-history-item.selected {
   background: var(--bg);
   font-weight: 600;
-}
-
-/* 设置页左栏条目为单行文本，超出省略 */
-.llm-settings-item {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* LLM 历史左栏条目为两行（名称 + 时间） */
-.llm-history-item {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
 }
 
 /* 右侧详情区域不允许被内容撑破；内容过长时自身滚动，左侧列表保持可见 */
@@ -2766,7 +2867,6 @@ input[type="radio"] {
 .translate-close-btn {
   font-size: 15px;
   font-weight: bold;
-  color: var(--text-dim);
 }
 
 .translate-pin-btn:hover,
@@ -2935,9 +3035,8 @@ input[type="radio"] {
 .llm-history-block.reasoning { background: var(--history-reasoning-bg); }
 .llm-history-block.reasoning .llm-history-block-text{ max-height: 100px; }
 .llm-history-block-text {
-  margin: 0;
-  padding: 2px;
   margin: 2px;
+  padding: 2px;
   max-height: 150px;
   overflow: auto;
   border-radius: 4px;
@@ -3063,12 +3162,14 @@ input[type="radio"] {
 .bbox-studio-body {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   display: flex;
   overflow: hidden;
 }
 .bbox-studio-left {
   flex: 1 1 0;
-  min-width: 160px;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--border);
@@ -3136,6 +3237,7 @@ input[type="radio"] {
 .bbox-studio-preview.has-import-dim img {
   filter: brightness(0.45);
 }
+/* 画板始终显示标注画布并接收指针事件（背景图可有可无） */
 .bbox-studio-preview .bbox-canvas {
   position: absolute;
   inset: 0;
@@ -3144,14 +3246,6 @@ input[type="radio"] {
   left: 0 !important;
   top: 0 !important;
   z-index: 4;
-  display: none;
-  pointer-events: none;
-}
-.bbox-studio-preview.has-bbox .bbox-canvas {
-  display: block;
-  pointer-events: auto;
-}
-.bbox-studio-preview .bbox-canvas {
   display: block !important;
   pointer-events: auto !important;
 }
@@ -3161,7 +3255,7 @@ input[type="radio"] {
 .bbox-studio-right {
   flex: 0 0 320px;
   width: 320px;
-  min-width: 240px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -3255,6 +3349,7 @@ body.bbox-studio-standalone {
   outline: none;
 }
 .bbox-studio-standalone-panel {
+  position: relative;
   width: 100vw;
   height: 100vh;
   display: flex;
@@ -3269,9 +3364,6 @@ body.bbox-studio-standalone {
   border: none !important;
   border-radius: 0 !important;
   box-shadow: none !important;
-}
-.bbox-studio-standalone-panel {
-  position: relative;
 }
 .bbox-resize-handle {
   position: absolute;
@@ -3291,10 +3383,342 @@ body.bbox-studio-standalone {
   right: 0; bottom: 0; width: 16px; height: 16px;
   cursor: nwse-resize;
   background: linear-gradient(135deg, transparent 50%, var(--border) 50%, var(--border) 65%, transparent 65%);
-  border-radius: 0 0 0 0;
 }
 .bbox-resize-handle:hover { background-color: var(--accent-soft); }
 .bbox-resize-handle.se:hover { background: linear-gradient(135deg, transparent 50%, var(--accent) 50%, var(--accent) 65%, transparent 65%); }
-.bbox-studio-body { min-width: 0; min-height: 0; }
-.bbox-studio-left { min-width: 0; min-height: 0; }
-.bbox-studio-right { min-width: 0; }
+
+/* ============ 图像分辨率调整浮窗 ============ */
+.image-tool-popup-body,
+.image-tool-workspace {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  overflow: hidden;
+}
+.image-tool-left {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 2px solid var(--border);
+}
+.image-tool-toolbar {
+  flex: none;
+  display: flex;
+}
+.image-tool-toolbar button{
+  border: transparent;
+  border-radius: 0px;
+  background: unset;
+  cursor: pointer;
+}
+
+.image-tool-preview {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--image-stage-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+/* 预览画布铺满预览区：缩放/平移只重绘视口内的内容，不产生超大图层 */
+.image-tool-canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: block;
+  cursor: default;
+}
+.image-tool-preview.is-crop .image-tool-canvas {
+  cursor: crosshair;
+}
+/* 裁剪框绘制在独立浮层：线宽与手柄按 CSS 像素固定，缩放预览时不跟着放大 */
+.image-tool-overlay {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: block;
+  pointer-events: none;
+}
+.image-tool-empty {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  text-align: center;
+  color: var(--text-dim);
+  pointer-events: none;
+}
+.image-tool-footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 18px;
+}
+.image-tool-footer .small-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.image-tool-footer #it_source_info {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.image-tool-footer .it-zoom-info {
+  flex: none;
+  color: var(--text-dim);
+}
+.image-tool-right {
+  flex: 0 0 320px;
+  width: 320px;
+  min-width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+  overflow-y: auto;
+}
+.image-tool-right .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+/* 「常见尺寸」标题行：文字在左、交换宽高按钮在右 */
+.it-common-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 2px;
+}
+.it-common-heading .small-note {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* 交换宽高：只改当前两个输入框，不写设置；平时淡显，悬停变强调色 */
+.it-swap-btn {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color .12s ease, background .12s ease;
+}
+.it-swap-btn:hover {
+  background: var(--hover-bg);
+  color: var(--accent);
+}
+.it-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 20px;
+}
+.it-field-head .field-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.it-field-head .btn {
+  flex: none;
+}
+.it-common-sizes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px 6px;
+}
+.it-size-chip {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.it-size-chip > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.it-size-chip input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+.it-add-size-btn {
+  min-width: 0;
+  padding: 0;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.it-add-size-btn:hover,
+.it-add-size-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--hover-bg);
+}
+/* 自定义尺寸：点 + 后就在该格子里换成输入框（不另起一行），回车添加 */
+.it-size-add {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.it-size-add .it-add-size-btn {
+  flex: 1 1 auto;
+}
+.it-custom-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  height: 22px;
+  padding: 0 4px;
+  font-size: 12px;
+}
+.it-custom-input[hidden],
+.it-add-size-btn[hidden] {
+  display: none;
+}
+.image-tool-size-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.it-times {
+  flex: none;
+  color: var(--text-dim);
+}
+.it-number {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.it-number-label {
+  flex: none;
+  padding-left: 4px;
+  color: var(--text-dim);
+}
+.it-number input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0 4px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.it-number input::-webkit-outer-spin-button,
+.it-number input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.it-number-preset-wrap {
+  position: relative;
+  flex: none;
+  width: 20px;
+  align-self: stretch;
+  border-left: 1px solid var(--border);
+}
+.it-number-preset-wrap::after {
+  content: "";
+  padding: 0 3px;
+  content: "▼";
+  opacity: 0.9;
+  pointer-events: none;
+}
+.it-number-preset {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  font-size: 12px;
+  cursor: pointer;
+}
+.it-number-preset option {
+  color: var(--text) !important;
+  background-color: var(--bg-panel) !important;
+  font-size: 12px;
+}
+.it-number-arrows {
+  position: relative;
+  flex: none;
+  width: 22px;
+  align-self: stretch;
+  margin: 1px 1px 1px 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+}
+.it-number-arrows button {
+  flex: 1 1 0;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 9px;
+  line-height: 1;
+  cursor: pointer;
+}
+.it-number-arrows button:first-child {
+  border-bottom: 1px solid var(--border);
+}
+.it-number-arrows button:hover {
+  background: var(--hover-bg);
+  color: var(--accent);
+}
+.it-format-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+.it-format-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.it-format-options input[type="radio"] {
+  accent-color: var(--accent);
+  margin: 0;
+}
+.image-tool-actions {
+  display: flex;
+  gap: 6px;
+}
+.image-tool-actions .btn {
+  flex: 1 1 auto;
+}
+

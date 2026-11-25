@@ -51,16 +51,6 @@ export function withSuffix(p, suffix) {
     return [...dir, newName].join("/");
 }
 
-// 替换文件名（不含扩展名）
-export function withStem(p, newStem) {
-    const parts = splitPath(p);
-    const name = parts[parts.length - 1] || "";
-    const idx = name.lastIndexOf(".");
-    const ext = idx >= 0 ? name.slice(idx) : "";
-    const dir = parts.slice(0, -1);
-    return [...dir, newStem + ext].join("/");
-}
-
 // 获取父目录
 export function getDirname(p) {
     const parts = splitPath(p);

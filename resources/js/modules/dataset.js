@@ -1,7 +1,7 @@
 // dataset.js - 数据集与标签核心逻辑
 
 import * as api from "./api.js";
-import { normalizePath, getStem, getExtension, withSuffix, withStem, md5, getDirname, getBasename, splitCaption, splitCaptionWithSepts, cleanupTrailingSep, removeNewlines } from "./utils.js";
+import { getStem, withSuffix, getDirname, getBasename, splitCaption, splitCaptionWithSepts, cleanupTrailingSep, removeNewlines } from "./utils.js";
 
 // ================================================================
 // Data: 单张图片及其标签
@@ -211,36 +211,6 @@ export class PathFilter {
         if (this.mode === FilterMode.INCLUSIVE) {
             const all = new Set(dataset.datas.keys());
             pathsToRemove = [...all].filter(p => !this.paths.has(p));
-        }
-
-        for (const path of pathsToRemove) {
-            dataset.removeByPath(path);
-        }
-        return dataset;
-    }
-}
-
-export class TagScoreFilter {
-    constructor(scores, tag, threshold, mode = FilterMode.NONE) {
-        this.scores = scores;
-        this.mode = mode;
-        this.tag = tag;
-        this.threshold = threshold;
-    }
-
-    apply(dataset) {
-        if (this.mode === FilterMode.NONE) return dataset;
-
-        let pathsToRemove = new Set();
-        for (const [path, scores] of Object.entries(this.scores)) {
-            if ((scores[this.tag] || 0) > this.threshold) {
-                pathsToRemove.add(path);
-            }
-        }
-
-        if (this.mode === FilterMode.GREATER_THAN) {
-            const all = new Set(dataset.datas.keys());
-            pathsToRemove = new Set([...all].filter(p => !pathsToRemove.has(p)));
         }
 
         for (const path of pathsToRemove) {

@@ -2,9 +2,6 @@
 
 import { normalizePath, getDirname } from "./utils.js";
 
-// 应用根目录
-export const APP_DIR = NL_PATH;
-
 // 支持的图片扩展名（小写，含点）
 const IMAGE_EXTS = new Set([
     ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tif", ".tiff", ".avif", ".ico"
@@ -215,12 +212,6 @@ export function bufferToBlob(buffer, type) {
     return new Blob([buffer], { type: type || "application/octet-stream" });
 }
 
-// 将 ArrayBuffer 转换为 Blob URL（用于 <img> 显示）
-export function bufferToObjectUrl(buffer, type) {
-    const blob = bufferToBlob(buffer, type);
-    return URL.createObjectURL(blob);
-}
-
 // 移动文件或目录
 export async function moveFile(src, dest) {
     try {
@@ -245,16 +236,6 @@ export async function removeFile(p) {
 export async function trashItem(p) {
     try {
         await Neutralino.os.trashItem(p);
-        return true;
-    } catch (e) {
-        return false;
-    }
-}
-
-// 复制文件或目录
-export async function copyFile(src, dest) {
-    try {
-        await Neutralino.filesystem.copy(src, dest);
         return true;
     } catch (e) {
         return false;
@@ -309,37 +290,83 @@ export async function revealInExplorer(p) {
     }
 }
 
-// 挂载本地目录到静态服务器，返回 URL 前缀
-let mountCounter = 0;
-export async function mountDir(path) {
-    const n = normalizePath(path);
-    const target = `/dte-mount-${mountCounter++}`;
+// ---------------- 目录挂载（静态服务器路由） ----------------
+// 注意 Neutralino 的三条实现细节（均会导致图片 404，且「有时才出现」）：
+// 1) 路由是前缀匹配：pathname.find(mountedPath) == 0，所以前缀不能互为前缀。
+//    若用 /dte-mount-1 这类变长名字，遗留的 /dte-mount-1 会截走 /dte-mount-10/xxx.jpg
+//    的请求，映射到别的目录 → 404。这里统一用等长编号，任意两个前缀互不为前缀。
+// 2) server.mount 在「目录不存在 / 前缀已被占用」时会失败（SDK reject），
+//    旧实现把错误吞掉并照常返回前缀，之后所有图片请求全部 404（缩略图走缓存挂载，
+//    仍然正常显示）——表现为「有缩略图、预览空白」。
+// 3) 页面刷新（如 F5、恢复默认设置）后 JS 里的计数器归零，但服务器上的挂载仍然存在，
+//    新会话再次申请同样的前缀会失败。必须先用 getMounts 校验/清理。
+const MOUNT_PREFIX_BASE = "/dte-mnt-";
+let mountSeq = 0;
+
+// 读取服务器当前挂载表 { url前缀: 本地目录 }
+export async function getMounts() {
     try {
-        await Neutralino.server.mount(target, n);
-        return target;
+        const res = await Neutralino.server.getMounts();
+        return res && typeof res === "object" ? res : {};
     } catch (e) {
-        // 可能已挂载，尝试获取现有挂载
-        return target;
+        return {};
     }
 }
 
-// 卸载目录
+// 卸载目录，成功返回 true（未挂载时静默失败）
 export async function unmountDir(target) {
     try {
         await Neutralino.server.unmount(target);
-    } catch (e) { }
+        return true;
+    } catch (e) {
+        return false;
+    }
 }
 
-// 获取图片的访问 URL（通过 server mount）
-// 返回 relative URL 如 /dte-mount-0/image.png
-export function getMountedUrl(mountPrefix, filePath) {
-    const n = normalizePath(filePath);
-    // mountPrefix 对应路径 n 的根
-    const rel = n.split("/").map(seg => encodeURIComponent(seg)).join("/");
-    return `${mountPrefix}/${rel}`;
+// 清理本应用遗留的挂载点（页面刷新后旧挂载仍指向旧数据集，会占用前缀）
+export async function clearStaleMounts() {
+    const mounts = await getMounts();
+    let count = 0;
+    for (const p of Object.keys(mounts)) {
+        if (p.startsWith(MOUNT_PREFIX_BASE) && await unmountDir(p)) count++;
+    }
+    mountSeq = 0;
+    return count;
 }
 
-// 应用路径（NL_PATH）
-export function appPath() {
-    return NL_PATH;
+// 挂载本地目录，成功返回 URL 前缀（不带结尾斜杠），失败抛出异常。
+// 调用方必须处理异常，不能继续使用未真正生效的前缀。
+export async function mountDir(path) {
+    const n = normalizePath(path);
+    const expect = n.replace(/\/+$/, "");
+    let lastErr = null;
+    for (let attempt = 0; attempt < 20; attempt++) {
+        // 等长编号（000~999）保证前缀之间不会互相截获请求
+        const target = MOUNT_PREFIX_BASE + String(mountSeq++ % 1000).padStart(3, "0");
+        for (let retry = 0; retry < 2; retry++) {
+            lastErr = null;
+            let mounted = false;
+            try {
+                await Neutralino.server.mount(target, n);
+                mounted = true;
+            } catch (e) {
+                lastErr = e;
+            }
+            if (mounted) {
+                // 校验本次挂载确实指向目标目录：服务器上可能残留同前缀的旧挂载，
+                // 只看「前缀存在」会误把旧目录当成新目录（图片 404 的根源之一）
+                const mounts = await getMounts();
+                const hasTable = Object.keys(mounts).length > 0;
+                if (!hasTable) return target;   // 老版本 core 查不到挂载表，信任成功返回
+                const got = mounts[target];
+                if (got && normalizePath(got).replace(/\/+$/, "") === expect) return target;
+            }
+            const code = lastErr && lastErr.code;
+            // 前缀被遗留挂载占用：清掉后重试同一前缀；其它错误（目录不存在等）换前缀也没用
+            if (code !== "NE_SR_MPINUSE") break;
+            await unmountDir(target);
+        }
+        if (lastErr && lastErr.code !== "NE_SR_MPINUSE") throw lastErr;
+    }
+    throw lastErr || new Error("mount failed: no free mount prefix");
 }

@@ -379,6 +379,13 @@
                             <button id="btn_open_bbox_studio" class="btn" data-i18n="extra_tools.open_bbox_studio">边界框画板</button>
                         </div>
                     </div>
+
+                    <div class="panel">
+                        <div class="markdown" data-i18n="extra_tools.image_resize_help">缩放或裁剪当前选中的图像；宽高按 64 像素步进，默认保持纵横比，支持多种重采样算法。</div>
+                        <div class="row" style="margin-top:8px">
+                            <button id="btn_open_image_tool" class="btn" data-i18n="extra_tools.open_image_tool">图像分辨率调整</button>
+                        </div>
+                    </div>
                 </section>
             </div>
         </main>
@@ -479,6 +486,7 @@
         <button type="button" data-action="copy_image" data-i18n="gallery.copy_image">复制图像</button>
         <button type="button" data-action="copy_link" data-i18n="gallery.copy_link">复制连接</button>
         <button type="button" data-action="reveal" data-i18n="gallery.reveal_image">定位图像</button>
+        <button type="button" data-action="image_tool" data-i18n="gallery.image_tool">分辨率调整</button>
         <!-- 加入反推列表：直接点击使用默认（当前启用）的反推提示词，悬停时在右侧展开其它提示词 -->
         <div class="context-menu-item has-submenu" id="gallery_reverse_item">
             <button type="button" data-action="reverse" data-i18n="gallery.add_to_reverse">加入反推列表</button>

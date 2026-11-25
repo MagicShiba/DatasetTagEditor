@@ -3,8 +3,7 @@
 // 与 Python 版缓存命名一致，便于复用已有缓存
 
 import * as api from "./api.js";
-import { md5, normalizePath } from "./utils.js";
-import { getSetting } from "./config.js";
+import { md5, normalizePath, encodePathUrl } from "./utils.js";
 
 let cacheDir = "";
 let cacheUrl = "";          // 缓存目录的 mount URL 前缀
@@ -18,7 +17,13 @@ const genQueue = new Map(); // key -> Promise
 export async function initThumbnails() {
     cacheDir = normalizePath(`${NL_PATH}/cache/thumbnails`);
     await api.createDirectory(cacheDir);
-    cacheUrl = await api.mountDir(cacheDir);
+    try {
+        cacheUrl = await api.mountDir(cacheDir);
+    } catch (e) {
+        // 挂载失败不应导致整个应用无法启动：退化为无缩略图缓存（原图 URL 仍可用）
+        console.error("mount thumbnail cache failed", e);
+        cacheUrl = "";
+    }
     return cacheUrl;
 }
 
@@ -32,11 +37,28 @@ export function md5Key(imgPath, maxRes, mtime) {
     return getCacheKey(imgPath, maxRes, mtime);
 }
 
-// 规范化目录路径：统一分隔符并去掉尾部多余的分隔符
-// 用于路径前缀比较，避免输入目录带尾随分隔符（如 "E:/data/"）时
-// 与代码生成的不带尾随分隔符的路径（如重命名后的新路径）比较失败
+// 合并路径中的重复分隔符（listFiles 在目录带结尾斜杠时会生成 "E:/data//a.jpg"）
+function collapseSlashes(p) {
+    return normalizePath(p).replace(/\/{2,}/g, "/");
+}
+
+// 规范化目录路径：合并重复分隔符并去掉尾部分隔符，便于做前缀比较
 function normalizeDirPath(p) {
-    return normalizePath(p).replace(/\/+$/, "");
+    return collapseSlashes(p).replace(/\/+$/, "");
+}
+
+// 判断 imgPath 是否位于已挂载的数据集目录内。
+// Windows 路径大小写不敏感，比较时统一转小写，避免 "E:/Data" 与 "E:/data/a.jpg" 判定失败。
+function isUnderDir(p, dir) {
+    if (!dir) return false;
+    const a = collapseSlashes(p);
+    const b = collapseSlashes(dir);
+    const isWin = /^[a-zA-Z]:/.test(b) || b.startsWith("//");
+    if (isWin) {
+        const la = a.toLowerCase(), lb = b.toLowerCase();
+        return la === lb || la.startsWith(lb + "/");
+    }
+    return a === b || a.startsWith(b + "/");
 }
 
 // 挂载数据集目录，返回 URL 前缀
@@ -46,29 +68,36 @@ export async function mountDataset(dir) {
     if (datasetUrl && datasetMountedDir === dirKey) {
         return datasetUrl;
     }
-    // 卸载旧的数据集挂载
-    if (datasetUrl) {
-        await api.unmountDir(datasetUrl);
-    }
+    // 先挂载新目录（失败会抛错，由调用方提示），成功后才切换 URL，
+    // 避免切换失败后仍用无效前缀去拼图片地址
+    const url = await api.mountDir(dir);
+    const prevUrl = datasetUrl;
+    datasetUrl = url;
     datasetMountedDir = dirKey;
-    datasetUrl = await api.mountDir(dir);
-    return datasetUrl;
+    // 新挂载就绪后再延迟卸载旧挂载：切换瞬间仍在加载的图片请求不会被提前掐断成 404
+    if (prevUrl && prevUrl !== url) {
+        setTimeout(() => {
+            if (prevUrl !== datasetUrl) api.unmountDir(prevUrl);
+        }, 8000);
+    }
+    return url;
 }
 
 // 获取数据集中图片的原始 URL（用于生成缩略图）
 // 路径不在当前已挂载的数据集目录内时返回空字符串，避免构造出错误的 URL
 export function getOriginalImageUrl(imgPath) {
-    if (!datasetUrl) return "";
-    const n = normalizePath(imgPath);
-    const dir = datasetMountedDir;
-    // 目录比较忽略尾部/重复的分隔符，兼容 "E:/data/" 与 "E:/data//a.jpg" 等写法
-    if (n !== dir && !n.startsWith(dir + "/")) return "";
+    if (!datasetUrl || !datasetMountedDir) return "";
+    const n = collapseSlashes(imgPath);
+    const dir = collapseSlashes(datasetMountedDir);
+    if (!isUnderDir(n, dir)) return "";
     const rel = n.slice(dir.length).replace(/^[/\\]+/, "");
-    return `${datasetUrl}/${rel.split("/").map(seg => encodeURIComponent(seg)).join("/")}`;
+    if (!rel) return "";
+    return `${datasetUrl}/${encodePathUrl(rel)}`;
 }
 
-// 获取缓存缩略图的 URL
+// 获取缓存缩略图的 URL（缓存目录挂载失败时返回空串，调用方需回退到原图）
 export function getThumbCacheUrl(key) {
+    if (!cacheUrl) return "";
     return `${cacheUrl}/${key}.jpg`;
 }
 
@@ -166,20 +195,6 @@ export async function generateThumbnailsBatch(imgPaths, maxRes, mtimes, concurre
         workers.push(worker());
     }
     await Promise.all(workers);
-}
-
-// 获取展示用 URL：优先使用缩略图缓存，否则返回原图 URL 并后台生成
-export async function getThumbUrl(imgPath, maxRes, mtime) {
-    if (!maxRes || maxRes <= 0) {
-        return getOriginalImageUrl(imgPath);
-    }
-    const key = getCacheKey(imgPath, maxRes, mtime);
-    if (await thumbCacheExists(key)) {
-        return getThumbCacheUrl(key);
-    }
-    // 后台生成（不阻塞返回）
-    generateThumbnail(imgPath, maxRes, mtime).catch(() => {});
-    return getOriginalImageUrl(imgPath);
 }
 
 // 清除所有缩略图缓存，返回清除的文件数

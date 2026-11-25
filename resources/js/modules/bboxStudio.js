@@ -2,29 +2,25 @@
 // 左侧画布复用 bbox.js 的交互逻辑，右侧为比例/背景/文本控制
 // 文本编辑复用 dte_edit_caption 的规则：高亮 + 自动补全 + JSON 展开/压缩
 
-import { getSetting, config } from "./config.js";
+import { config } from "./config.js";
 import { joinTagsWithSepts } from "./dataset.js";
-import { formatJsonPretty } from "./utils.js";
 import { bindAutocomplete, wasAcHiddenByEscape } from "./autocomplete.js";
 import { parseRules, applyHighlight } from "./highlight.js";
 import * as api from "./api.js";
 import {
     clamp01,
-    findBalancedObject,
-    parseCoords,
+    mapBboxBlocks,
     coordsToXY,
-    extractBboxBlock as extractBboxBlockCore,
-    serializeBboxes as serializeBboxesCore,
-    boxArea,
-    HANDLE,
+    extractBboxBlock,
+    serializeBboxes,
     MIN_SIZE,
     MIN_LABEL_W,
     MIN_EDIT_W,
     CLICK_TOL,
     hitTestAllBoxes,
     hitTestForBox,
-    sortedByNearestBoxes,
     cursorForHit,
+    pickTarget,
 } from "./bbox.js";
 
 let els = {};
@@ -41,25 +37,13 @@ let rightCreate = null;
 
 const COLOR_PALETTE = ["#00e5ff", "#ffd54f", "#7ef29a", "#ff8a80", "#ce93d8", "#ffab91"];
 
-export function extractBboxBlock(text) {
-    return extractBboxBlockCore(text);
-}
-
-function getBboxPrecision() {
-    const v = Number(getSetting("bbox_json_decimal_places"));
-    return Number.isFinite(v) && v >= 0 ? Math.floor(v) : 3;
-}
-
-function serializeBboxes(list, key = "object", isMap = false) {
-    return serializeBboxesCore(list, key, isMap);
-}
-
 function nextDefaultLabel() {
     const set = new Set(boxes.map(b => b.label));
     let n = 1;
     while (set.has(`物体${n}`)) n++;
     return `物体${n}`;
 }
+
 function writeBackText(text) {
     const block = extractBboxBlock(text);
     if (!block) {
@@ -93,44 +77,41 @@ function convertCoordinateRange() {
     const ta = els.textarea;
     if (!ta) return;
     const s = String(ta.value || "");
-    const re = /\{\s*"(object|objects)"\s*:/g;
-    const m = re.exec(s);
-    if (!m) return;
-    const start = m.index;
-    const bal = findBalancedObject(s, start);
-    if (!bal) return;
-    const end = bal.end;
-    let json;
-    try { json = JSON.parse(s.slice(start, end + 1)); } catch (e) { return; }
-    const key = m[1];
-    const raw = json[key];
-    const items = [];
-    let isMap = false;
-    const collect = (label, coords) => {
-        if (!Array.isArray(coords) || coords.length !== 4) return;
-        const nums = coords.map(Number);
-        if (!nums.every(n => Number.isFinite(n))) return;
-        // 按坐标类型设置把原始数值还原为内部 x/y，避免转换时打乱顺序
-        items.push({ label: String(label), ...coordsToXY(nums) });
-    };
-    if (Array.isArray(raw)) {
-        for (const item of raw) {
-            if (!item || typeof item !== "object" || Object.entries(item).length !== 1) continue;
-            const [label, coords] = Object.entries(item)[0];
-            collect(label, coords);
+    let done = false;
+    const out = mapBboxBlocks(s, ({ key, json }) => {
+        if (done) return null;
+        const raw = json[key];
+        const items = [];
+        let isMap = false;
+        const collect = (label, coords) => {
+            if (!Array.isArray(coords) || coords.length !== 4) return;
+            const nums = coords.map(Number);
+            if (!nums.every(n => Number.isFinite(n))) return;
+            // 按坐标类型设置把原始数值还原为内部 x/y，避免转换时打乱顺序
+            items.push({ label: String(label), ...coordsToXY(nums) });
+        };
+        if (Array.isArray(raw)) {
+            for (const item of raw) {
+                if (!item || typeof item !== "object" || Object.entries(item).length !== 1) continue;
+                const [label, coords] = Object.entries(item)[0];
+                collect(label, coords);
+            }
+        } else if (raw && typeof raw === "object") {
+            isMap = true;
+            for (const [label, coords] of Object.entries(raw)) collect(label, coords);
         }
-    } else if (raw && typeof raw === "object") {
-        isMap = true;
-        for (const [label, coords] of Object.entries(raw)) collect(label, coords);
-    }
-    if (items.length === 0) return;
-    // 识别当前格式并翻转到另一种
-    const maxV = Math.max(...items.flatMap(b => [Math.abs(b.x1), Math.abs(b.y1), Math.abs(b.x2), Math.abs(b.y2)]));
-    const target = maxV > 1 ? "0~1" : "0~1000";
-    const k = maxV > 1 ? 1000 : 1;
-    const internal = items.map(b => ({ label: b.label, x1: b.x1 / k, y1: b.y1 / k, x2: b.x2 / k, y2: b.y2 / k }));
-    // 显式传 target，避免受坐标范围设置影响
-    ta.value = s.slice(0, start) + serializeBboxesCore(internal, key, isMap, target) + s.slice(end + 1);
+        if (items.length === 0) return null;
+        // 识别当前格式并翻转到另一种
+        const maxV = Math.max(...items.flatMap(b => [Math.abs(b.x1), Math.abs(b.y1), Math.abs(b.x2), Math.abs(b.y2)]));
+        const target = maxV > 1 ? "0~1" : "0~1000";
+        const k = maxV > 1 ? 1000 : 1;
+        const internal = items.map(b => ({ label: b.label, x1: b.x1 / k, y1: b.y1 / k, x2: b.x2 / k, y2: b.y2 / k }));
+        done = true;
+        // 显式传 target，避免受坐标范围设置影响
+        return serializeBboxes(internal, key, isMap, target);
+    });
+    if (!done) return;
+    ta.value = out;
     ta.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
@@ -141,19 +122,13 @@ function syncOverlayLayout() {
     inner.style.width = ta.clientWidth + "px";
     inner.style.transform = "translateY(" + (-ta.scrollTop) + "px)";
 }
+
 function updateHighlightOverlay() {
     const ta = els.textarea, inner = els.overlayInner;
     if (!ta || !inner) return;
-    // 保留高亮但无 UI：优先读隐藏的 tb_highlight_rules（若存在），否则读 config
-    let rulesText = "";
-    try {
-        const taRule = document.getElementById("tb_highlight_rules");
-        if (taRule && taRule.value !== undefined) rulesText = taRule.value;
-        else rulesText = config.read("edit_selected")?.highlight_rules || "";
-    } catch(e){
-        try { rulesText = config.read("edit_selected")?.highlight_rules || ""; } catch(e2){}
-    }
-    const rules = parseRules(rulesText);
+    // 画板没有高亮规则设置界面：优先复用主窗口隐藏的规则文本，否则读配置
+    const ruleEl = document.getElementById("tb_highlight_rules");
+    const rules = parseRules(ruleEl?.value ?? config.read("edit_selected")?.highlight_rules ?? "");
     inner.innerHTML = applyHighlight(ta.value, rules) + (ta.value.endsWith("\n") ? "<br>" : "");
     syncOverlayLayout();
 }
@@ -164,18 +139,9 @@ export function updateBboxesFromText() {
     if (!ta || !els.preview || !els.canvas) return;
     cancelLabelEdit();
     const block = extractBboxBlock(ta.value);
-    if (block) {
-        boxes = block.items;
-        if (selected >= boxes.length) selected = -1;
-        els.preview.classList.add("has-bbox");
-        draw();
-    } else {
-        boxes = [];
-        selected = -1;
-        els.preview.classList.add("has-bbox");
-        clearCanvas();
-        draw();
-    }
+    boxes = block ? block.items : [];
+    if (selected >= boxes.length) selected = -1;
+    draw();
 }
 
 function clearCanvas() {
@@ -186,47 +152,25 @@ function clearCanvas() {
 }
 
 function draw() {
-    const img = els.img, preview = els.preview, canvas = els.canvas;
-    if (!preview || !canvas || !ctx) return;
-    const rect = preview.getBoundingClientRect();
-    const cs = getComputedStyle(preview);
-    const borderLeft = parseFloat(cs.borderLeftWidth) || 0;
-    const borderTop = parseFloat(cs.borderTopWidth) || 0;
-    const padLeft = parseFloat(cs.paddingLeft) || 0;
-    const padTop = parseFloat(cs.paddingTop) || 0;
-
-    let w, h, offsetLeft, offsetTop;
-    const pw = rect.width - borderLeft - parseFloat(cs.borderRightWidth || 0) - padLeft - parseFloat(cs.paddingRight || 0);
-    const ph = rect.height - borderTop - parseFloat(cs.borderBottomWidth || 0) - padTop - parseFloat(cs.paddingBottom || 0);
-    if (pw <= 0 || ph <= 0) { clearCanvas(); return; }
-    if (els.preview.clientWidth === 0) return;
-    if (img && img.src && img.naturalWidth) {
-        const imgRect = img.getBoundingClientRect();
-        const prevRect = preview.getBoundingClientRect();
-        if (imgRect.width <= 0 || imgRect.height <= 0) { clearCanvas(); return; }
-        w = imgRect.width; h = imgRect.height;
-        offsetLeft = imgRect.left - prevRect.left - borderLeft - padLeft;
-        offsetTop = imgRect.top - prevRect.top - borderTop - padTop;
-    } else {
-        w = pw; h = ph;
-        offsetLeft = 0; offsetTop = 0;
-    }
-
+    if (!els.preview || !els.canvas || !ctx) return;
+    const m = getMetrics();
+    if (m.pw <= 0 || m.ph <= 0 || m.w <= 0 || m.h <= 0) { clearCanvas(); return; }
     const dpr = window.devicePixelRatio || 1;
-    canvas.style.display = "block";
-    canvas.style.left = "0px";
-    canvas.style.top = "0px";
-    canvas.style.width = pw + "px";
-    canvas.style.height = ph + "px";
-    const bw = Math.max(1, Math.round(pw * dpr));
-    const bh = Math.max(1, Math.round(ph * dpr));
-    if (canvas.width !== bw) canvas.width = bw;
-    if (canvas.height !== bh) canvas.height = bh;
+    els.canvas.style.display = "block";
+    els.canvas.style.left = "0px";
+    els.canvas.style.top = "0px";
+    els.canvas.style.width = m.pw + "px";
+    els.canvas.style.height = m.ph + "px";
+    const bw = Math.max(1, Math.round(m.pw * dpr));
+    const bh = Math.max(1, Math.round(m.ph * dpr));
+    if (els.canvas.width !== bw) els.canvas.width = bw;
+    if (els.canvas.height !== bh) els.canvas.height = bh;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.setTransform(dpr, 0, 0, dpr, offsetLeft * dpr, offsetTop * dpr);
-    for (let i = 0; i < boxes.length; i++) if (i !== selected) drawBox(i, w, h);
-    if (selected >= 0) drawBox(selected, w, h);
+    ctx.clearRect(0, 0, els.canvas.width, els.canvas.height);
+    // 平移坐标系使「图像局部坐标」落到图像在预览区中的实际位置
+    ctx.setTransform(dpr, 0, 0, dpr, m.offsetLeft * dpr, m.offsetTop * dpr);
+    for (let i = 0; i < boxes.length; i++) if (i !== selected) drawBox(i, m.w, m.h);
+    if (selected >= 0) drawBox(selected, m.w, m.h);
 }
 
 // 将标签文本按最大宽度换行（逐字符累加测量，兼容中英文），返回行数组。
@@ -282,9 +226,7 @@ function drawBox(i, w, h) {
             {x:(L+R)/2, y:T}, {x:(L+R)/2, y:B}, {x:L, y:(T+B)/2}, {x:R, y:(T+B)/2}
         ];
         for (const p of pts) {
-            if(p.c === "tl") ctx.fillStyle = "#ffffff";
-            else if(p.c === "br") ctx.fillStyle = "#ffe082";
-            else ctx.fillStyle = "#ffffff";
+            ctx.fillStyle = p.c === "br" ? "#ffe082" : "#ffffff";
             ctx.fillRect(p.x - hs/2, p.y - hs/2, hs, hs);
             ctx.strokeStyle = "rgba(0,0,0,0.6)";
             ctx.lineWidth = 1;
@@ -293,96 +235,73 @@ function drawBox(i, w, h) {
     }
 }
 
+// 画布坐标系：图像显示尺寸、相对预览区内容盒的偏移，以及内容盒尺寸
+// 无图像时退化为整个内容盒（画布仍铺满预览区）
 function getMetrics() {
     const rect = els.preview.getBoundingClientRect();
     const cs = getComputedStyle(els.preview);
-    const borderLeft = parseFloat(cs.borderLeftWidth) || 0;
-    const borderTop = parseFloat(cs.borderTopWidth) || 0;
     const padLeft = parseFloat(cs.paddingLeft) || 0;
     const padTop = parseFloat(cs.paddingTop) || 0;
-    let w, h, offsetLeft = 0, offsetTop = 0;
-    if (els.img && els.img.src && els.img.naturalWidth) {
-        const imgRect = els.img.getBoundingClientRect();
-        const prevRect = els.preview.getBoundingClientRect();
-        w = imgRect.width; h = imgRect.height;
-        offsetLeft = imgRect.left - prevRect.left - borderLeft - padLeft;
-        offsetTop = imgRect.top - prevRect.top - borderTop - padTop;
-    } else {
-        const pw = rect.width - borderLeft - parseFloat(cs.borderRightWidth || 0) - padLeft - parseFloat(cs.paddingRight || 0);
-        const ph = rect.height - borderTop - parseFloat(cs.borderBottomWidth || 0) - padTop - parseFloat(cs.paddingBottom || 0);
-        w = pw; h = ph;
+    const borderLeft = parseFloat(cs.borderLeftWidth) || 0;
+    const borderTop = parseFloat(cs.borderTopWidth) || 0;
+    const pw = Math.max(0, rect.width - borderLeft - (parseFloat(cs.borderRightWidth) || 0) - padLeft - (parseFloat(cs.paddingRight) || 0));
+    const ph = Math.max(0, rect.height - borderTop - (parseFloat(cs.borderBottomWidth) || 0) - padTop - (parseFloat(cs.paddingBottom) || 0));
+    const img = els.img;
+    if (img && img.src && img.naturalWidth) {
+        const r = img.getBoundingClientRect();
+        return {
+            w: r.width,
+            h: r.height,
+            offsetLeft: r.left - rect.left - borderLeft - padLeft,
+            offsetTop: r.top - rect.top - borderTop - padTop,
+            pw,
+            ph,
+        };
     }
-    return { w, h, offsetLeft, offsetTop };
+    return { w: pw, h: ph, offsetLeft: 0, offsetTop: 0, pw, ph };
 }
 
-// 命中检测：返回该点可交互的所有框索引（归一化显示，需加上偏移）
-function hitTestAll(px, py, w, h) {
+// 命中检测：把预览区坐标换算到图像局部坐标后复用 bbox.js 的纯函数
+function hitTestAll(px, py) {
     const m = getMetrics();
-    const offL = m.offsetLeft, offT = m.offsetTop;
-    // 使用画板 core 的命中逻辑，但需偏移
-    const list = [];
-    for (let i = 0; i < boxes.length; i++) {
-        const b = boxes[i];
-        const L = offL + Math.min(b.x1, b.x2) * m.w;
-        const R = offL + Math.max(b.x1, b.x2) * m.w;
-        const T = offT + Math.min(b.y1, b.y2) * m.h;
-        const B = offT + Math.max(b.y1, b.y2) * m.h;
-        const nearCorner =
-            (Math.abs(px - L) <= HANDLE && Math.abs(py - T) <= HANDLE) ||
-            (Math.abs(px - R) <= HANDLE && Math.abs(py - T) <= HANDLE) ||
-            (Math.abs(px - L) <= HANDLE && Math.abs(py - B) <= HANDLE) ||
-            (Math.abs(px - R) <= HANDLE && Math.abs(py - B) <= HANDLE);
-        const nearEdge =
-            (px >= L - HANDLE && px <= L + HANDLE && py >= T && py <= B) ||
-            (px >= R - HANDLE && px <= R + HANDLE && py >= T && py <= B) ||
-            (py >= T - HANDLE && py <= T + HANDLE && px >= L && px <= R) ||
-            (py >= B - HANDLE && py <= B + HANDLE && px >= L && px <= R);
-        const inside = px >= L && px <= R && py >= T && py <= B;
-        if (inside || nearEdge || nearCorner) list.push(i);
-    }
-    return list;
+    return hitTestAllBoxes(boxes, px - m.offsetLeft, py - m.offsetTop, m.w, m.h);
 }
 
-// 对指定框判断具体交互（归一化显示）
-function hitTestFor(i, px, py, w, h) {
+function hitTestFor(i, px, py) {
     const m = getMetrics();
-    const b = boxes[i];
-    const L = m.offsetLeft + Math.min(b.x1, b.x2) * m.w;
-    const R = m.offsetLeft + Math.max(b.x1, b.x2) * m.w;
-    const T = m.offsetTop + Math.min(b.y1, b.y2) * m.h;
-    const B = m.offsetTop + Math.max(b.y1, b.y2) * m.h;
-    if (Math.abs(px - L) <= HANDLE && Math.abs(py - T) <= HANDLE) return { type: "resize", corner: "tl" };
-    if (Math.abs(px - R) <= HANDLE && Math.abs(py - T) <= HANDLE) return { type: "resize", corner: "tr" };
-    if (Math.abs(px - R) <= HANDLE && Math.abs(py - B) <= HANDLE) return { type: "resize", corner: "br" };
-    if (Math.abs(px - L) <= HANDLE && Math.abs(py - B) <= HANDLE) return { type: "resize", corner: "bl" };
-    if (px >= L - HANDLE && px <= L + HANDLE && py >= T && py <= B) return { type: "resize", corner: "l" };
-    if (px >= R - HANDLE && px <= R + HANDLE && py >= T && py <= B) return { type: "resize", corner: "r" };
-    if (py >= T - HANDLE && py <= T + HANDLE && px >= L && px <= R) return { type: "resize", corner: "t" };
-    if (py >= B - HANDLE && py <= B + HANDLE && px >= L && px <= R) return { type: "resize", corner: "b" };
-    if (px >= L && px <= R && py >= T && py <= B) return { type: "move" };
-    return null;
+    return hitTestForBox(boxes[i], px - m.offsetLeft, py - m.offsetTop, m.w, m.h);
 }
 
-function cursorFor(hit) {
-    return cursorForHit(hit);
-}
-
-function sortedByNearest(all, px, py, w, h) {
+// 选区切换规则与主预览一致（缩放优先 / 重叠循环 / 拖动优先）
+function pickAt(all, px, py, isSamePoint) {
     const m = getMetrics();
-    // 按面积 + 距离排序，距离需加上偏移
-    return all.slice().sort((a, b) => {
-        const ba = boxes[a], bb = boxes[b];
-        const areaA = boxArea(ba), areaB = boxArea(bb);
-        if (Math.abs(areaA - areaB) > 1e-6) return areaA - areaB;
-        const da = Math.hypot((ba.x1 + ba.x2) / 2 * m.w + m.offsetLeft - px, (ba.y1 + ba.y2) / 2 * m.h + m.offsetTop - py);
-        const db = Math.hypot((bb.x1 + bb.x2) / 2 * m.w + m.offsetLeft - px, (bb.y1 + bb.y2) / 2 * m.h + m.offsetTop - py);
-        return da - db;
-    });
+    return pickTarget(boxes, all, selected, isSamePoint, px - m.offsetLeft, py - m.offsetTop, m.w, m.h);
 }
 
 function localPos(e){
     const r = els.canvas.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+
+// 右键拖拽新建：首次出现有效尺寸时插入文本框，之后只更新该框
+function updateRightCreate(x, y) {
+    const rc = rightCreate;
+    if (Math.hypot(x - rc.startX, y - rc.startY) > 3) rc.moved = true;
+    if (!rc.moved) return;
+    const m = getMetrics();
+    const x1 = clamp01((Math.min(rc.startX, x) - m.offsetLeft) / m.w);
+    const x2 = clamp01((Math.max(rc.startX, x) - m.offsetLeft) / m.w);
+    const y1 = clamp01((Math.min(rc.startY, y) - m.offsetTop) / m.h);
+    const y2 = clamp01((Math.max(rc.startY, y) - m.offsetTop) / m.h);
+    if (rc.idx >= 0) {
+        Object.assign(boxes[rc.idx], { x1, y1, x2, y2 });
+    } else {
+        if (x2 - x1 < 0.005 || y2 - y1 < 0.005) return;
+        boxes.push({ label: nextDefaultLabel(), x1, y1, x2, y2 });
+        rc.idx = boxes.length - 1;
+        selected = rc.idx;
+    }
+    draw();
 }
 
 // 执行移动/缩放（允许自由拖动，手柄可越过对侧）
@@ -429,15 +348,16 @@ function deleteSelectedBox(){
     selected=-1; draw(); writeBack();
 }
 
-// 判断点是否命中选中框左上角的标签文本区域（归一化）
-function hitLabel(px, py, w, h){
-    if(selected<0||selected>=boxes.length) return false;
+// 判断点是否命中选中框左上角的标签文本区域（画布坐标）
+function hitLabel(px, py) {
+    if (selected < 0 || selected >= boxes.length) return false;
     const m = getMetrics();
-    const b=boxes[selected]; const L=m.offsetLeft + Math.min(b.x1,b.x2)*m.w, T=m.offsetTop + Math.min(b.y1,b.y2)*m.h;
-    ctx.font="13px sans-serif";
-    const tw=ctx.measureText(b.label||"").width;
-    const bw2=Math.max(MIN_LABEL_W, tw+6);
-    return px>=L&&px<=L+bw2&&py>=T&&py<=T+15;
+    const b = boxes[selected];
+    const L = m.offsetLeft + Math.min(b.x1, b.x2) * m.w;
+    const T = m.offsetTop + Math.min(b.y1, b.y2) * m.h;
+    ctx.font = "13px sans-serif";
+    const bw = Math.max(MIN_LABEL_W, ctx.measureText(b.label || "").width + 6);
+    return px >= L && px <= L + bw && py >= T && py <= T + 15;
 }
 
 // 标签编辑框（textarea）按内容自适应高度（长文本自动换行）
@@ -474,6 +394,7 @@ function commitLabelEdit(){
         boxes[selected].label=val; draw(); writeBack();
     }
 }
+
 function cancelLabelEdit(){ if(labelInput) labelInput.style.display="none"; }
 
 // 复制当前选中的边界框（归一化宽度）
@@ -494,30 +415,26 @@ function uniqueLabel(base){
     return candidate;
 }
 
-// 以鼠标位置为中心粘贴复制框
+// 以鼠标位置为中心粘贴复制框（画布坐标 -> 图像局部坐标）
 function pasteClipboardBox(){
     if(!clipboardBox) return;
-    let w,h;
-    if(els.img && els.img.src && els.img.naturalWidth){
-        const r=els.img.getBoundingClientRect(); w=r.width; h=r.height;
-    } else {
-        const r=els.preview.getBoundingClientRect(); const cs=getComputedStyle(els.preview);
-        w = r.width - (parseFloat(cs.borderLeftWidth)||0) - (parseFloat(cs.borderRightWidth)||0) - (parseFloat(cs.paddingLeft)||0) - (parseFloat(cs.paddingRight)||0);
-        h = r.height - (parseFloat(cs.borderTopWidth)||0) - (parseFloat(cs.borderBottomWidth)||0) - (parseFloat(cs.paddingTop)||0) - (parseFloat(cs.paddingBottom)||0);
-    }
-    if(w<=0||h<=0) return;
-    const cx=lastMousePos?lastMousePos.x:w/2, cy=lastMousePos?lastMousePos.y:h/2;
-    const bw2=Math.min(clipboardBox.w,1), bh2=Math.min(clipboardBox.h,1);
-    const nx=cx/w, ny=cy/h;
-    const box={label:uniqueLabel(clipboardBox.label), x1:clamp01(nx-bw2/2), y1:clamp01(ny-bh2/2), x2:clamp01(nx+bw2/2), y2:clamp01(ny+bh2/2)};
-    boxes.push(box); selected=boxes.length-1; draw(); writeBack();
+    const m = getMetrics();
+    if (m.w <= 0 || m.h <= 0) return;
+    const cx = lastMousePos ? lastMousePos.x - m.offsetLeft : m.w / 2;
+    const cy = lastMousePos ? lastMousePos.y - m.offsetTop : m.h / 2;
+    const bw = Math.min(clipboardBox.w, 1), bh = Math.min(clipboardBox.h, 1);
+    const nx = cx / m.w, ny = cy / m.h;
+    const box = { label: uniqueLabel(clipboardBox.label), x1: clamp01(nx - bw / 2), y1: clamp01(ny - bh / 2), x2: clamp01(nx + bw / 2), y2: clamp01(ny + bh / 2) };
+    boxes.push(box); selected = boxes.length - 1; draw(); writeBack();
 }
 
 // 背景与比例
 let bgObjectUrl = "";
+
 function setPreviewBgColor(color){
     if(els.preview) els.preview.style.background = color || "#000";
 }
+
 function setPreviewImage(src, dim = false){
     if(!els.img || !els.preview) return;
     if(dim) els.preview.classList.add("has-import-dim");
@@ -562,6 +479,7 @@ async function pickBackgroundImage(){
         if(els.bgPathLabel) els.bgPathLabel.textContent = path;
     }catch(e){ console.warn("pick bg failed",e); }
 }
+
 function clearBackgroundImage(){
     if(bgObjectUrl){ URL.revokeObjectURL(bgObjectUrl); bgObjectUrl=""; }
     setPreviewImage("", false);
@@ -578,51 +496,60 @@ function clearBackgroundImage(){
 // 通过文件路径加载背景图像（供初始化和导入使用）
 export async function loadImageByPath(imgPath){
     if(!imgPath) return;
-    // 若仍无路径但同页有预览图，尝试复用其 src（浏览器模式）
-    const inPagePreview = document.getElementById("preview_img");
-    if(!imgPath && inPagePreview && inPagePreview.src && inPagePreview.getAttribute("src")){
-        const s = inPagePreview.getAttribute("src");
-        if(s.startsWith("blob:") || s.startsWith("http") || s.startsWith("data:")){
-            if(bgObjectUrl) { try{ URL.revokeObjectURL(bgObjectUrl); }catch(e){} bgObjectUrl=""; }
-            setPreviewImage(s, true);
-            if(els.bgPathLabel) els.bgPathLabel.textContent = "(当前预览)";
-            return;
+    try {
+        const buf = await api.readBinaryFile(imgPath);
+        if (buf && buf.byteLength) {
+            if (bgObjectUrl) URL.revokeObjectURL(bgObjectUrl);
+            bgObjectUrl = URL.createObjectURL(new Blob([buf]));
+            setPreviewImage(bgObjectUrl, true);
         } else {
-            imgPath = s;
-        }
-    }
-    if(imgPath){
-        try {
-            const buf = await api.readBinaryFile(imgPath);
-            if(buf && buf.byteLength){
-                if(bgObjectUrl) { try{ URL.revokeObjectURL(bgObjectUrl); }catch(e){} }
-                const blob = new Blob([buf]);
-                bgObjectUrl = URL.createObjectURL(blob);
-                setPreviewImage(bgObjectUrl, true);
-                if(els.bgPathLabel) els.bgPathLabel.textContent = imgPath + " (导入)";
-            } else {
-                setPreviewImage(imgPath, true);
-                if(els.bgPathLabel) els.bgPathLabel.textContent = imgPath + " (导入)";
-            }
-        } catch(err){
+            // 读不到文件（如浏览器模式下的 http/blob 地址）时直接交给 img 加载
             setPreviewImage(imgPath, true);
-            if(els.bgPathLabel) els.bgPathLabel.textContent = imgPath + " (导入)";
         }
+    } catch (err) {
+        setPreviewImage(imgPath, true);
     }
+    if (els.bgPathLabel) els.bgPathLabel.textContent = imgPath + " (导入)";
 }
 
 // 比例控制：画布始终保持比例、完整显示且宽高之一填满可用空间
+// 按左侧可用空间等比摆放预览区（contain），比例取自宽高输入框
+function layoutRatio(){
+    const left = els.preview.closest(".bbox-studio-left");
+    const rw = parseInt(els.ratioW.value, 10), rh = parseInt(els.ratioH.value, 10);
+    if (!left || !rw || !rh) return;
+    const ratio = rw / rh;
+    const csLeft = getComputedStyle(left);
+    const padW = (parseFloat(csLeft.paddingLeft) || 0) + (parseFloat(csLeft.paddingRight) || 0);
+    const padH = (parseFloat(csLeft.paddingTop) || 0) + (parseFloat(csLeft.paddingBottom) || 0);
+    const toolbar = left.querySelector(".bbox-studio-toolbar");
+    const availW = Math.max(100, left.clientWidth - padW);
+    const availH = Math.max(100, left.clientHeight - padH - (toolbar ? toolbar.offsetHeight : 0) - 6);
+    let pw = availW, ph = pw / ratio;
+    if (availW / availH > ratio) { ph = availH; pw = ph * ratio; }
+    const csPre = getComputedStyle(els.preview);
+    pw = Math.max(80, pw - (parseFloat(csPre.borderLeftWidth) || 0) - (parseFloat(csPre.borderRightWidth) || 0));
+    ph = Math.max(80, ph - (parseFloat(csPre.borderTopWidth) || 0) - (parseFloat(csPre.borderBottomWidth) || 0));
+    els.preview.style.width = Math.round(pw) + "px";
+    els.preview.style.height = Math.round(ph) + "px";
+    els.preview.style.flex = "none";
+    els.preview.style.margin = "auto";
+    els.preview.style.maxWidth = "none";
+    els.preview.style.maxHeight = "none";
+    draw();
+}
+
 function applyRatio(){
     const wInput = els.ratioW, hInput = els.ratioH, preset = els.ratioPreset;
-    let w = parseInt(wInput.value,10), h = parseInt(hInput.value,10);
-    if(preset && preset.value !== "free" && preset.value !== "custom"){
-        const [pw,ph] = preset.value.split(":").map(Number);
-        if(pw && ph){ w = pw; h = ph; wInput.value = pw; hInput.value = ph; }
+    let w = parseInt(wInput.value, 10), h = parseInt(hInput.value, 10);
+    if (preset && preset.value !== "free" && preset.value !== "custom") {
+        const [pw, ph] = preset.value.split(":").map(Number);
+        if (pw && ph) { w = pw; h = ph; wInput.value = pw; hInput.value = ph; }
     }
-    const left = els.preview ? els.preview.closest(".bbox-studio-left") : null;
-    if(!w || !h){
+    const left = els.preview.closest(".bbox-studio-left");
+    if (!w || !h) {
         els.preview.classList.remove("has-ratio");
-        if (left) left.classList.remove("has-ratio");
+        left.classList.remove("has-ratio");
         els.preview.style.removeProperty("--preview-ratio");
         els.preview.style.aspectRatio = "";
         els.preview.style.width = "";
@@ -635,86 +562,30 @@ function applyRatio(){
         return;
     }
     els.preview.classList.add("has-ratio");
-    if (left) left.classList.add("has-ratio");
-    const ratio = w / h;
+    left.classList.add("has-ratio");
     els.preview.style.setProperty("--preview-ratio", `${w} / ${h}`);
     els.preview.style.aspectRatio = `${w} / ${h}`;
-    // 计算可用空间，让画布以 contain 方式填满
-    const doLayout = () => {
-        if (!els.preview || !left) return;
-        const csLeft = getComputedStyle(left);
-        const padW = (parseFloat(csLeft.paddingLeft)||0) + (parseFloat(csLeft.paddingRight)||0);
-        const padH = (parseFloat(csLeft.paddingTop)||0) + (parseFloat(csLeft.paddingBottom)||0);
-        const toolbar = left.querySelector(".bbox-studio-toolbar");
-        const tbH = toolbar ? toolbar.offsetHeight : 0;
-        const gap = 6;
-        const availW = Math.max(100, left.clientWidth - padW);
-        const availH = Math.max(100, left.clientHeight - padH - tbH - gap);
-        let pw, ph;
-        if (availW / availH > ratio) {
-            ph = availH;
-            pw = ph * ratio;
-        } else {
-            pw = availW;
-            ph = pw / ratio;
-        }
-        const csPre = getComputedStyle(els.preview);
-        const bw = (parseFloat(csPre.borderLeftWidth)||0) + (parseFloat(csPre.borderRightWidth)||0);
-        const bh = (parseFloat(csPre.borderTopWidth)||0) + (parseFloat(csPre.borderBottomWidth)||0);
-        pw = Math.max(80, pw - bw);
-        ph = Math.max(80, ph - bh);
-        els.preview.style.width = Math.round(pw) + "px";
-        els.preview.style.height = Math.round(ph) + "px";
-        els.preview.style.flex = "none";
-        els.preview.style.margin = "auto";
-        els.preview.style.maxWidth = "none";
-        els.preview.style.maxHeight = "none";
-        draw();
-    };
-    if (left && left.clientWidth > 0) doLayout();
-    else requestAnimationFrame(doLayout);
-    if (!els._ratioObserver) {
-        const onResize = () => {
-            if (!els.preview || !els.preview.classList.contains("has-ratio")) return;
-            const rw = parseInt(els.ratioW.value,10), rh = parseInt(els.ratioH.value,10);
-            if (!rw || !rh) return;
-            const r = rw / rh;
-            const csL = getComputedStyle(left);
-            const padW2 = (parseFloat(csL.paddingLeft)||0) + (parseFloat(csL.paddingRight)||0);
-            const padH2 = (parseFloat(csL.paddingTop)||0) + (parseFloat(csL.paddingBottom)||0);
-            const tb2 = left.querySelector(".bbox-studio-toolbar");
-            const tbH2 = tb2 ? tb2.offsetHeight : 0;
-            const aW = Math.max(100, left.clientWidth - padW2);
-            const aH = Math.max(100, left.clientHeight - padH2 - tbH2 - 6);
-            let pW, pH;
-            if (aW / aH > r) { pH = aH; pW = pH * r; } else { pW = aW; pH = pW / r; }
-            const csP = getComputedStyle(els.preview);
-            const bW = (parseFloat(csP.borderLeftWidth)||0) + (parseFloat(csP.borderRightWidth)||0);
-            const bH = (parseFloat(csP.borderTopWidth)||0) + (parseFloat(csP.borderBottomWidth)||0);
-            pW = Math.max(80, pW - bW); pH = Math.max(80, pH - bH);
-            els.preview.style.width = Math.round(pW) + "px";
-            els.preview.style.height = Math.round(pH) + "px";
-            draw();
-        };
-        if (window.ResizeObserver) {
-            els._ratioObserver = new ResizeObserver(onResize);
-            els._ratioObserver.observe(left);
-        } else {
-            window.addEventListener("resize", onResize);
-            els._ratioObserver = { disconnect(){} };
-        }
-        els._onRatioResize = onResize;
+    // 首次布局时左栏可能还没尺寸（窗口刚创建），下一帧再算
+    if (left.clientWidth > 0) layoutRatio();
+    else requestAnimationFrame(layoutRatio);
+    if (els._ratioObserver) return;
+    const onResize = () => { if (els.preview.classList.contains("has-ratio")) layoutRatio(); };
+    if (window.ResizeObserver) {
+        els._ratioObserver = new ResizeObserver(onResize);
+        els._ratioObserver.observe(left);
+    } else {
+        window.addEventListener("resize", onResize);
+        els._ratioObserver = { disconnect() {} };
     }
+    els._onRatioResize = onResize;
 }
 
 let _inited = false;
+
 export function initStudio(){
     if(_inited) return;
     _inited = true;
-    const isStandalone = document.body.classList.contains("bbox-studio-standalone");
     els = {
-        panel: document.getElementById("bbox_studio_panel"),
-        windowEl: document.getElementById("bbox_studio_window"),
         preview: document.getElementById("bbox_studio_preview"),
         img: document.getElementById("bbox_studio_img"),
         canvas: document.getElementById("bbox_studio_canvas"),
@@ -729,14 +600,12 @@ export function initStudio(){
         bgColor: document.getElementById("bbox_studio_bg_color"),
         bgPathLabel: document.getElementById("bbox_studio_bg_path"),
         closeBtn: document.getElementById("bbox_studio_close"),
-        textareaWrap: document.getElementById("bbox_studio_textarea_wrap"),
         importBtn: document.getElementById("bbox_studio_import"),
         copyBtn: document.getElementById("bbox_studio_copy"),
         clearBtn: document.getElementById("bbox_studio_clear_boxes"),
         clearTextBtn: document.getElementById("bbox_studio_clear_text"),
         flipBtn: document.getElementById("bbox_studio_flip_h"),
         convertBtn: document.getElementById("bbox_studio_convert_range"),
-        splitter: document.getElementById("bbox_studio_splitter"),
     };
     if(!els.canvas || !els.preview) return;
     ctx = els.canvas.getContext("2d");
@@ -778,8 +647,8 @@ export function initStudio(){
             }
             els.preview.classList.remove("stretch");
         }
-        else if(v==="custom"){ }
-        else {
+        else if(v !== "custom"){
+            // 固定比例：写入宽高，排版由输入框驱动
             const [a,b]=v.split(":"); els.ratioW.value=a; els.ratioH.value=b;
             if(els.img && els.img.src) els.preview.classList.add("stretch");
         }
@@ -909,14 +778,7 @@ export function initStudio(){
         });
     }
 
-    if(els.closeBtn) els.closeBtn.addEventListener("click", ()=>{
-        if(document.body.classList.contains("bbox-studio-standalone")){
-            try{ Neutralino.app.exit(); }catch(err){ window.close(); }
-        } else {
-            closeStudio();
-        }
-    });
-    if(els.panel && !document.body.classList.contains("bbox-studio-standalone")) els.panel.addEventListener("click", e=>{ if(e.target===els.panel) closeStudio(); });
+    if(els.closeBtn) els.closeBtn.addEventListener("click", closeStudio);
 
     els.canvas.tabIndex = 0;
     els.canvas.addEventListener("keydown", e=>{
@@ -936,16 +798,7 @@ export function initStudio(){
         if (e.target === els.canvas || e.target === labelInput) return;
         if (selected < 0) return;
         const { x, y } = localPos(e);
-        let w, h;
-        if (els.img && els.img.src && els.img.naturalWidth) {
-            const r = els.img.getBoundingClientRect(); w = r.width; h = r.height;
-        } else {
-            const r = els.preview.getBoundingClientRect(); const cs = getComputedStyle(els.preview);
-            w = r.width - (parseFloat(cs.borderLeftWidth)||0) - (parseFloat(cs.borderRightWidth)||0) - (parseFloat(cs.paddingLeft)||0) - (parseFloat(cs.paddingRight)||0);
-            h = r.height - (parseFloat(cs.borderTopWidth)||0) - (parseFloat(cs.borderBottomWidth)||0) - (parseFloat(cs.paddingTop)||0) - (parseFloat(cs.paddingBottom)||0);
-        }
-        if (w <= 0 || h <= 0) { selected = -1; dragging = null; draw(); return; }
-        const all = hitTestAll(x, y, w, h);
+        const all = hitTestAll(x, y);
         if (all.length === 0) { selected = -1; dragging = null; draw(); }
     });
 
@@ -953,16 +806,9 @@ export function initStudio(){
         if (e.button === 2) {
             e.preventDefault(); e.stopPropagation();
             const { x, y } = localPos(e);
-            let w, h;
-            if (els.img && els.img.src && els.img.naturalWidth) {
-                const r = els.img.getBoundingClientRect(); w = r.width; h = r.height;
-            } else {
-                const r = els.preview.getBoundingClientRect(); const cs = getComputedStyle(els.preview);
-                w = r.width - (parseFloat(cs.borderLeftWidth)||0) - (parseFloat(cs.borderRightWidth)||0) - (parseFloat(cs.paddingLeft)||0) - (parseFloat(cs.paddingRight)||0);
-                h = r.height - (parseFloat(cs.borderTopWidth)||0) - (parseFloat(cs.borderBottomWidth)||0) - (parseFloat(cs.paddingTop)||0) - (parseFloat(cs.paddingBottom)||0);
-            }
-            if (w <= 0 || h <= 0) return;
-            rightCreate = { startX: x, startY: y, w, h, idx: -1, moved: false };
+            const m = getMetrics();
+            if (m.w <= 0 || m.h <= 0) return;
+            rightCreate = { startX: x, startY: y, w: m.w, h: m.h, idx: -1, moved: false };
             document.body.style.userSelect = "none";
             return;
         }
@@ -973,37 +819,22 @@ export function initStudio(){
             if(ta && ta.value.trim()) updateBboxesFromText();
         }
         const {x,y}=localPos(e);
-        let w,h;
-        if(els.img && els.img.src && els.img.naturalWidth){
-            const r=els.img.getBoundingClientRect(); w=r.width; h=r.height;
-        } else {
-            const r=els.preview.getBoundingClientRect(); const cs=getComputedStyle(els.preview);
-            w = r.width - (parseFloat(cs.borderLeftWidth)||0) - (parseFloat(cs.borderRightWidth)||0) - (parseFloat(cs.paddingLeft)||0) - (parseFloat(cs.paddingRight)||0);
-            h = r.height - (parseFloat(cs.borderTopWidth)||0) - (parseFloat(cs.borderBottomWidth)||0) - (parseFloat(cs.paddingTop)||0) - (parseFloat(cs.paddingBottom)||0);
-        }
-        if(w<=0||h<=0) return;
-        const all=hitTestAll(x,y,w,h);
+        const m = getMetrics();
+        if (m.w <= 0 || m.h <= 0) return;
+        const all = hitTestAll(x, y);
         const isSamePoint= !!(lastClickPos && Math.hypot(x-lastClickPos.x, y-lastClickPos.y) < CLICK_TOL);
         lastClickPos={x,y};
         if(all.length===0){
             selected=-1; dragging=null; draw();
-            const nx=x/w, ny=y/h, half=0.05;
+            const nx=(x - m.offsetLeft)/m.w, ny=(y - m.offsetTop)/m.h, half=0.05;
             const box={label: nextDefaultLabel(), x1:clamp01(nx-half), y1:clamp01(ny-half), x2:clamp01(nx+half), y2:clamp01(ny+half)};
             boxes.push(box); selected=boxes.length-1; draw(); writeBack();
             return;
         }
-        const sorted=sortedByNearest(all,x,y,w,h);
-        let target;
-        let pending = null;
-        const wasOnSelected=all.indexOf(selected)>=0;
-        const hitOnSelected= wasOnSelected ? hitTestFor(selected,x,y,w,h) : null;
-        if(wasOnSelected && hitOnSelected?.type==="resize"){ target=selected; }
-        else if(isSamePoint && wasOnSelected && sorted.length>1){ const ci=sorted.indexOf(selected); target=sorted[(ci+1)%sorted.length]; }
-        else if(wasOnSelected && hitOnSelected){ target=selected; pending=sorted[0]; if(pending===selected) pending=null; }
-        else { target=sorted[0]; }
-        if(pending===null) selected=target;
+        const { target, pending } = pickAt(all, x, y, isSamePoint);
+        if (pending === null) selected = target;
         e.stopPropagation();
-        const hit=hitTestFor(target,x,y,w,h);
+        const hit=hitTestFor(target,x,y);
         if(!hit){ draw(); return; }
         const b=boxes[target];
         dragging={i:target,type:hit.type,corner:hit.corner,startX:x,startY:y,moved:false,pending,orig:{x1:b.x1,y1:b.y1,x2:b.x2,y2:b.y2}};
@@ -1011,50 +842,26 @@ export function initStudio(){
         draw();
     });
     els.canvas.addEventListener("mousemove", e=>{
-        let w,h;
-        if(els.img && els.img.src && els.img.naturalWidth){
-            const r=els.img.getBoundingClientRect(); w=r.width; h=r.height;
-        } else {
-            const r=els.preview.getBoundingClientRect(); const cs=getComputedStyle(els.preview);
-            w = r.width - (parseFloat(cs.borderLeftWidth)||0) - (parseFloat(cs.borderRightWidth)||0) - (parseFloat(cs.paddingLeft)||0) - (parseFloat(cs.paddingRight)||0);
-            h = r.height - (parseFloat(cs.borderTopWidth)||0) - (parseFloat(cs.borderBottomWidth)||0) - (parseFloat(cs.paddingTop)||0) - (parseFloat(cs.paddingBottom)||0);
-        }
         const {x,y}=localPos(e); lastMousePos={x,y};
         if(dragging){
             if(Math.hypot(x-dragging.startX,y-dragging.startY)>3) dragging.moved=true;
-            if(dragging.moved){ applyDrag(x,y,w,h); draw(); }
+            if(dragging.moved){
+                const m = getMetrics();
+                applyDrag(x, y, m.w, m.h);
+                draw();
+            }
             return;
         }
         if (rightCreate) {
-            if (Math.hypot(x - rightCreate.startX, y - rightCreate.startY) > 3) rightCreate.moved = true;
-            if (!rightCreate.moved) return;
-            if (rightCreate.idx === -1) {
-                const x1 = clamp01(Math.min(rightCreate.startX, x) / rightCreate.w);
-                const x2 = clamp01(Math.max(rightCreate.startX, x) / rightCreate.w);
-                const y1 = clamp01(Math.min(rightCreate.startY, y) / rightCreate.h);
-                const y2 = clamp01(Math.max(rightCreate.startY, y) / rightCreate.h);
-                if (x2 - x1 < 0.005 || y2 - y1 < 0.005) return;
-                const box = { label: nextDefaultLabel(), x1, y1, x2, y2 };
-                boxes.push(box);
-                rightCreate.idx = boxes.length - 1;
-                selected = rightCreate.idx;
-            } else {
-                const b = boxes[rightCreate.idx];
-                b.x1 = clamp01(Math.min(rightCreate.startX, x) / rightCreate.w);
-                b.x2 = clamp01(Math.max(rightCreate.startX, x) / rightCreate.w);
-                b.y1 = clamp01(Math.min(rightCreate.startY, y) / rightCreate.h);
-                b.y2 = clamp01(Math.max(rightCreate.startY, y) / rightCreate.h);
-            }
-            draw();
+            updateRightCreate(x, y);
             return;
         }
         if(boxes.length===0) return;
-        const all=hitTestAll(x,y,w,h);
+        const all = hitTestAll(x, y);
         if(all.length===0){ els.canvas.style.cursor="default"; return; }
-        const wasOnSelected=all.indexOf(selected)>=0;
-        const hitOnSelected= wasOnSelected ? hitTestFor(selected,x,y,w,h) : null;
-        const target= hitOnSelected ? selected : sortedByNearest(all,x,y,w,h)[0];
-        els.canvas.style.cursor=cursorFor(hitTestFor(target,x,y,w,h));
+        const hitOnSelected = all.includes(selected) ? hitTestFor(selected, x, y) : null;
+        const target = hitOnSelected ? selected : pickAt(all, x, y, false).target;
+        els.canvas.style.cursor=cursorForHit(hitTestFor(target, x, y));
     });
     els.canvas.addEventListener("contextmenu", e=>{
         e.preventDefault(); e.stopPropagation();
@@ -1062,106 +869,41 @@ export function initStudio(){
     window.addEventListener("mousemove", (e) => {
         if (!rightCreate) return;
         const { x, y } = localPos(e);
-        if (Math.hypot(x - rightCreate.startX, y - rightCreate.startY) > 3) rightCreate.moved = true;
-        if (!rightCreate.moved) return;
-        if (rightCreate.idx === -1) {
-            const x1 = clamp01(Math.min(rightCreate.startX, x) / rightCreate.w);
-            const x2 = clamp01(Math.max(rightCreate.startX, x) / rightCreate.w);
-            const y1 = clamp01(Math.min(rightCreate.startY, y) / rightCreate.h);
-            const y2 = clamp01(Math.max(rightCreate.startY, y) / rightCreate.h);
-            if (x2 - x1 < 0.005 || y2 - y1 < 0.005) return;
-            const box = { label: nextDefaultLabel(), x1, y1, x2, y2 };
-            boxes.push(box);
-            rightCreate.idx = boxes.length - 1;
-            selected = rightCreate.idx;
-        } else {
-            const b = boxes[rightCreate.idx];
-            b.x1 = clamp01(Math.min(rightCreate.startX, x) / rightCreate.w);
-            b.x2 = clamp01(Math.max(rightCreate.startX, x) / rightCreate.w);
-            b.y1 = clamp01(Math.min(rightCreate.startY, y) / rightCreate.h);
-            b.y2 = clamp01(Math.max(rightCreate.startY, y) / rightCreate.h);
-        }
-        draw();
+        updateRightCreate(x, y);
     });
     window.addEventListener("mouseup", e=>{
         if (rightCreate) {
             const rc = rightCreate; rightCreate = null; document.body.style.userSelect = "";
             if (e.button === 2 || rc.moved) {
                 if (!rc.moved) {
-                    const nx = rc.startX / rc.w, ny = rc.startY / rc.h, half = 0.05;
+                    const m = getMetrics();
+                    const nx = (rc.startX - m.offsetLeft) / m.w, ny = (rc.startY - m.offsetTop) / m.h, half = 0.05;
                     const box = { label: nextDefaultLabel(), x1: clamp01(nx - half), y1: clamp01(ny - half), x2: clamp01(nx + half), y2: clamp01(ny + half) };
                     boxes.push(box); selected = boxes.length - 1; draw(); writeBack();
-                } else {
-                    if (rc.idx >= 0) {
-                        const b = boxes[rc.idx];
-                        if ((b.x2 - b.x1) < MIN_SIZE || (b.y2 - b.y1) < MIN_SIZE) { boxes.splice(rc.idx, 1); selected = -1; }
-                        else selected = rc.idx;
-                        draw(); writeBack();
-                    }
+                } else if (rc.idx >= 0) {
+                    const b = boxes[rc.idx];
+                    if ((b.x2 - b.x1) < MIN_SIZE || (b.y2 - b.y1) < MIN_SIZE) { boxes.splice(rc.idx, 1); selected = -1; }
+                    else selected = rc.idx;
+                    draw(); writeBack();
                 }
                 return;
             }
         }
-        if(!dragging) return;
-        const d=dragging; dragging=null; document.body.style.userSelect=""; els.canvas.style.cursor="default";
-        if(d.moved){ writeBack(); return; }
-        if(d.pending!==null && d.pending!==selected){
-            selected=d.pending; draw();
-            let w,h;
-            if(els.img && els.img.src && els.img.naturalWidth){
-                const r=els.img.getBoundingClientRect(); w=r.width; h=r.height;
-            } else {
-                const r=els.preview.getBoundingClientRect(); const cs=getComputedStyle(els.preview);
-                w = r.width - (parseFloat(cs.borderLeftWidth)||0) - (parseFloat(cs.borderRightWidth)||0) - (parseFloat(cs.paddingLeft)||0) - (parseFloat(cs.paddingRight)||0);
-                h = r.height - (parseFloat(cs.borderTopWidth)||0) - (parseFloat(cs.borderBottomWidth)||0) - (parseFloat(cs.paddingTop)||0) - (parseFloat(cs.paddingBottom)||0);
-            }
-            if(hitLabel(d.startX,d.startY,w,h)){ openLabelEdit(); }
+        if (!dragging) return;
+        const d = dragging; dragging = null; document.body.style.userSelect = ""; els.canvas.style.cursor = "default";
+        if (d.moved) { writeBack(); return; }
+        // 纯点击：pending 存在时切到最小框；点击落在标签区域则进入标签编辑
+        const switched = d.pending !== null && d.pending !== selected;
+        if (switched) selected = d.pending;
+        if ((switched || d.i === selected) && hitLabel(d.startX, d.startY)) {
+            openLabelEdit();
             return;
         }
-        if(d.i===selected){
-            let w,h;
-            if(els.img && els.img.src && els.img.naturalWidth){
-                const r=els.img.getBoundingClientRect(); w=r.width; h=r.height;
-            } else {
-                const r=els.preview.getBoundingClientRect(); const cs=getComputedStyle(els.preview);
-                w = r.width - (parseFloat(cs.borderLeftWidth)||0) - (parseFloat(cs.borderRightWidth)||0) - (parseFloat(cs.paddingLeft)||0) - (parseFloat(cs.paddingRight)||0);
-                h = r.height - (parseFloat(cs.borderTopWidth)||0) - (parseFloat(cs.borderBottomWidth)||0) - (parseFloat(cs.paddingTop)||0) - (parseFloat(cs.paddingBottom)||0);
-            }
-            if(hitLabel(d.startX,d.startY,w,h)){ openLabelEdit(); return; }
-        }
+        draw();
     });
-
     applyRatio();
 }
 
-export function openStudio(){
-    if(document.body.classList.contains("bbox-studio-standalone")){
-        requestAnimationFrame(()=>{
-            updateHighlightOverlay();
-            updateBboxesFromText();
-            draw();
-            syncOverlayLayout();
-        });
-        return;
-    }
-    if(!els.panel) initStudio();
-    if(els.panel) els.panel.classList.remove("hidden");
-    requestAnimationFrame(()=>{
-        updateHighlightOverlay();
-        updateBboxesFromText();
-        draw();
-        syncOverlayLayout();
-    });
-}
 export function closeStudio(){
-    if(document.body.classList.contains("bbox-studio-standalone")){
-        try{ Neutralino.app.exit(); }catch(e){ window.close(); }
-        return;
-    }
-    if(els.panel) els.panel.classList.add("hidden");
-    cancelLabelEdit();
-}
-export function isStudioOpen(){
-    if(document.body.classList.contains("bbox-studio-standalone")) return true;
-    return els.panel && !els.panel.classList.contains("hidden");
+    try { Neutralino.app.exit(); } catch (e) { window.close(); }
 }
