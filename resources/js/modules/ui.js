@@ -2,7 +2,7 @@
 
 import { app, renderGallery, applyColumns, updateGalleryStateDisplay, sortGalleryPaths, invalidateThumbUrlCache, resetThumbImages, updateThumbBadge, updateThumbCaption } from "./app.js";
 import { config, settings, getSetting, setSetting, SETTINGS_DEFAULT, SETTINGS_DESCRIPTIONS, SETTINGS_HIDDEN, LLM_CONFIG_DEFAULT, LLM_FN_DEFAULT, LLM_PROMPT_DEFAULT, PROMPT_KINDS, getActivePrompt, getActiveProfile, setActiveProfile, saveProfile, parseImageSize } from "./config.js";
-import { t, setLang, applyI18n, discoverLanguages, getAvailableLanguages } from "./i18n.js";
+import { t, tName, appendNameSuffix, setLang, applyI18n, discoverLanguages, getAvailableLanguages } from "./i18n.js";
 import { PathFilter, FilterMode, FilterLogic, SortBy, SortOrder, joinTagsWithSepts } from "./dataset.js";
 import { TagFilterState } from "./tagfilter_state.js";
 import * as api from "./api.js";
@@ -1901,12 +1901,50 @@ function bindContextMenuDismiss(menu, onHide) {
     window.addEventListener("blur", onHide);
 }
 
-// 菜单项前的勾选标记（功能开关 / 当前默认项）
+// 菜单项前的勾选标记（一级菜单：功能开关的开关状态）
 function checkMark(checked) {
     const span = document.createElement("span");
     span.className = "cm-check";
     span.textContent = checked ? "✓" : "";
     return span;
+}
+
+// 二级菜单当前项标记：用圆点与一级菜单的 ✓ 区分（一级=开关，二级=单选当前项）
+const SUB_CHECK = "●";
+
+// 二级菜单项前的标记（未选中时留空占位，保证文字左对齐）
+function subCheckMark(checked) {
+    const span = document.createElement("span");
+    span.className = "cm-check cm-check-sub";
+    span.textContent = checked ? SUB_CHECK : "";
+    return span;
+}
+
+// 构建二级菜单选项：标记列点击切换为当前项（不执行动作、不关闭菜单），
+// 其余区域（文字列）点击直接使用该项（执行动作并关闭菜单）。
+// 画廊与 LLM 功能子菜单共用。
+// options: { value, label, checked, onSwitch, onUse }
+function makeSubmenuOption({ value, label, checked, onSwitch, onUse }) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.dataset.value = value ?? "";
+    const mark = subCheckMark(checked);
+    const text = document.createElement("span");
+    text.className = "cm-label";
+    text.textContent = label;
+    btn.append(mark, text);
+
+    // 标记列：切换为当前项；阻止冒泡，避免同时触发整行的"使用"
+    mark.addEventListener("click", (e) => {
+        e.stopPropagation();
+        onSwitch();
+    });
+    // 其余区域（文字列）：直接使用该项
+    btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        onUse();
+    });
+    return btn;
 }
 
 // ================================================================
@@ -1927,7 +1965,8 @@ function hideGalleryContextMenu() {
 // 子菜单隐藏定时器（鼠标从主项移到子菜单的间隙不立即隐藏，避免闪烁）
 let reverseSubmenuTimer = null;
 
-// 构建子菜单：列出全部反推提示词，当前启用的那一份标记为默认（✓）
+// 构建子菜单：列出全部反推提示词，当前启用的那一份标记为当前项（●）
+// 标记列点击切换默认提示词，文字列点击直接用该提示词加入反推列表
 // 只有一份提示词时没有其它可选项，隐藏箭头与子菜单
 function buildReverseSubmenu() {
     const item = document.getElementById("gallery_reverse_item");
@@ -1940,19 +1979,44 @@ function buildReverseSubmenu() {
         return;
     }
     item.classList.add("has-submenu");
+
+    // 刷新各选项的当前项标记（切换默认提示词后调用，不重建菜单）
+    const refreshMarks = () => {
+        const active = getActivePrompt("reverse").name;
+        submenu.querySelectorAll("button[data-value]").forEach(btn => {
+            btn.querySelector(".cm-check").textContent = btn.dataset.value === active ? SUB_CHECK : "";
+        });
+    };
+
+    const title = document.createElement("div");
+    title.className = "context-menu-title";
+    title.textContent = t("settings.llm_reverse_prompt");
+    submenu.appendChild(title);
+
     const activeName = getActivePrompt("reverse").name;
     for (const p of list) {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.append(checkMark(p.name === activeName), p.name);
-        btn.title = t("gallery.reverse_with_prompt");
-        btn.addEventListener("click", (e) => {
-            e.stopPropagation();
-            addSelectedToReverse(p.name);
-            hideGalleryContextMenu();
-        });
-        submenu.appendChild(btn);
+        submenu.appendChild(makeSubmenuOption({
+            value: p.name,
+            label: p.name,
+            checked: p.name === activeName,
+            onSwitch: () => {
+                setActiveReversePrompt(p.name);
+                refreshMarks();
+            },
+            onUse: () => {
+                addSelectedToReverse(p.name);
+                hideGalleryContextMenu();
+            },
+        }));
     }
+}
+
+// 切换默认反推提示词（子菜单标记列）：设置页与右键菜单不会同时显示，直接改设置即可
+function setActiveReversePrompt(name) {
+    const meta = PROMPT_KINDS.reverse;
+    if (!name || getSetting(meta.activeKey) === name) return;
+    setSetting(meta.activeKey, name);
+    settings.save().catch(err => console.warn("保存设置失败", err));
 }
 
 // 将子菜单摆在主项右侧；右侧空间不足时翻到左侧，下方不足时上移
@@ -2194,21 +2258,25 @@ function applyEditAreaSettings() {
 // 二级菜单定时器：鼠标在主项与子菜单之间移动时留出缓冲
 let actionsSubmenuTimer = null;
 
-// 在功能项右侧显示"使用的配置"子菜单；右侧空间不足时翻转到左侧
+// 在功能项右侧显示"使用的配置"子菜单，同时收起同级其它子菜单
 function showActionsSubmenu(item, submenu) {
-    const menu = document.getElementById("actions_context_menu");
-    if (!menu || !item.classList.contains("has-submenu")) return;
     clearTimeout(actionsSubmenuTimer);
-    menu.querySelectorAll(".context-submenu").forEach(s => { if (s !== submenu) s.classList.add("hidden"); });
-    submenu.classList.remove("hidden");
+    const menu = item.closest(".context-menu");
+    menu.querySelectorAll(".context-submenu").forEach(s => s.classList.toggle("hidden", s !== submenu));
     placeSubmenu(menu, item, submenu);
 }
 
-// 隐藏子菜单（不传参数时隐藏当前菜单里所有子菜单）
+// 隐藏子菜单（不传参数时隐藏菜单里所有子菜单）
 function hideActionsSubmenu(submenu) {
     clearTimeout(actionsSubmenuTimer);
     if (submenu) submenu.classList.add("hidden");
     else document.querySelectorAll("#actions_context_menu .context-submenu").forEach(s => s.classList.add("hidden"));
+}
+
+// 关闭编辑操作区菜单（连同二级菜单）
+function hideActionsContextMenu() {
+    document.getElementById("actions_context_menu").classList.add("hidden");
+    hideActionsSubmenu();
 }
 
 // 延迟隐藏，避免鼠标从主项移到子菜单的途中闪退
@@ -2226,8 +2294,9 @@ function commitActionsMenuChange() {
 
 // 构建编辑操作区菜单内容：标题 + 模式切换 / 替换标点 / 各 LLM 功能的启用开关与模型配置子菜单
 function buildActionsContextMenu() {
-    hideActionsSubmenu();
     const menu = document.getElementById("actions_context_menu");
+    // 重建前取消可能还在等待的"隐藏子菜单"定时器
+    clearTimeout(actionsSubmenuTimer);
     menu.innerHTML = "";
 
     const title = document.createElement("div");
@@ -2240,7 +2309,6 @@ function buildActionsContextMenu() {
         const btn = document.createElement("button");
         btn.type = "button";
         btn.append(checkMark(checked), labelText);
-        btn.title = labelText;
         btn.addEventListener("click", (e) => {
             // 阻止冒泡到 document 的"点击外部关闭"，菜单重建后仍能继续勾选
             e.stopPropagation();
@@ -2257,7 +2325,7 @@ function buildActionsContextMenu() {
     addItem(t("edit_caption.replace_punct"), getSetting("replace_punct_enabled") !== false,
         () => toggleSetting("replace_punct_enabled"));
 
-    // 各 LLM 功能：主项切换启用，右侧子菜单直接选择该功能使用的模型配置
+    // 各 LLM 功能：主项切换启用，右侧子菜单选择该功能使用的模型配置
     const fns = (getSetting("llm_functions") || []).filter(fn => fn.name);
     for (const fn of fns) {
         const item = document.createElement("div");
@@ -2265,8 +2333,8 @@ function buildActionsContextMenu() {
 
         const mainBtn = document.createElement("button");
         mainBtn.type = "button";
-        mainBtn.append(checkMark(fn.enabled !== false), fn.name);
-        mainBtn.title = fn.name;
+        // 名称支持多语言写法（zh:翻译|en:Translate），按当前界面语言显示
+        mainBtn.append(checkMark(fn.enabled !== false), tName(fn.name));
         mainBtn.addEventListener("click", (e) => {
             e.stopPropagation();
             fn.enabled = fn.enabled === false;
@@ -2280,25 +2348,38 @@ function buildActionsContextMenu() {
         subTitle.textContent = t("settings.used_config");
         submenu.appendChild(subTitle);
 
-        // configName 为空表示跟随默认（激活配置），与设置页下拉框的空选项一致
-        const addConfigItem = (labelText, configName, active) => {
-            const btn = document.createElement("button");
-            btn.type = "button";
-            btn.dataset.llmFnConfig = configName;
-            btn.append(checkMark(active), labelText);
-            btn.addEventListener("click", (e) => {
-                e.stopPropagation();
-                fn.config = configName;
-                settings.save().catch(err => console.warn("保存设置失败", err));
-                hideActionsSubmenu(submenu);
-                menu.classList.add("hidden");
+        // 刷新子菜单中的当前配置标记（切换后调用，不重建菜单）
+        const refreshMarks = () => {
+            submenu.querySelectorAll("button[data-value]").forEach(btn => {
+                btn.querySelector(".cm-check").textContent = (btn.dataset.value || "") === (fn.config || "") ? SUB_CHECK : "";
             });
-            submenu.appendChild(btn);
         };
-        addConfigItem(t("settings.default_active_config"), "", !fn.config);
+
+        // 切换该功能使用的配置并保存（configName 为空表示跟随默认激活配置）
+        const setConfig = (configName) => {
+            fn.config = configName;
+            settings.save().catch(err => console.warn("保存设置失败", err));
+            refreshMarks();
+        };
+
+        // 标记列切换配置（菜单保持打开）；文字列用该配置立即调用该功能
+        const addConfigItem = (labelText, configName) => {
+            submenu.appendChild(makeSubmenuOption({
+                value: configName,
+                label: labelText,
+                checked: configName === (fn.config || ""),
+                onSwitch: () => setConfig(configName),
+                onUse: () => {
+                    setConfig(configName);
+                    hideActionsContextMenu();
+                    // runLlmFunctionButton 内部按 fn.config 取配置
+                    runLlmFunctionButton(fn);
+                },
+            }));
+        };
+        addConfigItem(t("settings.default_active_config"), "");
         for (const cfg of getSetting("llm_configs") || []) {
-            if (!cfg.name) continue;
-            addConfigItem(cfg.name, cfg.name, fn.config === cfg.name);
+            if (cfg.name) addConfigItem(tName(cfg.name), cfg.name);
         }
 
         item.append(mainBtn, submenu);
@@ -2320,18 +2401,13 @@ function buildActionsContextMenu() {
 function initActionsContextMenu() {
     const row = document.querySelector(".actions-row");
     const menu = document.getElementById("actions_context_menu");
-    if (!row || !menu) return;
 
     row.addEventListener("contextmenu", (e) => {
         e.preventDefault();
-        hideActionsSubmenu();
         buildActionsContextMenu();
         showContextMenu(menu, e.clientX, e.clientY);
     });
-    bindContextMenuDismiss(menu, () => {
-        menu.classList.add("hidden");
-        hideActionsSubmenu();
-    });
+    bindContextMenuDismiss(menu, hideActionsContextMenu);
 }
 
 // ================================================================
@@ -2490,7 +2566,7 @@ function buildLlmFunctionButtons() {
     for (const fn of fns) {
         if (!fn || !fn.name) continue;
         if (fn.enabled === false) continue;
-        addButton(fn.name, () => runLlmFunctionButton(fn));
+        addButton(tName(fn.name), () => runLlmFunctionButton(fn));
     }
 }
 
@@ -2751,10 +2827,10 @@ function createHistoryImages(images) {
 
 // 记录的类型名称：自定义功能显示其名称，内置调用按当前语言显示类别
 function llmHistoryTypeLabel(entry) {
-    if (entry.type === "function") return entry.name || t("llm_history.type_function");
+    if (entry.type === "function") return tName(entry.name) || t("llm_history.type_function");
     const key = `llm_history.type_${entry.type}`;
     const label = t(key);
-    return label === key ? (entry.name || entry.type || t("llm_history.type_function")) : label;
+    return label === key ? (tName(entry.name) || entry.type || t("llm_history.type_function")) : label;
 }
 
 // 格式化记录时间
@@ -2804,7 +2880,8 @@ function createHistoryRecord(entry, index) {
     time.textContent = formatHistoryTime(entry.time);
     head.appendChild(time);
 
-    const modelInfo = [entry.config, entry.model].filter(Boolean).join(" / ");
+    // 配置名按当前语言解析，模型名为实际请求的模型 ID，保持原样
+    const modelInfo = [tName(entry.config), entry.model].filter(Boolean).join(" / ");
     if (modelInfo) {
         const modelEl = document.createElement("span");
         modelEl.textContent = modelInfo;
@@ -5173,8 +5250,9 @@ function fillConfigSelect(sel, value) {
     for (const c of configs) {
         if (!c.name) continue;
         const o = document.createElement("option");
+        // 值保留原始名称（作为引用标识），显示文本按当前语言解析
         o.value = c.name;
-        o.textContent = c.name;
+        o.textContent = tName(c.name);
         sel.appendChild(o);
     }
     sel.value = value || "";
@@ -5184,7 +5262,7 @@ function fillConfigSelect(sel, value) {
 function updateLlmListItemName(listEl, idx, name) {
     const item = listEl ? listEl.children[idx] : null;
     if (!item) return;
-    const text = name.trim() || t("settings.unnamed");
+    const text = tName(name) || t("settings.unnamed");
     item.textContent = text;
     item.title = text;
 }
@@ -5207,7 +5285,8 @@ function renderLlmSettingsList(listEl, items, onSelect, onReorder, selectedIdx =
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "llm-settings-item";
-        btn.textContent = (item.name || "").trim() || t("settings.unnamed");
+        // 名称可写成 zh:本地模型|en:Local model，列表按当前界面语言显示
+        btn.textContent = tName(item.name) || t("settings.unnamed");
         btn.title = onReorder ? `${btn.textContent}（${t("settings.drag_sort_hint")}）` : btn.textContent;
         btn.addEventListener("click", () => onSelect(idx));
 
@@ -5446,7 +5525,7 @@ function buildLlmConfigCard(cfg, idx, active, list) {
         const cur = getSetting("llm_configs") || [];
         const src = cur[idx];
         if (!src) return;
-        cur.splice(idx + 1, 0, { ...src, name: (src.name || t("settings.unnamed")) + " " + t("settings.copy_suffix") });
+        cur.splice(idx + 1, 0, { ...src, name: appendNameSuffix(src.name || t("settings.unnamed"), t("settings.copy_suffix")) });
         setSetting("llm_configs", cur);
         buildLlmConfigs();
         // 功能页与提示词的"使用的配置"下拉框同步出现新配置
@@ -5462,7 +5541,7 @@ function buildLlmConfigCard(cfg, idx, active, list) {
             return;
         }
         if (!await confirmDelete("settings.delete_config_title", "settings.delete_config_msg",
-            nameInput.value.trim() || cfg.name)) return;
+            tName(nameInput.value.trim() || cfg.name))) return;
         readAllLlmConfigs();
         readAllLlmFunctions();
         const cur = getSetting("llm_configs") || [];
@@ -5552,14 +5631,14 @@ function buildLlmFunctionCard(fn, idx, list) {
         const cur = getSetting("llm_functions") || [];
         const src = cur[idx];
         if (!src) return;
-        cur.splice(idx + 1, 0, { ...src, name: (src.name || t("settings.unnamed")) + " " + t("settings.copy_suffix") });
+        cur.splice(idx + 1, 0, { ...src, name: appendNameSuffix(src.name || t("settings.unnamed"), t("settings.copy_suffix")) });
         setSetting("llm_functions", cur);
         buildLlmFunctions();
         jumpToLlmCard(document.getElementById("llm-functions-list"), document.getElementById("llm-functions-box"), idx + 1);
     }));
     actions.appendChild(makeCardBtn(t("common.delete"), "btn danger llm-del-btn", async () => {
         const name = nameInput.value.trim() || t("settings.unnamed");
-        if (!await confirmDelete("settings.delete_function_title", "settings.delete_function_msg", name)) return;
+        if (!await confirmDelete("settings.delete_function_title", "settings.delete_function_msg", tName(name))) return;
         // 先把所有卡片写回内存，再按名称定位删除（避免下标错位）
         readAllLlmFunctions();
         const cur = getSetting("llm_functions") || [];
@@ -5858,9 +5937,23 @@ function buildCardHead(labelKey, inputCls, value, idx, list) {
     input.type = "text";
     input.className = inputCls;
     input.value = value || "";
-    // 输入名称时同步左侧列表，避免切换后名称不一致
-    input.addEventListener("input", () => updateLlmListItemName(list, idx, input.value));
     const nameField = makeLabeledField(t(labelKey), input, "llm-name-field");
+
+    // 多语言名称（zh:本地模型|en:Local model）在标签后显示当前语言的名称；普通名称时不显示
+    const preview = document.createElement("span");
+    preview.className = "llm-name-preview";
+    nameField.querySelector(".field-label").appendChild(preview);
+    const syncNamePreview = (raw) => {
+        const text = tName(raw);
+        preview.hidden = text === String(raw ?? "").trim();
+        preview.textContent = preview.hidden ? "" : `→ ${text}`;
+    };
+    syncNamePreview(value);
+    // 输入名称时同步左侧列表与解析预览
+    input.addEventListener("input", () => {
+        updateLlmListItemName(list, idx, input.value);
+        syncNamePreview(input.value);
+    });
 
     const actions = document.createElement("div");
     actions.className = "llm-card-actions";

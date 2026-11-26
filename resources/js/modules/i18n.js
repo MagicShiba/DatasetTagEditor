@@ -97,6 +97,42 @@ export function setLang(lang) {
     _lang = resolveLang(lang);
 }
 
+// ---------------- 用户自定义名称的多语言解析 ----------------
+// 写法：语言:文本，多段用 | 分隔（语言标记兼容 zh-CN / en_US 等）
+// 例：zh:本地模型|en:Local model
+const NAME_SEGMENT_RE = /^([A-Za-z]{2,3}(?:[-_][A-Za-z]{2,4})?)\s*:\s*(.+)$/;
+
+// 解析名称为语言段 [{ label, lang, text }]；不是多语言写法时返回 null。
+// 只有一段且语言不是 zh / en 时按普通名称处理（避免 "note:xxx"、"API:xxx" 被误解析）
+function parseName(name) {
+    const segments = String(name ?? "").split("|").map(part => {
+        const m = NAME_SEGMENT_RE.exec(part.trim());
+        return m ? { label: m[1], lang: normalizeLang(m[1]), text: m[2].trim() } : null;
+    });
+    if (segments.some(s => !s)) return null;
+    if (segments.length === 1 && segments[0].lang !== "zh" && segments[0].lang !== "en") return null;
+    return segments;
+}
+
+// 取名称在当前语言下的显示文本：不是多语言写法时原样返回。
+// 与界面语言切换一致：中文系回落 zh，其它语言回落 en，都没有时取第一段
+export function tName(name) {
+    const raw = String(name ?? "").trim();
+    const segments = parseName(raw);
+    if (!segments) return raw;
+    const find = code => segments.find(s => s.lang === code);
+    return (find(_lang) || find(_lang.startsWith("zh") ? "zh" : "en") || segments[0]).text;
+}
+
+// 复制条目时追加后缀：多语言名称逐段追加，保持写法有效
+// 例：zh:本地模型|en:Local model + 副本 -> zh:本地模型 副本|en:Local model 副本
+export function appendNameSuffix(name, suffix) {
+    const raw = String(name ?? "").trim();
+    const segments = parseName(raw);
+    if (!segments) return `${raw} ${suffix}`.trim();
+    return segments.map(s => `${s.label}:${s.text} ${suffix}`).join("|");
+}
+
 // 发现 locales 目录下可用的语言包（按 .toml 文件，按基础语言代码去重），
 // 语言显示名优先取语言包内 [meta] name，否则回退为代码本身
 export async function discoverLanguages() {
